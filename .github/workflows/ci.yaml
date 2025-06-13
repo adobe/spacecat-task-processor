@@ -35,6 +35,17 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.ADOBE_BOT_GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.ADOBE_BOT_NPM_TOKEN }}
 
+      - name: Print npm debug log if build fails
+        if: failure()
+        run: |
+          if [ -f /home/runner/.npm/_logs/*.log ]; then
+            echo "==== NPM DEBUG LOG ===="
+            cat /home/runner/.npm/_logs/*.log
+            echo "==== END NPM DEBUG LOG ===="
+          else
+            echo "No npm debug log found."
+          fi
+
   semantic-release:
     runs-on: ubuntu-latest
     needs: build
