@@ -40,7 +40,7 @@ jobs:
         run: |
           if [ -f /home/runner/.npm/_logs/*.log ]; then
             echo "==== NPM DEBUG LOG ===="
-            cat /home/runner/.npm/_logs/*.log
+            find /home/runner/.npm/_logs -name '*.log' -exec cat {} \;
             echo "==== END NPM DEBUG LOG ===="
           else
             echo "No npm debug log found."
