@@ -1,5 +1,5 @@
 /*
- * Copyright 2023 Adobe. All rights reserved.
+ * Copyright 2025 Adobe. All rights reserved.
  * This file is licensed to you under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0
@@ -16,8 +16,6 @@ import dataAccess from '@adobe/spacecat-shared-data-access';
 import { resolveSecretsName, sqsEventAdapter } from '@adobe/spacecat-shared-utils';
 import { internalServerError, notFound, ok } from '@adobe/spacecat-shared-http-utils';
 
-import sqs from './support/sqs.js';
-import s3Client from './support/s3-client.js';
 import { runAuditStatusProcessor as auditStatusProcessor } from './audit-status-processor/handler.js';
 import { runDisableImportAuditProcessor as disableImportAuditProcessor } from './disable-import-audit-processor/handler.js';
 
@@ -96,7 +94,5 @@ async function run(message, context) {
 export const main = wrap(run)
   .with(dataAccess)
   .with(sqsEventAdapter)
-  .with(sqs)
-  .with(s3Client)
   .with(secrets, { name: resolveSecretsName })
   .with(helixStatus);

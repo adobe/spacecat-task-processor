@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 Adobe. All rights reserved.
+ * Copyright 2025 Adobe. All rights reserved.
  * This file is licensed to you under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0
@@ -10,7 +10,7 @@
  * governing permissions and limitations under the License.
  */
 
-import { sendSlackMessage } from '../support/slack-utils.js';
+import { say } from '../utils/slack-utils.js';
 
 /** Prepare demo url for the site */
 function prepareDemoUrl(experienceUrl, organizationId, siteId) {
@@ -37,41 +37,19 @@ export async function runDemoUrlProcessor(demoUrlMessage, context) {
     organizationId,
   });
 
-  await sendSlackMessage(env, log, slackContext, 'Preparing demo url');
+  await say(env, log, slackContext, 'Preparing demo url');
   try {
     // prepare demo url
     const demoUrl = prepareDemoUrl(siteUrl, organizationId, siteId);
     log.info(`Setup complete! Access your demo environment here: ${demoUrl}`);
     const slackMessage = `:white_check_mark: Setup complete! Access your demo environment here: ${demoUrl}`;
-    await sendSlackMessage(env, log, slackContext, slackMessage);
-    return {
-      siteId,
-      demoUrlResult: {
-        status: 'Completed',
-        siteId,
-        organizationId,
-        experienceUrl: siteUrl,
-        success: true,
-      },
-      fullAuditRef: siteUrl,
-    };
+    await say(env, log, slackContext, slackMessage);
   } catch (error) {
     log.error('Error in preparing demo url:', {
       error: error.message,
       stack: error.stack,
       errorType: error.name,
     });
-
-    return {
-      siteId,
-      demoUrlResult: {
-        status: 'error',
-        siteId,
-        error: `Preparing demo url failed for ${siteId}: ${error.message}`,
-        success: false,
-      },
-      fullAuditRef: siteUrl,
-    };
   }
 }
 

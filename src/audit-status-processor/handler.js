@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 Adobe. All rights reserved.
+ * Copyright 2025 Adobe. All rights reserved.
  * This file is licensed to you under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0
@@ -11,7 +11,7 @@
  */
 
 import { Audit } from '@adobe/spacecat-shared-data-access';
-import { sendSlackMessage } from '../support/slack-utils.js';
+import { say } from '../utils/slack-utils.js';
 
 const AUDIT_TYPE = 'audit-status-processor';
 
@@ -36,7 +36,7 @@ export async function runAuditStatusProcessor(auditStatusMessage, context) {
     auditTypes,
   });
 
-  await sendSlackMessage(env, log, slackContext, 'Checking audit status');
+  await say(env, log, slackContext, 'Checking audit status');
   try {
     // Check latest audit status for each audit type in parallel
     const auditStatusPromises = auditTypes.map(async (auditType) => {
@@ -47,11 +47,11 @@ export async function runAuditStatusProcessor(auditStatusMessage, context) {
         if (auditResult.success) {
           log.info(`Latest audit for site ${siteId} was successful for audit type ${auditType}`);
           const slackMessage = `:check_mark: Latest audit for site ${siteId} was successful for audit type ${auditType}`;
-          return sendSlackMessage(env, log, slackContext, slackMessage);
+          return say(env, log, slackContext, slackMessage);
         } else {
           log.warn(`Latest audit for site ${siteId} failed for audit type ${auditType}: ${auditResult.error || 'Unknown error'}`);
           const slackMessage = `:x: Latest audit for site ${siteId} failed for audit type ${auditType}: ${auditResult.error || 'Unknown error'}`;
-          return sendSlackMessage(env, log, slackContext, slackMessage);
+          return say(env, log, slackContext, slackMessage);
         }
       } else {
         log.info(`No previous ${auditType} audit found for site ${siteId}`);
@@ -60,7 +60,7 @@ export async function runAuditStatusProcessor(auditStatusMessage, context) {
     });
     await Promise.all(auditStatusPromises);
     log.info('Audit status checking completed');
-    await sendSlackMessage(env, log, slackContext, 'Audit status checking completed');
+    await say(env, log, slackContext, 'Audit status checking completed');
   } catch (error) {
     log.error('Error in audit status checking:', {
       error: error.message,

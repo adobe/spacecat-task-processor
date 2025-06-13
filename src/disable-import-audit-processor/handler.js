@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 Adobe. All rights reserved.
+ * Copyright 2025 Adobe. All rights reserved.
  * This file is licensed to you under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0
@@ -11,7 +11,7 @@
  */
 
 import { Site } from '@adobe/spacecat-shared-data-access';
-import { sendSlackMessage } from '../support/slack-utils.js';
+import { say } from '../utils/slack-utils.js';
 
 const AUDIT_TYPE = 'disable-import-audit-processor';
 
@@ -36,7 +36,7 @@ export async function runDisableImportAuditProcessor(message, context) {
     importTypes,
     auditTypes,
   });
-  await sendSlackMessage(env, log, slackContext, ':broom: Disabling imports and audits...');
+  await say(env, log, slackContext, ':broom: Disabling imports and audits...');
   try {
     // Database operations
     log.info('Starting database operations');
@@ -63,35 +63,13 @@ export async function runDisableImportAuditProcessor(message, context) {
     log.info('Database changes saved successfully');
 
     const slackMessage = `:check_mark: Disabled imports ${JSON.stringify(importTypes)} and audits ${JSON.stringify(auditTypes)} for site ${siteId}`;
-    await sendSlackMessage(env, log, slackContext, slackMessage);
-
-    return {
-      siteId,
-      result: {
-        status: 'Completed',
-        siteId,
-        organizationId,
-        disabledImports: importTypes,
-        disabledAudits: auditTypes,
-        success: true,
-      },
-    };
+    await say(env, log, slackContext, slackMessage);
   } catch (error) {
     log.error('Error in disable import and audit processor:', {
       error: error.message,
       stack: error.stack,
       errorType: error.name,
     });
-
-    return {
-      siteId,
-      result: {
-        status: 'error',
-        siteId,
-        error: `Disable import and audit processing failed for ${siteId}: ${error.message}`,
-        success: false,
-      },
-    };
   }
 }
 
