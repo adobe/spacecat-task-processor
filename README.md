@@ -1,6 +1,58 @@
 # SpaceCat Task Processor
 
-> SpaceCat Task Processor for processing spacecat tasks.
+## Overview
+
+SpaceCat Task Processor is a Node.js service that processes messages from the AWS SQS queue `SPACECAT-TASK-PROCESSOR-JOBS`. Based on the `type` field in each message, it dispatches the message to the appropriate handler for processing various site-related tasks.
+
+## Features
+- Receives and processes messages from SQS
+- Supports multiple task types via modular handlers
+- Handlers for audit status, demo URL preparation, and disabling imports/audits
+- Extensible and easy to add new handlers
+
+## Handlers
+- **audit-status-processor**: Checks and reports audit status for a site
+- **demo-url-processor**: Prepares and shares a demo URL for a site
+- **disable-import-audit-processor**: Disables specified imports and audits for a site
+
+## Project Structure
+- `src/` - Main source code
+  - `audit-status-processor/handler.js`
+  - `demo-url-processor/handler.js`
+  - `disable-import-audit-processor/handler.js`
+  - `index.js` - Main entry point and handler dispatcher
+- `test/` - Test files
+
+## Setup
+1. Clone the repository
+2. Install dependencies:
+   ```sh
+   npm ci
+   ```
+3. Configure AWS credentials and environment variables as needed
+
+## Usage
+- The service is designed to run as a serverless function or background worker.
+- It listens for messages on the SQS queue and processes them automatically.
+
+## Development
+- To run tests:
+  ```sh
+  npm test
+  ```
+- To lint code:
+  ```sh
+  npm run lint
+  ```
+
+## Extending
+To add a new handler:
+1. Create a new folder in `src/` for your handler.
+2. Export your handler function.
+3. Add it to the handler mapping in `src/index.js`.
+
+---
+For more details, see the documentation in `src/README.md`.
 
 ## Status
 [![codecov](https://img.shields.io/codecov/c/github/adobe-rnd/spacecat-task-processor.svg)](https://codecov.io/gh/adobe-rnd/spacecat-task-processor)

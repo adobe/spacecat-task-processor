@@ -48,8 +48,12 @@ jobs:
 
       - name: Clean npm cache
         run: npm cache clean --force
+
+      - name: Create empty cache directory
+        run: mkdir -p /tmp/empty-cache
+
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --cache /tmp/empty-cache
 
   semantic-release:
     runs-on: ubuntu-latest
