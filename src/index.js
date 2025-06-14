@@ -18,10 +18,12 @@ import { internalServerError, notFound, ok } from '@adobe/spacecat-shared-http-u
 
 import { runAuditStatusProcessor as auditStatusProcessor } from './audit-status-processor/handler.js';
 import { runDisableImportAuditProcessor as disableImportAuditProcessor } from './disable-import-audit-processor/handler.js';
+import { runDemoUrlProcessor as demoUrlProcessor } from './demo-url-processor/handler.js';
 
 const HANDLERS = {
   'audit-status-processor': auditStatusProcessor,
   'disable-import-audit-processor': disableImportAuditProcessor,
+  'demo-url-processor': demoUrlProcessor,
   dummy: (message) => ok(message),
 };
 
@@ -70,20 +72,8 @@ async function run(message, context) {
   const startTime = process.hrtime();
 
   try {
-    let result;
-    if (typeof handler.execute === 'function') {
-      log.info('Using handler.execute');
-      result = await handler.execute(message, context);
-    } else if (typeof handler.run === 'function') {
-      log.info('Using handler.run');
-      result = await handler.run(message, context);
-    } else {
-      log.info('Using handler directly');
-      result = await handler(message, context);
-    }
-
+    const result = await handler(message, context);
     log.info(`${type} audit for ${siteId} completed in ${getElapsedSeconds(startTime)} seconds`);
-
     return result;
   } catch (e) {
     log.error(`${type} audit for ${siteId} failed after ${getElapsedSeconds(startTime)} seconds. `, e);
