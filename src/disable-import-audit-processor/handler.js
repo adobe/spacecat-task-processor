@@ -23,11 +23,13 @@ const AUDIT_TYPE = 'disable-import-audit-processor';
  */
 export async function runDisableImportAuditProcessor(message, context) {
   const { log, env, dataAccess } = context;
-  const { siteId, siteUrl, auditContext } = message;
+  const {
+    siteId, siteUrl, organizationId, taskContext,
+  } = message;
   const { Configuration } = dataAccess;
   const {
-    organizationId, importTypes = [], auditTypes = [], slackContext,
-  } = auditContext;
+    importTypes = [], auditTypes = [], slackContext,
+  } = taskContext;
 
   log.info('Processing disable import and audit request:', {
     auditType: AUDIT_TYPE,

@@ -23,13 +23,13 @@ function prepareDemoUrl(experienceUrl, organizationId, siteId) {
  * @param {object} context - The context object
  * @returns {Promise<object>} The audit result
  */
-export async function runDemoUrlProcessor(demoUrlMessage, context) {
+export async function runDemoUrlProcessor(message, context) {
   const { log, env } = context;
   log.info('Running demo url processor');
-  const { siteId, demoUrlContext } = demoUrlMessage;
+  const { siteId, organizationId, taskContext } = message;
   const {
-    experienceUrl: siteUrl, organizationId, slackContext,
-  } = demoUrlContext;
+    experienceUrl: siteUrl, slackContext,
+  } = taskContext;
 
   log.info('Processing demo url for site:', {
     siteId,

@@ -21,13 +21,13 @@ const AUDIT_TYPE = 'audit-status-processor';
  * @param {object} context - The context object
  * @returns {Promise<object>} The audit result
  */
-export async function runAuditStatusProcessor(auditStatusMessage, context) {
+export async function runAuditStatusProcessor(message, context) {
   const { log, env } = context;
   log.info('Running audit status processor');
-  const { siteId, auditContext } = auditStatusMessage;
+  const { siteId, organizationId, taskContext } = message;
   const {
-    organizationId, auditTypes, slackContext,
-  } = auditContext;
+    auditTypes, slackContext,
+  } = taskContext;
 
   log.info('Processing audit status for site:', {
     siteId,
