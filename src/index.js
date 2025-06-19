@@ -13,7 +13,7 @@ import wrap from '@adobe/helix-shared-wrap';
 import { helixStatus } from '@adobe/helix-status';
 import secrets from '@adobe/helix-shared-secrets';
 import dataAccess from '@adobe/spacecat-shared-data-access';
-import { resolveSecretsName, sqsEventAdapter } from '@adobe/spacecat-shared-utils';
+import { sqsEventAdapter } from '@adobe/spacecat-shared-utils';
 import { internalServerError, notFound, ok } from '@adobe/spacecat-shared-http-utils';
 
 import { runAuditStatusProcessor as auditStatusProcessor } from './audit-status-processor/handler.js';
@@ -26,6 +26,11 @@ const HANDLERS = {
   'demo-url-processor': demoUrlProcessor,
   dummy: (message) => ok(message),
 };
+
+// Custom secret name resolver to use the correct secret path
+function getSecretName() {
+  return '/helix-deploy/spacecat-services/api-service/latest';
+}
 
 function getElapsedSeconds(startTime) {
   const endTime = process.hrtime(startTime);
@@ -84,5 +89,5 @@ async function run(message, context) {
 export const main = wrap(run)
   .with(dataAccess)
   .with(sqsEventAdapter)
-  .with(secrets, { name: resolveSecretsName })
+  .with(secrets, { name: getSecretName })
   .with(helixStatus);
