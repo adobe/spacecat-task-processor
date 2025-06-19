@@ -10,10 +10,9 @@
  * governing permissions and limitations under the License.
  */
 
-import { Audit } from '@adobe/spacecat-shared-data-access';
 import { say } from '../utils/slack-utils.js';
 
-const AUDIT_TYPE = 'audit-status-processor';
+const TASK_TYPE = 'audit-status-processor';
 
 /**
  * Runs the audit status processor
@@ -22,7 +21,8 @@ const AUDIT_TYPE = 'audit-status-processor';
  * @returns {Promise<object>} The audit result
  */
 export async function runAuditStatusProcessor(message, context) {
-  const { log, env } = context;
+  const { log, env, dataAccess } = context;
+  const { Site } = dataAccess;
   log.info('Running audit status processor');
   const { siteId, organizationId, taskContext } = message;
   const {
@@ -32,32 +32,54 @@ export async function runAuditStatusProcessor(message, context) {
   log.info('Processing audit status for site:', {
     siteId,
     organizationId,
-    auditType: AUDIT_TYPE,
+    taskType: TASK_TYPE,
     auditTypes,
   });
 
   await say(env, log, slackContext, 'Checking audit status');
   try {
-    // Check latest audit status for each audit type in parallel
+    // Get the site and its opportunities
+    const site = await Site.findById(siteId);
+    if (!site) {
+      log.error(`Site not found for siteId: ${siteId}`);
+      await say(env, log, slackContext, `:x: Site not found for siteId: ${siteId}`);
+      return;
+    }
+
+    const opportunities = await site.getOpportunities();
+    log.info(`Found ${opportunities.length} opportunities for site ${siteId}`);
+
+    // Check opportunities for each audit type
     const auditStatusPromises = auditTypes.map(async (auditType) => {
-      const latestAudit = await Audit.getLatestAuditByAuditType(auditType);
-      log.info(`Latest audit for site ${siteId} and audit type ${auditType}: ${JSON.stringify(latestAudit)}`);
-      if (latestAudit) {
-        const auditResult = latestAudit.getAuditResult();
-        if (auditResult.success) {
-          log.info(`Latest audit for site ${siteId} was successful for audit type ${auditType}`);
-          const slackMessage = `:check_mark: Latest audit for site ${siteId} was successful for audit type ${auditType}`;
+      const opportunitiesForType = opportunities.filter((opp) => opp.getType() === auditType);
+      log.info(`Found ${opportunitiesForType.length} opportunities for audit type ${auditType}`);
+
+      if (opportunitiesForType.length > 0) {
+        // Get the latest opportunity for this audit type
+        const latestOpportunity = opportunitiesForType.sort(
+          (a, b) => new Date(b.getCreatedAt()) - new Date(a.getCreatedAt()),
+        )[0];
+
+        log.info(`Latest opportunity for site ${siteId} and audit type ${auditType}: ${JSON.stringify(latestOpportunity)}`);
+
+        const opportunityData = latestOpportunity.getData();
+        if (opportunityData && opportunityData.success) {
+          log.info(`Latest opportunity for site ${siteId} was successful for audit type ${auditType}`);
+          const slackMessage = `:check_mark: Latest opportunity for site ${siteId} was successful for audit type ${auditType}`;
           return say(env, log, slackContext, slackMessage);
         } else {
-          log.warn(`Latest audit for site ${siteId} failed for audit type ${auditType}: ${auditResult.error || 'Unknown error'}`);
-          const slackMessage = `:x: Latest audit for site ${siteId} failed for audit type ${auditType}: ${auditResult.error || 'Unknown error'}`;
+          const error = opportunityData?.error || 'Unknown error';
+          log.warn(`Latest opportunity for site ${siteId} failed for audit type ${auditType}: ${error}`);
+          const slackMessage = `:x: Latest opportunity for site ${siteId} failed for audit type ${auditType}: ${error}`;
           return say(env, log, slackContext, slackMessage);
         }
       } else {
-        log.info(`No previous ${auditType} audit found for site ${siteId}`);
-        return null;
+        log.info(`No opportunities found for audit type ${auditType} for site ${siteId}`);
+        const slackMessage = `:information_source: No opportunities found for audit type ${auditType} for site ${siteId}`;
+        return say(env, log, slackContext, slackMessage);
       }
     });
+
     await Promise.all(auditStatusPromises);
     log.info('Audit status checking completed');
     await say(env, log, slackContext, 'Audit status checking completed');
@@ -67,6 +89,7 @@ export async function runAuditStatusProcessor(message, context) {
       stack: error.stack,
       errorType: error.name,
     });
+    await say(env, log, slackContext, `:x: Error checking site opportunities status: ${error.message}`);
   }
 }
 

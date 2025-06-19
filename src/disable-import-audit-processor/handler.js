@@ -10,10 +10,9 @@
  * governing permissions and limitations under the License.
  */
 
-import { Site } from '@adobe/spacecat-shared-data-access';
 import { say } from '../utils/slack-utils.js';
 
-const AUDIT_TYPE = 'disable-import-audit-processor';
+const TASK_TYPE = 'disable-import-audit-processor';
 
 /**
  * Runs the disable import and audit processor
@@ -26,13 +25,13 @@ export async function runDisableImportAuditProcessor(message, context) {
   const {
     siteId, siteUrl, organizationId, taskContext,
   } = message;
-  const { Configuration } = dataAccess;
+  const { Site, Configuration } = dataAccess;
   const {
     importTypes = [], auditTypes = [], slackContext,
   } = taskContext;
 
   log.info('Processing disable import and audit request:', {
-    auditType: AUDIT_TYPE,
+    taskType: TASK_TYPE,
     siteId,
     organizationId,
     importTypes,

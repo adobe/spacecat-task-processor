@@ -12,6 +12,8 @@
 
 import { say } from '../utils/slack-utils.js';
 
+const TASK_TYPE = 'demo-url-processor';
+
 /** Prepare demo url for the site */
 function prepareDemoUrl(experienceUrl, organizationId, siteId) {
   return `${experienceUrl}?organizationId=${organizationId}#/@aemrefdemoshared/sites-optimizer/sites/${siteId}/home`;
@@ -32,6 +34,7 @@ export async function runDemoUrlProcessor(message, context) {
   } = taskContext;
 
   log.info('Processing demo url for site:', {
+    taskType: TASK_TYPE,
     siteId,
     siteUrl,
     organizationId,
