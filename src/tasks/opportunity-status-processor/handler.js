@@ -106,7 +106,7 @@ export async function runOpportunityStatusProcessor(message, context) {
 
     // Send combined status message
     if (statusMessages.length > 0) {
-      const combinedMessage = statusMessages.join(', ');
+      const combinedMessage = statusMessages.join('\n');
       await say(env, log, slackContext, combinedMessage);
     }
 
