@@ -61,7 +61,7 @@ export async function runDisableImportAuditProcessor(message, context) {
     await configuration.save();
     log.info('Database changes saved successfully');
 
-    const slackMessage = `:broom: *Disabled imports*: ${importTypes.join(', ')} and *audits*: ${auditTypes.join(', ')}`;
+    const slackMessage = `:broom: *Disabled imports*: ${importTypes.join(', ')} *and audits*: ${auditTypes.join(', ')}`;
     await say(env, log, slackContext, slackMessage);
   } catch (error) {
     log.error('Error in disable import and audit processor:', {
