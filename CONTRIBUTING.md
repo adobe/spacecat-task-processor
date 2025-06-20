@@ -1,4 +1,4 @@
-# Contributing to Project Franklin
+# Contributing to Sites Optimizer
 
 This project (like almost all of Project Franklin) is an Open Development project and welcomes contributions from everyone who finds it useful or lacking.
 

@@ -42,9 +42,7 @@ export async function runDemoUrlProcessor(message, context) {
   try {
     // prepare demo url
     const demoUrl = prepareDemoUrl(siteUrl, organizationId, siteId);
-    let slackMessage = ':white_check_mark: Setup complete!';
-    await say(env, log, slackContext, slackMessage);
-    slackMessage = `:information_source: Access your demo environment here: ${demoUrl}`;
+    const slackMessage = `:white_check_mark: Setup complete! Access your demo environment here: ${demoUrl}`;
     await say(env, log, slackContext, slackMessage);
     log.info(`Setup complete! Access your demo environment here: ${demoUrl}`);
   } catch (error) {

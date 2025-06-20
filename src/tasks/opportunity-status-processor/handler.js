@@ -60,7 +60,6 @@ export async function runOpportunityStatusProcessor(message, context) {
     auditTypes,
   });
 
-  await say(env, log, slackContext, ':information_source: *Checking opportunity status*');
   try {
     // Get the site and its opportunities
     const site = await Site.findById(siteId);
