@@ -39,13 +39,14 @@ export async function runDemoUrlProcessor(message, context) {
     organizationId,
   });
 
-  await say(env, log, slackContext, ':information_source: *Preparing demo url*');
   try {
     // prepare demo url
     const demoUrl = prepareDemoUrl(siteUrl, organizationId, siteId);
-    log.info(`Setup complete! Access your demo environment here: ${demoUrl}`);
-    const slackMessage = `:white_check_mark: Setup complete! Access your demo environment here: ${demoUrl}`;
+    let slackMessage = ':white_check_mark: Setup complete!';
     await say(env, log, slackContext, slackMessage);
+    slackMessage = `:information_source: Access your demo environment here: ${demoUrl}`;
+    await say(env, log, slackContext, slackMessage);
+    log.info(`Setup complete! Access your demo environment here: ${demoUrl}`);
   } catch (error) {
     log.error('Error in preparing demo url:', {
       error: error.message,

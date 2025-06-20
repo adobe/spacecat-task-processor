@@ -62,7 +62,9 @@ export async function runDisableImportAuditProcessor(message, context) {
     await configuration.save();
     log.info('Database changes saved successfully');
 
-    const slackMessage = `:white_check_mark: Disabled imports ${JSON.stringify(importTypes)} and audits ${JSON.stringify(auditTypes)} for site ${siteId}`;
+    let slackMessage = `:white_check_mark: Disabled imports ${JSON.stringify(importTypes)} for site ${siteId}`;
+    await say(env, log, slackContext, slackMessage);
+    slackMessage = `:white_check_mark: Disabled audits ${JSON.stringify(auditTypes)} for site ${siteId}`;
     await say(env, log, slackContext, slackMessage);
   } catch (error) {
     log.error('Error in disable import and audit processor:', {

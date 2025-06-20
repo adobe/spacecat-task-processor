@@ -73,9 +73,21 @@ export async function runOpportunityStatusProcessor(message, context) {
     const opportunities = await site.getOpportunities();
     log.info(`Found ${opportunities.length} opportunities for site ${siteId}`);
 
+    // Track processed opportunity types to avoid duplicates
+    const processedTypes = new Set();
+
     // Process each opportunity
     for (const opportunity of opportunities) {
       const opportunityType = opportunity.getType();
+
+      // Skip if we've already processed this opportunity type
+      if (processedTypes.has(opportunityType)) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+
+      // Mark this type as processed
+      processedTypes.add(opportunityType);
 
       // Get suggestions for this opportunity
       // eslint-disable-next-line no-await-in-loop
