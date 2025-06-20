@@ -10,7 +10,7 @@
  * governing permissions and limitations under the License.
  */
 
-import { say } from '../utils/slack-utils.js';
+import { say } from '../../utils/slack-utils.js';
 
 const TASK_TYPE = 'demo-url-processor';
 
@@ -23,7 +23,6 @@ function prepareDemoUrl(experienceUrl, organizationId, siteId) {
  * Runs the audit status processor
  * @param {object} demoUrlMessage - The demoUrlMessage object
  * @param {object} context - The context object
- * @returns {Promise<object>} The audit result
  */
 export async function runDemoUrlProcessor(message, context) {
   const { log, env } = context;

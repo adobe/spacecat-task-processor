@@ -10,7 +10,7 @@
  * governing permissions and limitations under the License.
  */
 
-import { say } from '../utils/slack-utils.js';
+import { say } from '../../utils/slack-utils.js';
 
 const TASK_TYPE = 'disable-import-audit-processor';
 
@@ -18,7 +18,6 @@ const TASK_TYPE = 'disable-import-audit-processor';
  * Runs the disable import and audit processor
  * @param {object} message - The message object containing siteId and auditContext
  * @param {object} context - The context object
- * @returns {Promise<object>} The result
  */
 export async function runDisableImportAuditProcessor(message, context) {
   const { log, env, dataAccess } = context;
