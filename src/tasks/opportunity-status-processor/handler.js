@@ -74,6 +74,7 @@ export async function runOpportunityStatusProcessor(message, context) {
 
     // Track processed opportunity types to avoid duplicates
     const processedTypes = new Set();
+    const statusMessages = [];
 
     // Process each opportunity
     for (const opportunity of opportunities) {
@@ -99,10 +100,14 @@ export async function runOpportunityStatusProcessor(message, context) {
       const hasSuggestions = suggestions && suggestions.length > 0;
       const status = hasSuggestions ? ':white_check_mark:' : ':cross-x:';
 
-      // Send Slack message
-      const slackMessage = `${opportunityTitle} ${status}`;
-      // eslint-disable-next-line no-await-in-loop
-      await say(env, log, slackContext, slackMessage);
+      // Add to status messages array
+      statusMessages.push(`${opportunityTitle} ${status}`);
+    }
+
+    // Send combined status message
+    if (statusMessages.length > 0) {
+      const combinedMessage = statusMessages.join(', ');
+      await say(env, log, slackContext, combinedMessage);
     }
 
     log.info('Opportunity status checking completed');
