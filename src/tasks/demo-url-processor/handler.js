@@ -39,7 +39,7 @@ export async function runDemoUrlProcessor(message, context) {
     organizationId,
   });
 
-  await say(env, log, slackContext, 'Preparing demo url');
+  await say(env, log, slackContext, ':information_source: *Preparing demo url*');
   try {
     // prepare demo url
     const demoUrl = prepareDemoUrl(siteUrl, organizationId, siteId);

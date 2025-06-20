@@ -60,7 +60,7 @@ export async function runOpportunityStatusProcessor(message, context) {
     auditTypes,
   });
 
-  await say(env, log, slackContext, 'Checking opportunity status');
+  await say(env, log, slackContext, ':information_source: *Checking opportunity status*');
   try {
     // Get the site and its opportunities
     const site = await Site.findById(siteId);
@@ -86,7 +86,7 @@ export async function runOpportunityStatusProcessor(message, context) {
 
       // Determine status based on suggestions length
       const hasSuggestions = suggestions && suggestions.length > 0;
-      const status = hasSuggestions ? ':white_check_mark:' : ':cross_x:';
+      const status = hasSuggestions ? ':white_check_mark:' : ':cross-x:';
 
       // Send Slack message
       const slackMessage = `${opportunityTitle} ${status}`;
@@ -95,7 +95,6 @@ export async function runOpportunityStatusProcessor(message, context) {
     }
 
     log.info('Opportunity status checking completed');
-    await say(env, log, slackContext, 'Opportunity status checking completed');
   } catch (error) {
     log.error('Error in opportunity status checking:', {
       error: error.message,

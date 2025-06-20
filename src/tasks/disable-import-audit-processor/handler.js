@@ -36,7 +36,7 @@ export async function runDisableImportAuditProcessor(message, context) {
     importTypes,
     auditTypes,
   });
-  await say(env, log, slackContext, ':broom: Disabling imports and audits...');
+  await say(env, log, slackContext, ':broom: *Disabling imports and audits*');
   try {
     // Database operations
     log.info('Starting database operations');
