@@ -20,22 +20,23 @@ const TASK_TYPE = 'opportunity-status-processor';
  * @returns {string} The opportunity title
  */
 function getOpportunityTitle(opportunityType) {
-  switch (opportunityType) {
-    case 'cwv':
-      return 'Core Web Vitals';
-    case 'meta-tags':
-      return 'SEO Meta Tags';
-    case 'broken-back-links':
-      return 'Broken Back Links';
-    case 'broken-links':
-      return 'Broken Links';
-    default:
-      // Convert kebab-case to Title Case (e.g., "first-second" -> "First Second")
-      return opportunityType
-        .split('-')
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(' ');
+  const opportunityTitles = {
+    cwv: 'Core Web Vitals',
+    'meta-tags': 'SEO Meta Tags',
+    'broken-back-links': 'Broken Back Links',
+    'broken-links': 'Broken Links',
+  };
+
+  // Check if the opportunity type exists in our map
+  if (opportunityTitles[opportunityType]) {
+    return opportunityTitles[opportunityType];
   }
+
+  // Convert kebab-case to Title Case (e.g., "first-second" -> "First Second")
+  return opportunityType
+    .split('-')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
 }
 
 /**
@@ -75,11 +76,10 @@ export async function runOpportunityStatusProcessor(message, context) {
     // Process each opportunity
     for (const opportunity of opportunities) {
       const opportunityType = opportunity.getType();
-      const opportunityId = opportunity.getId();
 
       // Get suggestions for this opportunity
       // eslint-disable-next-line no-await-in-loop
-      const suggestions = await site.getSuggestions(opportunityId);
+      const suggestions = await opportunity.getSuggestions();
 
       // Get the opportunity title
       const opportunityTitle = getOpportunityTitle(opportunityType);
