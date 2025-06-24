@@ -12,4 +12,66 @@
 
 /* eslint-env mocha */
 
-// TODO: Add tests for the demo-url-processor
+import { expect } from 'chai';
+import sinon from 'sinon';
+import { MockContextBuilder } from '../../shared.js';
+
+// Dynamic import for ES modules
+let runDemoUrlProcessor;
+
+describe('Demo URL Processor', () => {
+  let context;
+  let message;
+
+  beforeEach(async () => {
+    // Dynamic import
+    const handlerModule = await import('../../../src/tasks/demo-url-processor/handler.js');
+    runDemoUrlProcessor = handlerModule.runDemoUrlProcessor;
+
+    // Reset all stubs
+    sinon.restore();
+
+    // Create sandbox
+    const sandbox = sinon.createSandbox();
+
+    // Mock context
+    context = new MockContextBuilder()
+      .withSandbox(sandbox)
+      .build();
+
+    // Mock message
+    message = {
+      siteId: 'test-site-id',
+      organizationId: 'test-org-id',
+      taskContext: {
+        siteUrl: 'https://example.com',
+        slackContext: 'test-slack-context',
+      },
+    };
+  });
+
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  describe('runDemoUrlProcessor', () => {
+    it('should process demo URL successfully', async () => {
+      await runDemoUrlProcessor(message, context);
+      expect(context.log.info.calledWith('Processing demo url for site:', {
+        taskType: 'demo-url-processor',
+        siteId: 'test-site-id',
+        siteUrl: 'https://example.com',
+        organizationId: 'test-org-id',
+      })).to.be.true;
+      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@aemrefdemoshared/sites-optimizer/sites/test-site-id/home';
+      expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
+    });
+
+    it('should handle missing slackContext in taskContext', async () => {
+      delete message.taskContext.slackContext;
+      await runDemoUrlProcessor(message, context);
+      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@aemrefdemoshared/sites-optimizer/sites/test-site-id/home';
+      expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
+    });
+  });
+});

@@ -10,6 +10,7 @@
  * governing permissions and limitations under the License.
  */
 
+import { ok } from '@adobe/spacecat-shared-http-utils';
 import { say } from '../../utils/slack-utils.js';
 
 const TASK_TYPE = 'disable-import-audit-processor';
@@ -37,39 +38,31 @@ export async function runDisableImportAuditProcessor(message, context) {
     auditTypes,
   });
   try {
-    // Database operations
-    log.info('Starting database operations');
     const site = await Site.findByBaseURL(siteUrl);
     if (!site) {
       throw new Error(`Site not found for siteId: ${siteId}`);
     }
     const siteConfig = site.getConfig();
     for (const importType of importTypes) {
-      log.info(`:broom: Disabling import type: ${importType}`);
       siteConfig.disableImport(importType);
     }
-    log.info('Import types disabled');
 
     const configuration = await Configuration.findLatest();
     for (const auditType of auditTypes) {
-      log.info(`:broom: Disabling audit type: ${auditType}`);
       configuration.disableHandlerForSite(auditType, site);
     }
-    log.info('Audit types disabled');
 
     await site.save();
     await configuration.save();
-    log.info('Database changes saved successfully');
-
+    log.info('Disabled imports and audits');
     const slackMessage = `:broom: *Disabled imports*: ${importTypes.join(', ')} *and audits*: ${auditTypes.join(', ')}`;
     await say(env, log, slackContext, slackMessage);
   } catch (error) {
-    log.error('Error in disable import and audit processor:', {
-      error: error.message,
-      stack: error.stack,
-      errorType: error.name,
-    });
+    log.error('Error in disable import and audit processor:', error);
+    await say(env, log, slackContext, `:x: Error disabling imports and audits: ${error.message}`);
   }
+
+  return ok({ message: 'Disable import and audit processor completed' });
 }
 
 export default runDisableImportAuditProcessor;

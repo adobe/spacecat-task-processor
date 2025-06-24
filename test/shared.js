@@ -21,6 +21,11 @@ export class MockContextBuilder {
     return this;
   }
 
+  withDataAccess(dataAccess) {
+    this.dataAccess = dataAccess;
+    return this;
+  }
+
   build() {
     const mockLog = {
       debug: this.sandbox.spy(),
@@ -39,6 +44,7 @@ export class MockContextBuilder {
       },
       Site: {
         findById: this.sandbox.stub(),
+        findByBaseURL: this.sandbox.stub(),
       },
       SiteTopPage: {
         allBySiteIdAndSourceAndGeo: this.sandbox.stub(),
@@ -73,7 +79,7 @@ export class MockContextBuilder {
 
     let context = {
       log: mockLog,
-      dataAccess: mockDataAccess,
+      dataAccess: this.dataAccess || mockDataAccess,
       env: mockEnv,
     };
 

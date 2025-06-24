@@ -10,14 +10,10 @@
  * governing permissions and limitations under the License.
  */
 
+import { ok } from '@adobe/spacecat-shared-http-utils';
 import { say } from '../../utils/slack-utils.js';
 
 const TASK_TYPE = 'demo-url-processor';
-
-/** Prepare demo url for the site */
-function prepareDemoUrl(experienceUrl, organizationId, siteId) {
-  return `${experienceUrl}?organizationId=${organizationId}#/@aemrefdemoshared/sites-optimizer/sites/${siteId}/home`;
-}
 
 /**
  * Runs the audit status processor
@@ -26,10 +22,9 @@ function prepareDemoUrl(experienceUrl, organizationId, siteId) {
  */
 export async function runDemoUrlProcessor(message, context) {
   const { log, env } = context;
-  log.info('Running demo url processor');
   const { siteId, organizationId, taskContext } = message;
   const {
-    experienceUrl: siteUrl, slackContext,
+    siteUrl, slackContext,
   } = taskContext;
 
   log.info('Processing demo url for site:', {
@@ -39,19 +34,12 @@ export async function runDemoUrlProcessor(message, context) {
     organizationId,
   });
 
-  try {
-    // prepare demo url
-    const demoUrl = prepareDemoUrl(siteUrl, organizationId, siteId);
-    const slackMessage = `:white_check_mark: Setup complete! Access your demo environment here: ${demoUrl}`;
-    await say(env, log, slackContext, slackMessage);
-    log.info(`Setup complete! Access your demo environment here: ${demoUrl}`);
-  } catch (error) {
-    log.error('Error in preparing demo url:', {
-      error: error.message,
-      stack: error.stack,
-      errorType: error.name,
-    });
-  }
+  const demoUrl = `${siteUrl}?organizationId=${organizationId}#/@aemrefdemoshared/sites-optimizer/sites/${siteId}/home`;
+  const slackMessage = `:white_check_mark: Setup complete! Access your demo environment here: ${demoUrl}`;
+  await say(env, log, slackContext, slackMessage);
+  log.info(`Setup complete! Access your demo environment here: ${demoUrl}`);
+
+  return ok({ message: 'Demo URL processor completed' });
 }
 
 export default runDemoUrlProcessor;

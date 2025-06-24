@@ -10,8 +10,7 @@
   },
   "scripts": {
     "start": "nodemon",
-    "test": "NODE_ENV=test mocha 'test/**/*.test.js'",
-    "test:index": "NODE_ENV=test mocha test/index.test.js",
+    "test": "c8 mocha -i -g 'Post-Deploy' --spec=test/**/*.test.js",
     "test-postdeploy": "mocha -g 'Post-Deploy' --spec=test/**/*.test.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

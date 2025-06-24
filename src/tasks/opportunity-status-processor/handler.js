@@ -10,6 +10,7 @@
  * governing permissions and limitations under the License.
  */
 
+import { ok } from '@adobe/spacecat-shared-http-utils';
 import { say } from '../../utils/slack-utils.js';
 
 const TASK_TYPE = 'opportunity-status-processor';
@@ -47,26 +48,25 @@ function getOpportunityTitle(opportunityType) {
 export async function runOpportunityStatusProcessor(message, context) {
   const { log, env, dataAccess } = context;
   const { Site } = dataAccess;
-  log.info('Running opportunity status processor');
   const { siteId, organizationId, taskContext } = message;
   const {
-    auditTypes, slackContext,
+    auditTypes = [], slackContext,
   } = taskContext;
 
-  log.info('Processing opportunity status for site:', {
+  log.info('Processing opportunities for site:', {
+    taskType: TASK_TYPE,
     siteId,
     organizationId,
-    taskType: TASK_TYPE,
     auditTypes,
   });
 
   try {
     // Get the site and its opportunities
-    const site = await Site.findById(siteId);
+    const site = await Site.findByBaseURL(`https://${siteId}.com`);
     if (!site) {
       log.error(`Site not found for siteId: ${siteId}`);
       await say(env, log, slackContext, `:x: Site not found for siteId: ${siteId}`);
-      return;
+      return ok({ message: 'Site not found' });
     }
 
     const opportunities = await site.getOpportunities();
@@ -76,49 +76,35 @@ export async function runOpportunityStatusProcessor(message, context) {
     const processedTypes = new Set();
     const statusMessages = [];
 
-    // Process each opportunity
     for (const opportunity of opportunities) {
       const opportunityType = opportunity.getType();
-
-      // Skip if we've already processed this opportunity type
       if (processedTypes.has(opportunityType)) {
         // eslint-disable-next-line no-continue
         continue;
       }
-
-      // Mark this type as processed
       processedTypes.add(opportunityType);
 
-      // Get suggestions for this opportunity
       // eslint-disable-next-line no-await-in-loop
       const suggestions = await opportunity.getSuggestions();
 
       // Get the opportunity title
       const opportunityTitle = getOpportunityTitle(opportunityType);
-
-      // Determine status based on suggestions length
       const hasSuggestions = suggestions && suggestions.length > 0;
       const status = hasSuggestions ? ':white_check_mark:' : ':cross-x:';
-
-      // Add to status messages array
       statusMessages.push(`${opportunityTitle} ${status}`);
     }
 
-    // Send combined status message
+    // send status messages to slack
     if (statusMessages.length > 0) {
       const combinedMessage = statusMessages.join('\n');
       await say(env, log, slackContext, combinedMessage);
     }
-
-    log.info('Opportunity status checking completed');
   } catch (error) {
-    log.error('Error in opportunity status checking:', {
-      error: error.message,
-      stack: error.stack,
-      errorType: error.name,
-    });
+    log.error('Error in opportunity status processor:', error);
     await say(env, log, slackContext, `:x: Error checking site opportunities status: ${error.message}`);
   }
+
+  return ok({ message: 'Opportunity status processor completed' });
 }
 
 export default runOpportunityStatusProcessor;

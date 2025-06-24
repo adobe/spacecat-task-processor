@@ -32,6 +32,9 @@ function getSecretName() {
   return '/helix-deploy/spacecat-services/api-service/latest';
 }
 
+// Export for testing
+export { getSecretName };
+
 function getElapsedSeconds(startTime) {
   const endTime = process.hrtime(startTime);
   const elapsedSeconds = endTime[0] + endTime[1] / 1e9;
@@ -49,39 +52,23 @@ async function run(message, context) {
   const { type, siteId } = message;
 
   log.info(`Received message with type: ${type} for site: ${siteId}`);
-  log.info('Message structure:', {
-    messageKeys: Object.keys(message),
-    messageValues: Object.entries(message).reduce((acc, [key, value]) => {
-      acc[key] = typeof value === 'object' ? JSON.stringify(value) : value;
-      return acc;
-    }, {}),
-  });
 
   const handler = HANDLERS[type];
   if (!handler) {
-    const msg = `no such audit type: ${type}`;
+    const msg = `no such task type: ${type}`;
     log.error(msg);
     return notFound();
   }
-
-  log.info(`Found handler for type: ${type}`);
-  log.info('Handler details:', {
-    handler,
-    hasRun: typeof handler.run === 'function',
-    hasExecute: typeof handler.execute === 'function',
-    handlerKeys: Object.keys(handler),
-    handlerType: typeof handler,
-    handlerString: handler.toString(),
-  });
+  log.info(`Found task handler for type: ${type}`);
 
   const startTime = process.hrtime();
 
   try {
     const result = await handler(message, context);
-    log.info(`${type} audit for ${siteId} completed in ${getElapsedSeconds(startTime)} seconds`);
+    log.info(`${type} task for ${siteId} completed in ${getElapsedSeconds(startTime)} seconds`);
     return result;
   } catch (e) {
-    log.error(`${type} audit for ${siteId} failed after ${getElapsedSeconds(startTime)} seconds. `, e);
+    log.error(`${type} task for ${siteId} failed after ${getElapsedSeconds(startTime)} seconds. `, e);
     return internalServerError();
   }
 }
