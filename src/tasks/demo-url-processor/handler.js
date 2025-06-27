@@ -16,8 +16,8 @@ import { say } from '../../utils/slack-utils.js';
 const TASK_TYPE = 'demo-url-processor';
 
 /**
- * Runs the demo url processor
- * @param {object} message - The message object
+ * Runs the audit status processor
+ * @param {object} demoUrlMessage - The demoUrlMessage object
  * @param {object} context - The context object
  */
 export async function runDemoUrlProcessor(message, context) {

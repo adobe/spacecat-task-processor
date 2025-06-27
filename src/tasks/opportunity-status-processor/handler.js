@@ -62,7 +62,7 @@ export async function runOpportunityStatusProcessor(message, context) {
 
   try {
     // Get the site and its opportunities
-    const site = await Site.findById(siteId);
+    const site = await Site.findByBaseURL(`https://${siteId}.com`);
     if (!site) {
       log.error(`Site not found for siteId: ${siteId}`);
       await say(env, log, slackContext, `:x: Site not found for siteId: ${siteId}`);
@@ -83,8 +83,10 @@ export async function runOpportunityStatusProcessor(message, context) {
         continue;
       }
       processedTypes.add(opportunityType);
+
       // eslint-disable-next-line no-await-in-loop
       const suggestions = await opportunity.getSuggestions();
+
       // Get the opportunity title
       const opportunityTitle = getOpportunityTitle(opportunityType);
       const hasSuggestions = suggestions && suggestions.length > 0;

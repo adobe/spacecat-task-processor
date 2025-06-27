@@ -27,7 +27,7 @@ SpaceCat Task Processor is a Node.js service that processes messages from the AW
 1. Clone the repository
 2. Install dependencies:
    ```sh
-   npm install
+   npm ci
    ```
 3. Configure AWS credentials and environment variables as needed
 

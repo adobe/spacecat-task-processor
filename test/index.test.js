@@ -17,7 +17,7 @@ import sinon from 'sinon';
 import sinonChai from 'sinon-chai';
 import { Request } from '@adobe/fetch';
 import esmock from 'esmock';
-import { main } from '../src/index.js';
+import { main, getSecretName } from '../src/index.js';
 
 use(sinonChai);
 
@@ -97,8 +97,16 @@ describe('Index Tests', () => {
     expect(resp.status).to.equal(200);
     // Verify the task handler was found
     expect(context.log.info.calledWith('Found task handler for type: dummy')).to.be.true;
+    // Print all log.info calls for debugging
+    // eslint-disable-next-line no-console
+    console.log('log.info calls:', context.log.info.getCalls().map((call) => call.args[0]));
     // Verify the task completion message (using partial match since timing varies)
     expect(context.log.info.calledWithMatch(sinon.match('dummy task for site-id completed in'))).to.be.true;
+  });
+
+  it('should cover getSecretName function', () => {
+    const secretName = getSecretName();
+    expect(secretName).to.equal('/helix-deploy/spacecat-services/api-service/latest');
   });
 
   it('should handle handler throwing an error', async () => {
