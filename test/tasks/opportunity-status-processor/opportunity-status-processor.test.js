@@ -47,7 +47,7 @@ describe('Opportunity Status Processor', () => {
       .withSandbox(sandbox)
       .withDataAccess({
         Site: {
-          findByBaseURL: sandbox.stub().resolves(mockSite),
+          findById: sandbox.stub().resolves(mockSite),
         },
       })
       .build();
@@ -91,13 +91,13 @@ describe('Opportunity Status Processor', () => {
         auditTypes: ['cwv', 'broken-links'],
       })).to.be.true;
 
-      expect(context.dataAccess.Site.findByBaseURL.calledWith('https://test-site-id.com')).to.be.true;
+      expect(context.dataAccess.Site.findById.calledWith('test-site-id')).to.be.true;
       expect(mockSite.getOpportunities.called).to.be.true;
       expect(context.log.info.calledWith('Found 2 opportunities for site test-site-id')).to.be.true;
     });
 
     it('should handle site not found error', async () => {
-      context.dataAccess.Site.findByBaseURL.resolves(null);
+      context.dataAccess.Site.findById.resolves(null);
 
       await runOpportunityStatusProcessor(message, context);
 

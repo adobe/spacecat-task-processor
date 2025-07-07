@@ -62,7 +62,7 @@ export async function runOpportunityStatusProcessor(message, context) {
 
   try {
     // Get the site and its opportunities
-    const site = await Site.findByBaseURL(`https://${siteId}.com`);
+    const site = await Site.findById(siteId);
     if (!site) {
       log.error(`Site not found for siteId: ${siteId}`);
       await say(env, log, slackContext, `:x: Site not found for siteId: ${siteId}`);

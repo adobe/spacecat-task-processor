@@ -16,12 +16,36 @@ import { say } from '../../utils/slack-utils.js';
 const TASK_TYPE = 'demo-url-processor';
 
 /**
+ * Gets the IMS tenant ID from the organization
+ * @param {object} organization - The organization object
+ * @param {object} context - The context object
+ * @param {object} log - The log object
+ * @returns {string} The IMS tenant ID
+ */
+function getImsTenantId(organization, context, log) {
+  const { name, imsOrgId } = organization;
+  try {
+    const imsOrgToTenantMapping = context.env.IMSORG_TO_TENANT;
+    if (imsOrgToTenantMapping) {
+      const mapping = JSON.parse(imsOrgToTenantMapping);
+      if (mapping[imsOrgId]) {
+        return mapping[imsOrgId];
+      }
+    }
+  } catch (error) {
+    log.error('Error loading IMSORG_TO_TENANT mapping:', error.message);
+  }
+  return name.toLowerCase().replace(/\s+/g, '');
+}
+
+/**
  * Runs the audit status processor
  * @param {object} demoUrlMessage - The demoUrlMessage object
  * @param {object} context - The context object
  */
 export async function runDemoUrlProcessor(message, context) {
-  const { log, env } = context;
+  const { log, env, dataAccess } = context;
+  const { Organization } = dataAccess;
   const { siteId, organizationId, taskContext } = message;
   const {
     siteUrl, slackContext,
@@ -34,7 +58,15 @@ export async function runDemoUrlProcessor(message, context) {
     organizationId,
   });
 
-  const demoUrl = `${siteUrl}?organizationId=${organizationId}#/@aemrefdemoshared/sites-optimizer/sites/${siteId}/home`;
+  const organization = await Organization.findById(organizationId);
+  if (!organization) {
+    log.error(`Organization not found for organizationId: ${organizationId}`);
+    await say(env, log, slackContext, `:x: Organization not found for organizationId: ${organizationId}`);
+    return ok({ message: 'Organization not found' });
+  }
+
+  const imsTenantId = getImsTenantId(organization, context, log);
+  const demoUrl = `${siteUrl}?organizationId=${organizationId}#/@${imsTenantId}/sites-optimizer/sites/${siteId}/home`;
   const slackMessage = `:white_check_mark: Setup complete! Access your demo environment here: ${demoUrl}`;
   await say(env, log, slackContext, slackMessage);
   log.info(`Setup complete! Access your demo environment here: ${demoUrl}`);

@@ -83,9 +83,28 @@ describe('Index Tests', () => {
     // Test that the handler can handle broken env gracefully
     messageBodyJson.type = 'demo-url-processor';
     messageBodyJson.siteId = 'test-site';
+    messageBodyJson.organizationId = 'test-org';
+    messageBodyJson.taskContext = {
+      siteUrl: 'https://example.com',
+      slackContext: 'test-slack-context',
+    };
     context.invocation.event.Records[0].body = JSON.stringify(messageBodyJson);
-    // Remove env to test error handling in the handler
-    context.env = null;
+
+    // Provide minimal data access and env
+    context.dataAccess = {
+      Organization: {
+        findById: sandbox.stub().resolves({
+          name: 'Test Organization',
+          imsOrgId: 'TEST_ORG_ID@AdobeOrg',
+        }),
+      },
+    };
+    context.env = {
+      IMSORG_TO_TENANT: JSON.stringify({
+        'TEST_ORG_ID@AdobeOrg': 'test-org',
+      }),
+    };
+
     const resp = await main(request, context);
     expect(resp.status).to.equal(200); // Handler should handle the error gracefully
     // Verify the task handler was found
@@ -99,7 +118,6 @@ describe('Index Tests', () => {
     expect(context.log.info.calledWith('Found task handler for type: dummy')).to.be.true;
     // Print all log.info calls for debugging
     // eslint-disable-next-line no-console
-    console.log('log.info calls:', context.log.info.getCalls().map((call) => call.args[0]));
     // Verify the task completion message (using partial match since timing varies)
     expect(context.log.info.calledWithMatch(sinon.match('dummy task for site-id completed in'))).to.be.true;
   });
