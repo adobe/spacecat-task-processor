@@ -29,7 +29,7 @@ const HANDLERS = {
 
 // Custom secret name resolver to use the correct secret path
 function getSecretName() {
-  return '/helix-deploy/spacecat-services/api-service/latest';
+  return '/helix-deploy/spacecat-services/task-manager/latest';
 }
 
 // Export for testing

@@ -64,8 +64,8 @@ describe('Demo URL Processor', () => {
 
   describe('runDemoUrlProcessor', () => {
     it('should process demo URL successfully', async () => {
-      // Set up the IMSORG_TO_TENANT secret in context
-      context.env.IMSORG_TO_TENANT = JSON.stringify({
+      // Set up the IMS_ORG_TENANT_ID_MAPPINGS secret in context
+      context.env.IMS_ORG_TENANT_ID_MAPPINGS = JSON.stringify({
         '8C6043F15F43B6390A49401A@AdobeOrg': 'aem-sites-engineering',
       });
 
@@ -81,8 +81,8 @@ describe('Demo URL Processor', () => {
     });
 
     it('should handle missing slackContext in taskContext', async () => {
-      // Set up the IMSORG_TO_TENANT secret in context
-      context.env.IMSORG_TO_TENANT = JSON.stringify({
+      // Set up the IMS_ORG_TENANT_ID_MAPPINGS secret in context
+      context.env.IMS_ORG_TENANT_ID_MAPPINGS = JSON.stringify({
         '8C6043F15F43B6390A49401A@AdobeOrg': 'aem-sites-engineering',
       });
 
@@ -92,9 +92,9 @@ describe('Demo URL Processor', () => {
       expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
     });
 
-    it('should use IMSORG_TO_TENANT mapping when available', async () => {
-      // Set up the IMSORG_TO_TENANT secret in context
-      context.env.IMSORG_TO_TENANT = JSON.stringify({
+    it('should use IMS_ORG_TENANT_ID_MAPPINGS mapping when available', async () => {
+      // Set up the IMS_ORG_TENANT_ID_MAPPINGS secret in context
+      context.env.IMS_ORG_TENANT_ID_MAPPINGS = JSON.stringify({
         '8C6043F15F43B6390A49401A@AdobeOrg': 'aem-sites-engineering',
       });
 
@@ -105,9 +105,9 @@ describe('Demo URL Processor', () => {
       expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
     });
 
-    it('should fallback to name-based tenant when IMSORG_TO_TENANT mapping is not available', async () => {
-      // Don't set IMSORG_TO_TENANT secret
-      delete context.env.IMSORG_TO_TENANT;
+    it('should fallback to name-based tenant when IMS_ORG_TENANT_ID_MAPPINGS mapping is not available', async () => {
+      // Don't set IMS_ORG_TENANT_ID_MAPPINGS secret
+      delete context.env.IMS_ORG_TENANT_ID_MAPPINGS;
 
       await runDemoUrlProcessor(message, context);
 
@@ -116,9 +116,9 @@ describe('Demo URL Processor', () => {
       expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
     });
 
-    it('should fallback to name-based tenant when IMSORG_TO_TENANT mapping is invalid JSON', async () => {
-      // Set invalid JSON in IMSORG_TO_TENANT secret
-      context.env.IMSORG_TO_TENANT = 'invalid-json';
+    it('should fallback to name-based tenant when IMS_ORG_TENANT_ID_MAPPINGS mapping is invalid JSON', async () => {
+      // Set invalid JSON in IMS_ORG_TENANT_ID_MAPPINGS secret
+      context.env.IMS_ORG_TENANT_ID_MAPPINGS = 'invalid-json';
 
       await runDemoUrlProcessor(message, context);
 
@@ -127,9 +127,9 @@ describe('Demo URL Processor', () => {
       expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
     });
 
-    it('should fallback to name-based tenant when IMSORG_TO_TENANT mapping does not contain the imsOrgId', async () => {
-      // Set IMSORG_TO_TENANT secret with different mapping
-      context.env.IMSORG_TO_TENANT = JSON.stringify({
+    it('should fallback to name-based tenant when IMS_ORG_TENANT_ID_MAPPINGS mapping does not contain the imsOrgId', async () => {
+      // Set IMS_ORG_TENANT_ID_MAPPINGS secret with different mapping
+      context.env.IMS_ORG_TENANT_ID_MAPPINGS = JSON.stringify({
         'DIFFERENT_ORG_ID@AdobeOrg': 'different-team',
       });
 

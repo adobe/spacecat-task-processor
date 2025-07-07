@@ -25,7 +25,7 @@ const TASK_TYPE = 'demo-url-processor';
 function getImsTenantId(organization, context, log) {
   const { name, imsOrgId } = organization;
   try {
-    const imsOrgToTenantMapping = context.env.IMSORG_TO_TENANT;
+    const imsOrgToTenantMapping = context.env.IMS_ORG_TENANT_ID_MAPPINGS;
     if (imsOrgToTenantMapping) {
       const mapping = JSON.parse(imsOrgToTenantMapping);
       if (mapping[imsOrgId]) {
@@ -33,7 +33,7 @@ function getImsTenantId(organization, context, log) {
       }
     }
   } catch (error) {
-    log.error('Error loading IMSORG_TO_TENANT mapping:', error.message);
+    log.error('Error loading IMS_ORG_TENANT_ID_MAPPINGS mapping:', error.message);
   }
   return name.toLowerCase().replace(/\s+/g, '');
 }

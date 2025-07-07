@@ -124,7 +124,7 @@ describe('Index Tests', () => {
 
   it('should cover getSecretName function', () => {
     const secretName = getSecretName();
-    expect(secretName).to.equal('/helix-deploy/spacecat-services/api-service/latest');
+    expect(secretName).to.equal('/helix-deploy/spacecat-services/task-manager/latest');
   });
 
   it('should handle handler throwing an error', async () => {

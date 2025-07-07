@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define the secret name and region
-SECRET_NAME="/helix-deploy/spacecat-services/api-service/latest"
+SECRET_NAME="/helix-deploy/spacecat-services/task-manager/latest"
 REGION="us-east-1"
 
 # Retrieve the secret from AWS Secrets Manager
