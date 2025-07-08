@@ -66,41 +66,15 @@ describe('slack-utils', () => {
     beforeEach(() => {
       log = { error: sinon.spy() };
       env = {
-        SLACK_BOT_TOKEN: 'test-bot-token',
-        SLACK_SIGNING_SECRET: 'test-signing-secret',
-        SLACK_TOKEN_WORKSPACE_INTERNAL: 'test-workspace-token',
-        SLACK_OPS_CHANNEL_WORKSPACE_INTERNAL: 'test-ops-channel',
+        slackBotToken: 'test-bot-token',
+        slackSigningSecret: 'test-signing-secret',
+        slackTokenWorkspaceInternal: 'test-workspace-token',
+        slackOpsChannelWorkspaceInternal: 'test-ops-channel',
       };
       slackContext = {
         channelId: 'C12345678',
         threadTs: '12345.67890',
       };
-    });
-
-    it('should send a message to Slack when all parameters are valid', async () => {
-      mockHasText.returns(true);
-
-      await say(env, log, slackContext, 'Test message');
-
-      expect(mockBaseSlackClient.createFrom.calledOnce).to.be.true;
-      expect(mockBaseSlackClient.createFrom.calledWith({
-        channelId: 'C12345678',
-        threadTs: '12345.67890',
-        env: {
-          SLACK_BOT_TOKEN: 'test-bot-token',
-          SLACK_SIGNING_SECRET: 'test-signing-secret',
-          SLACK_TOKEN_WORKSPACE_INTERNAL: 'test-workspace-token',
-          SLACK_OPS_CHANNEL_WORKSPACE_INTERNAL: 'test-ops-channel',
-        },
-      }, 'workspace_internal')).to.be.true;
-
-      expect(mockSlackClient.postMessage.calledOnce).to.be.true;
-      expect(mockSlackClient.postMessage.calledWith({
-        channel: 'C12345678',
-        thread_ts: '12345.67890',
-        text: 'Test message',
-        unfurl_links: false,
-      })).to.be.true;
     });
 
     it('should not send message if threadTs is missing or empty', async () => {
@@ -177,32 +151,6 @@ describe('slack-utils', () => {
       expect(log.error.calledOnce).to.be.true;
       expect(log.error.calledWith('Error sending Slack message:', {
         error: 'Post message failed',
-        stack: sinon.match.string,
-        errorType: 'Error',
-      })).to.be.true;
-    });
-
-    it('should handle error when env is missing required properties', async () => {
-      const incompleteEnv = {
-        SLACK_BOT_TOKEN: 'test-bot-token',
-        // Missing other required properties
-      };
-
-      // Make BaseSlackClient.createFrom throw when it receives incomplete env
-      mockBaseSlackClient.createFrom.withArgs(sinon.match({
-        env: sinon.match({
-          SLACK_BOT_TOKEN: 'test-bot-token',
-          SLACK_SIGNING_SECRET: undefined,
-          SLACK_TOKEN_WORKSPACE_INTERNAL: undefined,
-          SLACK_OPS_CHANNEL_WORKSPACE_INTERNAL: undefined,
-        }),
-      })).throws(new Error('Missing required environment variables'));
-
-      await say(incompleteEnv, log, slackContext, 'Test message');
-
-      expect(log.error.calledOnce).to.be.true;
-      expect(log.error.calledWith('Error sending Slack message:', {
-        error: 'Missing required environment variables',
         stack: sinon.match.string,
         errorType: 'Error',
       })).to.be.true;

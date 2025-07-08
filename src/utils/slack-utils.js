@@ -26,10 +26,10 @@ export async function say(env, log, slackContext, message) {
       channelId: slackContext.channelId,
       threadTs: slackContext.threadTs,
       env: {
-        SLACK_BOT_TOKEN: env.SLACK_BOT_TOKEN,
-        SLACK_SIGNING_SECRET: env.SLACK_SIGNING_SECRET,
-        SLACK_TOKEN_WORKSPACE_INTERNAL: env.SLACK_TOKEN_WORKSPACE_INTERNAL,
-        SLACK_OPS_CHANNEL_WORKSPACE_INTERNAL: env.SLACK_OPS_CHANNEL_WORKSPACE_INTERNAL,
+        SLACK_BOT_TOKEN: slackContext.slackBotToken,
+        SLACK_SIGNING_SECRET: slackContext.slackSigningSecret,
+        SLACK_TOKEN_WORKSPACE_INTERNAL: slackContext.slackTokenWorkspaceInternal,
+        SLACK_OPS_CHANNEL_WORKSPACE_INTERNAL: slackContext.slackOpsChannelWorkspaceInternal,
       },
     };
     const slackTarget = SLACK_TARGETS.WORKSPACE_INTERNAL;
