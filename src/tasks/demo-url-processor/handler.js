@@ -22,8 +22,8 @@ const TASK_TYPE = 'demo-url-processor';
  * @param {object} log - The log object
  * @returns {string} The IMS tenant ID
  */
-function getImsTenantId(organization, context, log) {
-  const { name, imsOrgId } = organization;
+function getImsTenantId(imsOrgId, organization, context, log) {
+  const { name } = organization;
   try {
     const imsOrgToTenantMapping = context.env.IMS_ORG_TENANT_ID_MAPPINGS;
     if (imsOrgToTenantMapping) {
@@ -52,7 +52,9 @@ function getImsTenantId(organization, context, log) {
 export async function runDemoUrlProcessor(message, context) {
   const { log, env, dataAccess } = context;
   const { Organization } = dataAccess;
-  const { siteId, organizationId, taskContext } = message;
+  const {
+    siteId, imsOrgId, organizationId, taskContext,
+  } = message;
   const {
     experienceUrl, slackContext,
   } = taskContext;
@@ -71,7 +73,7 @@ export async function runDemoUrlProcessor(message, context) {
     return ok({ message: 'Organization not found' });
   }
 
-  const imsTenantId = getImsTenantId(organization, context, log);
+  const imsTenantId = getImsTenantId(imsOrgId, organization, context, log);
   const demoUrl = `${experienceUrl}?organizationId=${organizationId}#/@${imsTenantId}/sites-optimizer/sites/${siteId}/home`;
   const slackMessage = `:white_check_mark: Setup complete! Access your demo environment here: ${demoUrl}`;
   await say(env, log, slackContext, slackMessage);

@@ -50,6 +50,7 @@ describe('Demo URL Processor', () => {
     // Mock message
     message = {
       siteId: 'test-site-id',
+      imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
       organizationId: 'test-org-id',
       taskContext: {
         experienceUrl: 'https://example.com',
