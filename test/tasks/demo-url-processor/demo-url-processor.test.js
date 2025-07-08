@@ -151,5 +151,20 @@ describe('Demo URL Processor', () => {
       // Should not log the success message
       expect(context.log.info.calledWithMatch(sinon.match('Setup complete!'))).to.be.false;
     });
+
+    it('should handle organization with missing name property', async () => {
+      // Mock Organization.findById to return organization without name
+      context.dataAccess.Organization.findById.resolves({
+        imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
+        // name property is missing
+      });
+
+      await runDemoUrlProcessor(message, context);
+
+      // Should log error about missing name and use fallback
+      expect(context.log.error.calledWith('Organization name is missing, using fallback tenant ID')).to.be.true;
+      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@unknown-tenant/sites-optimizer/sites/test-site-id/home';
+      expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
+    });
   });
 });
