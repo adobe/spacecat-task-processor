@@ -54,13 +54,13 @@ export async function runDemoUrlProcessor(message, context) {
   const { Organization } = dataAccess;
   const { siteId, organizationId, taskContext } = message;
   const {
-    siteUrl, slackContext,
+    experienceUrl, slackContext,
   } = taskContext;
 
   log.info('Processing demo url for site:', {
     taskType: TASK_TYPE,
     siteId,
-    siteUrl,
+    experienceUrl,
     organizationId,
   });
 
@@ -72,7 +72,7 @@ export async function runDemoUrlProcessor(message, context) {
   }
 
   const imsTenantId = getImsTenantId(organization, context, log);
-  const demoUrl = `${siteUrl}?organizationId=${organizationId}#/@${imsTenantId}/sites-optimizer/sites/${siteId}/home`;
+  const demoUrl = `${experienceUrl}?organizationId=${organizationId}#/@${imsTenantId}/sites-optimizer/sites/${siteId}/home`;
   const slackMessage = `:white_check_mark: Setup complete! Access your demo environment here: ${demoUrl}`;
   await say(env, log, slackContext, slackMessage);
   log.info(`Setup complete! Access your demo environment here: ${demoUrl}`);
