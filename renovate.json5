@@ -1,0 +1,21 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "enabled": true,
+  "extends": [
+    "local>adobe-rnd/spacecat-task-processor"
+  ],
+  "packageRules": [
+    {
+      "matchPackageNames": [
+        "semantic-release"
+      ],
+      "allowedVersions": ">=23.0"
+    },
+    {
+      "matchPackageNames": [
+        "eslint"
+      ],
+      "allowedVersions": "<9.0.0"
+    }
+  ]
+}
