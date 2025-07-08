@@ -160,11 +160,14 @@ describe('Demo URL Processor', () => {
         // name property is missing
       });
 
+      // Set default tenant ID
+      context.env.DEFAULT_TENANT_ID = 'default-tenant';
+
       await runDemoUrlProcessor(message, context);
 
       // Should log error about missing name and use fallback
-      expect(context.log.error.calledWith('Organization name is missing, using fallback tenant ID')).to.be.true;
-      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@unknown-tenant/sites-optimizer/sites/test-site-id/home';
+      expect(context.log.error.calledWith('Organization name is missing, using default tenant ID')).to.be.true;
+      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@default-tenant/sites-optimizer/sites/test-site-id/home';
       expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
     });
   });

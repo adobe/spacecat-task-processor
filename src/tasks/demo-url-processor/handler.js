@@ -35,13 +35,12 @@ function getImsTenantId(imsOrgId, organization, context, log) {
   } catch (error) {
     log.error('Error loading IMS_ORG_TENANT_ID_MAPPINGS mapping:', error.message);
   }
-
   if (!name) {
-    log.error('Organization name is missing, using fallback tenant ID');
-    return 'unknown-tenant';
+    log.error('Organization name is missing, using default tenant ID');
+    return context.env.DEFAULT_TENANT_ID;
+  } else {
+    return name.toLowerCase().replace(/\s+/g, '');
   }
-
-  return name.toLowerCase().replace(/\s+/g, '');
 }
 
 /**

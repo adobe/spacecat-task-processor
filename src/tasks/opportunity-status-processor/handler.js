@@ -24,8 +24,10 @@ function getOpportunityTitle(opportunityType) {
   const opportunityTitles = {
     cwv: 'Core Web Vitals',
     'meta-tags': 'SEO Meta Tags',
-    'broken-back-links': 'Broken Back Links',
-    'broken-links': 'Broken Links',
+    'broken-backlinks': 'Broken Backlinks',
+    'broken-internal-links': 'Broken Internal Links',
+    'alt-text': 'Alt Text',
+    sitemap: 'Sitemap',
   };
 
   // Check if the opportunity type exists in our map
