@@ -52,7 +52,7 @@ describe('Demo URL Processor', () => {
       siteId: 'test-site-id',
       organizationId: 'test-org-id',
       taskContext: {
-        siteUrl: 'https://example.com',
+        experienceUrl: 'https://example.com',
         slackContext: 'test-slack-context',
       },
     };
@@ -73,7 +73,7 @@ describe('Demo URL Processor', () => {
       expect(context.log.info.calledWith('Processing demo url for site:', {
         taskType: 'demo-url-processor',
         siteId: 'test-site-id',
-        siteUrl: 'https://example.com',
+        experienceUrl: 'https://example.com',
         organizationId: 'test-org-id',
       })).to.be.true;
       const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@aem-sites-engineering/sites-optimizer/sites/test-site-id/home';
