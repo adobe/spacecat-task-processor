@@ -17,9 +17,10 @@ SpaceCat Task Processor is a Node.js service that processes messages from the AW
 
 ## Project Structure
 - `src/` - Main source code
-  - `audit-status-processor/handler.js`
-  - `demo-url-processor/handler.js`
-  - `disable-import-audit-processor/handler.js`
+  - `tasks/demo-url-processor/handler.js`
+  - `tasks/disable-import-audit-processor/handler.js`
+  - `tasks/opportunity-status-processor/handler.js`
+  - `utils/slack-utils.js`
   - `index.js` - Main entry point and handler dispatcher
 - `test/` - Test files
 
