@@ -11,17 +11,9 @@ SpaceCat Task Processor is a Node.js service that processes messages from the AW
 - Extensible and easy to add new handlers
 
 ## Handlers
-- **audit-status-processor**: Checks and reports audit status for a site
-- **demo-url-processor**: Prepares and shares a demo URL for a site
+- **opportunity-status-processor**: Checks and reports status audits for a site
 - **disable-import-audit-processor**: Disables specified imports and audits for a site
-
-## Project Structure
-- `src/` - Main source code
-  - `audit-status-processor/handler.js`
-  - `demo-url-processor/handler.js`
-  - `disable-import-audit-processor/handler.js`
-  - `index.js` - Main entry point and handler dispatcher
-- `test/` - Test files
+- **demo-url-processor**: Prepares and shares a demo URL for a site
 
 ## Setup
 1. Clone the repository
