@@ -23,19 +23,8 @@ const TASK_TYPE = 'demo-url-processor';
  * @returns {string} The IMS tenant ID
  */
 function getImsTenantId(imsOrgId, organization, context, log) {
-  const { name } = organization;
-  try {
-    const imsOrgToTenantMapping = context.env.IMS_ORG_TENANT_ID_MAPPINGS;
-    if (imsOrgToTenantMapping) {
-      const mapping = JSON.parse(imsOrgToTenantMapping);
-      if (mapping[imsOrgId]) {
-        return mapping[imsOrgId];
-      }
-    }
-  } catch (error) {
-    log.error('Error loading IMS_ORG_TENANT_ID_MAPPINGS mapping:', error.message);
-  }
-  if (!name) {
+  const { name, tenantId } = organization;
+  if (!name || !tenantId) {
     log.error('Organization name is missing, using default tenant ID');
     return context.env.DEFAULT_TENANT_ID;
   } else {
