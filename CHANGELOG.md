@@ -1,3 +1,10 @@
+## [1.0.14](https://github.com/adobe/spacecat-task-processor/compare/v1.0.13...v1.0.14) (2025-07-27)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#23](https://github.com/adobe/spacecat-task-processor/issues/23)) ([893eb47](https://github.com/adobe/spacecat-task-processor/commit/893eb477d4c1c2a07ba954a65d1363e93196cbbd))
+
 ## [1.0.13](https://github.com/adobe/spacecat-task-processor/compare/v1.0.12...v1.0.13) (2025-07-26)
 
 
