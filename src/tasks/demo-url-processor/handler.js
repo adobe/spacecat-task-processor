@@ -17,19 +17,31 @@ const TASK_TYPE = 'demo-url-processor';
 
 /**
  * Gets the IMS tenant ID from the organization
+ * @param {string} imsOrgId - The IMS organization ID
  * @param {object} organization - The organization object
  * @param {object} context - The context object
  * @param {object} log - The log object
+ * @param {object} env - The environment object
+ * @param {object} slackContext - The Slack context object
  * @returns {string} The IMS tenant ID
  */
-function getImsTenantId(imsOrgId, organization, context, log) {
+async function getImsTenantId(imsOrgId, organization, context, log, env, slackContext) {
   const { name, tenantId } = organization;
-  if (!name || !tenantId) {
-    log.error('Organization name is missing, using default tenant ID');
-    return context.env.DEFAULT_TENANT_ID;
-  } else {
+
+  // If tenantId is there, return it
+  if (tenantId) {
+    return tenantId;
+  }
+
+  // If tenantId isn't there, use name to generate (backward compatible for existing orgs)
+  if (name) {
     return name.toLowerCase().replace(/\s+/g, '');
   }
+
+  // If name is also not there, log an error and return DEFAULT_TENANT_ID
+  log.error('Organization name and tenantId are missing, using default tenant ID');
+  await say(env, log, slackContext, ':x: Organization name and tenantId are missing, using default tenant ID');
+  return context.env.DEFAULT_TENANT_ID;
 }
 
 /**
@@ -61,7 +73,7 @@ export async function runDemoUrlProcessor(message, context) {
     return ok({ message: 'Organization not found' });
   }
 
-  const imsTenantId = getImsTenantId(imsOrgId, organization, context, log);
+  const imsTenantId = await getImsTenantId(imsOrgId, organization, context, log, env, slackContext);
   const demoUrl = `${experienceUrl}?organizationId=${organizationId}#/@${imsTenantId}/sites-optimizer/sites/${siteId}/home`;
   const slackMessage = `:white_check_mark: Setup complete! Access your demo environment here: ${demoUrl}`;
   await say(env, log, slackContext, slackMessage);
