@@ -29,12 +29,14 @@ async function getImsTenantId(imsOrgId, organization, context, log, env, slackCo
   // Get tenantId from organization
   const { name, tenantId } = organization;
   if (tenantId) {
+    log.info(`Tenant ID found in organization: ${tenantId}`);
     return tenantId;
   } else {
     // Get tenantId from IMS org details if tenantId is not there in organization
     let imsOrgDetails;
     try {
       imsOrgDetails = await context.imsClient.getImsOrganizationDetails(imsOrgId);
+      log.info(`IMS Org Details: ${imsOrgDetails}`);
       return imsOrgDetails.tenantId;
     } catch (error) {
       log.error(`Error retrieving IMS Org details: ${error.message}`);
@@ -42,6 +44,7 @@ async function getImsTenantId(imsOrgId, organization, context, log, env, slackCo
   }
   // As a fallback option, use name to generate tenant id (backward compatible for existing orgs)
   if (name) {
+    log.info(`Using organization name to generate tenant ID: ${name}`);
     return name.toLowerCase().replace(/\s+/g, '');
   }
   log.error('Using default tenant ID');
