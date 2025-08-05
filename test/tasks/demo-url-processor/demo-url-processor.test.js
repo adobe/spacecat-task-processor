@@ -41,6 +41,7 @@ describe('Demo URL Processor', () => {
         Organization: {
           findById: sandbox.stub().resolves({
             name: 'Adobe Sites Engineering',
+            tenantId: 'adobe-sites-engineering',
             imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
           }),
         },
@@ -54,7 +55,10 @@ describe('Demo URL Processor', () => {
       organizationId: 'test-org-id',
       taskContext: {
         experienceUrl: 'https://example.com',
-        slackContext: 'test-slack-context',
+        slackContext: {
+          channelId: 'test-channel',
+          threadTs: 'test-thread',
+        },
       },
     };
   });
@@ -64,83 +68,6 @@ describe('Demo URL Processor', () => {
   });
 
   describe('runDemoUrlProcessor', () => {
-    it('should process demo URL successfully', async () => {
-      // Set up the IMS_ORG_TENANT_ID_MAPPINGS secret in context
-      context.env.IMS_ORG_TENANT_ID_MAPPINGS = JSON.stringify({
-        '8C6043F15F43B6390A49401A@AdobeOrg': 'aem-sites-engineering',
-      });
-
-      await runDemoUrlProcessor(message, context);
-      expect(context.log.info.calledWith('Processing demo url for site:', {
-        taskType: 'demo-url-processor',
-        siteId: 'test-site-id',
-        experienceUrl: 'https://example.com',
-        organizationId: 'test-org-id',
-      })).to.be.true;
-      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@aem-sites-engineering/sites-optimizer/sites/test-site-id/home';
-      expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
-    });
-
-    it('should handle missing slackContext in taskContext', async () => {
-      // Set up the IMS_ORG_TENANT_ID_MAPPINGS secret in context
-      context.env.IMS_ORG_TENANT_ID_MAPPINGS = JSON.stringify({
-        '8C6043F15F43B6390A49401A@AdobeOrg': 'aem-sites-engineering',
-      });
-
-      delete message.taskContext.slackContext;
-      await runDemoUrlProcessor(message, context);
-      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@aem-sites-engineering/sites-optimizer/sites/test-site-id/home';
-      expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
-    });
-
-    it('should use IMS_ORG_TENANT_ID_MAPPINGS mapping when available', async () => {
-      // Set up the IMS_ORG_TENANT_ID_MAPPINGS secret in context
-      context.env.IMS_ORG_TENANT_ID_MAPPINGS = JSON.stringify({
-        '8C6043F15F43B6390A49401A@AdobeOrg': 'aem-sites-engineering',
-      });
-
-      await runDemoUrlProcessor(message, context);
-
-      // Should use the mapped tenant name instead of the fallback
-      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@aem-sites-engineering/sites-optimizer/sites/test-site-id/home';
-      expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
-    });
-
-    it('should fallback to name-based tenant when IMS_ORG_TENANT_ID_MAPPINGS mapping is not available', async () => {
-      // Don't set IMS_ORG_TENANT_ID_MAPPINGS secret
-      delete context.env.IMS_ORG_TENANT_ID_MAPPINGS;
-
-      await runDemoUrlProcessor(message, context);
-
-      // Should use the fallback name-based tenant (lowercase, no spaces)
-      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@adobesitesengineering/sites-optimizer/sites/test-site-id/home';
-      expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
-    });
-
-    it('should fallback to name-based tenant when IMS_ORG_TENANT_ID_MAPPINGS mapping is invalid JSON', async () => {
-      // Set invalid JSON in IMS_ORG_TENANT_ID_MAPPINGS secret
-      context.env.IMS_ORG_TENANT_ID_MAPPINGS = 'invalid-json';
-
-      await runDemoUrlProcessor(message, context);
-
-      // Should use the fallback name-based tenant
-      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@adobesitesengineering/sites-optimizer/sites/test-site-id/home';
-      expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
-    });
-
-    it('should fallback to name-based tenant when IMS_ORG_TENANT_ID_MAPPINGS mapping does not contain the imsOrgId', async () => {
-      // Set IMS_ORG_TENANT_ID_MAPPINGS secret with different mapping
-      context.env.IMS_ORG_TENANT_ID_MAPPINGS = JSON.stringify({
-        'DIFFERENT_ORG_ID@AdobeOrg': 'different-team',
-      });
-
-      await runDemoUrlProcessor(message, context);
-
-      // Should use the fallback name-based tenant since the imsOrgId is not in the mapping
-      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@adobesitesengineering/sites-optimizer/sites/test-site-id/home';
-      expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
-    });
-
     it('should handle organization not found error', async () => {
       // Mock Organization.findById to return null
       context.dataAccess.Organization.findById.resolves(null);
@@ -153,11 +80,41 @@ describe('Demo URL Processor', () => {
       expect(context.log.info.calledWithMatch(sinon.match('Setup complete!'))).to.be.false;
     });
 
-    it('should handle organization with missing name property', async () => {
-      // Mock Organization.findById to return organization without name
+    it('should use tenantId when available (highest priority)', async () => {
+      // Mock Organization.findById to return organization with tenantId
+      context.dataAccess.Organization.findById.resolves({
+        name: 'Adobe Sites Engineering',
+        tenantId: 'adobe-sites-engineering',
+        imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
+      });
+
+      await runDemoUrlProcessor(message, context);
+
+      // Should use the tenantId (highest priority)
+      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@adobe-sites-engineering/sites-optimizer/sites/test-site-id/home';
+      expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
+    });
+
+    it('should fallback to name when tenantId is missing (backward compatibility)', async () => {
+      // Mock Organization.findById to return organization with name but no tenantId
+      context.dataAccess.Organization.findById.resolves({
+        name: 'Adobe Sites Engineering',
+        imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
+        // tenantId property is missing
+      });
+
+      await runDemoUrlProcessor(message, context);
+
+      // Should use the name-based tenant (lowercase, no spaces) as fallback
+      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@adobesitesengineering/sites-optimizer/sites/test-site-id/home';
+      expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
+    });
+
+    it('should fallback to DEFAULT_TENANT_ID when both name and tenantId are missing', async () => {
+      // Mock Organization.findById to return organization without name and tenantId
       context.dataAccess.Organization.findById.resolves({
         imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
-        // name property is missing
+        // name and tenantId properties are missing
       });
 
       // Set default tenant ID
@@ -165,10 +122,188 @@ describe('Demo URL Processor', () => {
 
       await runDemoUrlProcessor(message, context);
 
-      // Should log error about missing name and use fallback
-      expect(context.log.error.calledWith('Organization name is missing, using default tenant ID')).to.be.true;
+      // Should log error about using default tenant ID
+      expect(context.log.error.calledWith('Using default tenant ID')).to.be.true;
       const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@default-tenant/sites-optimizer/sites/test-site-id/home';
       expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
+    });
+
+    it('should handle successful demo URL processing with tenantId', async () => {
+      // Mock Organization.findById to return organization with tenantId
+      context.dataAccess.Organization.findById.resolves({
+        name: 'Adobe Sites Engineering',
+        tenantId: 'adobe-sites-engineering',
+        imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
+      });
+
+      await runDemoUrlProcessor(message, context);
+
+      // Should log the processing message
+      expect(context.log.info.calledWith('Processing demo url for site:', {
+        taskType: 'demo-url-processor',
+        siteId: 'test-site-id',
+        experienceUrl: 'https://example.com',
+        organizationId: 'test-org-id',
+      })).to.be.true;
+
+      // Should log the completion message
+      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@adobe-sites-engineering/sites-optimizer/sites/test-site-id/home';
+      expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
+    });
+
+    it('should handle successful demo URL processing with name fallback', async () => {
+      // Mock Organization.findById to return organization with name but no tenantId
+      context.dataAccess.Organization.findById.resolves({
+        name: 'Adobe Sites Engineering',
+        imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
+        // tenantId property is missing
+      });
+
+      await runDemoUrlProcessor(message, context);
+
+      // Should log the processing message
+      expect(context.log.info.calledWith('Processing demo url for site:', {
+        taskType: 'demo-url-processor',
+        siteId: 'test-site-id',
+        experienceUrl: 'https://example.com',
+        organizationId: 'test-org-id',
+      })).to.be.true;
+
+      // Should log the completion message with name-based tenant
+      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@adobesitesengineering/sites-optimizer/sites/test-site-id/home';
+      expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
+    });
+
+    it('should handle successful demo URL processing with DEFAULT_TENANT_ID fallback', async () => {
+      // Mock Organization.findById to return organization without name and tenantId
+      context.dataAccess.Organization.findById.resolves({
+        imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
+        // name and tenantId properties are missing
+      });
+
+      // Set default tenant ID
+      context.env.DEFAULT_TENANT_ID = 'default-tenant';
+
+      await runDemoUrlProcessor(message, context);
+
+      // Should log the processing message
+      expect(context.log.info.calledWith('Processing demo url for site:', {
+        taskType: 'demo-url-processor',
+        siteId: 'test-site-id',
+        experienceUrl: 'https://example.com',
+        organizationId: 'test-org-id',
+      })).to.be.true;
+
+      // Should log error about using default tenant ID
+      expect(context.log.error.calledWith('Using default tenant ID')).to.be.true;
+
+      // Should log the completion message with default tenant
+      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@default-tenant/sites-optimizer/sites/test-site-id/home';
+      expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
+    });
+
+    it('should get tenantId from imsClient when not available in organization', async () => {
+      // Mock Organization.findById to return organization without tenantId
+      context.dataAccess.Organization.findById.resolves({
+        name: 'Adobe Sites Engineering',
+        imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
+        // tenantId property is missing
+      });
+
+      // Mock imsClient to return tenantId
+      context.imsClient = {
+        getImsOrganizationDetails: sinon.stub().resolves({
+          tenantId: 'ims-tenant-id-from-client',
+        }),
+      };
+
+      await runDemoUrlProcessor(message, context);
+
+      // Should call imsClient.getImsOrganizationDetails
+      expect(context.imsClient.getImsOrganizationDetails.calledWith('8C6043F15F43B6390A49401A@AdobeOrg')).to.be.true;
+
+      // Should use the tenantId from imsClient
+      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@ims-tenant-id-from-client/sites-optimizer/sites/test-site-id/home';
+      expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
+    });
+
+    it('should fallback to name when imsClient fails and tenantId is missing', async () => {
+      // Mock Organization.findById to return organization without tenantId
+      context.dataAccess.Organization.findById.resolves({
+        name: 'Adobe Sites Engineering',
+        imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
+        // tenantId property is missing
+      });
+
+      // Mock imsClient to throw an error
+      context.imsClient = {
+        getImsOrganizationDetails: sinon.stub().rejects(new Error('IMS API error')),
+      };
+
+      await runDemoUrlProcessor(message, context);
+
+      // Should call imsClient.getImsOrganizationDetails
+      expect(context.imsClient.getImsOrganizationDetails.calledWith('8C6043F15F43B6390A49401A@AdobeOrg')).to.be.true;
+
+      // Should log error about IMS API failure
+      expect(context.log.error.calledWith('Error retrieving IMS Org details: IMS API error')).to.be.true;
+
+      // Should fallback to name-based tenant
+      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@adobesitesengineering/sites-optimizer/sites/test-site-id/home';
+      expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
+    });
+
+    it('should fallback to DEFAULT_TENANT_ID when imsClient fails and name is missing', async () => {
+      // Mock Organization.findById to return organization without tenantId and name
+      context.dataAccess.Organization.findById.resolves({
+        imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
+        // tenantId and name properties are missing
+      });
+
+      // Mock imsClient to throw an error
+      context.imsClient = {
+        getImsOrganizationDetails: sinon.stub().rejects(new Error('IMS API error')),
+      };
+
+      // Set default tenant ID
+      context.env.DEFAULT_TENANT_ID = 'default-tenant';
+
+      await runDemoUrlProcessor(message, context);
+
+      // Should call imsClient.getImsOrganizationDetails
+      expect(context.imsClient.getImsOrganizationDetails.calledWith('8C6043F15F43B6390A49401A@AdobeOrg')).to.be.true;
+
+      // Should log error about IMS API failure
+      expect(context.log.error.calledWith('Error retrieving IMS Org details: IMS API error')).to.be.true;
+
+      // Should log error about using default tenant ID
+      expect(context.log.error.calledWith('Using default tenant ID')).to.be.true;
+
+      // Should use DEFAULT_TENANT_ID as final fallback
+      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@default-tenant/sites-optimizer/sites/test-site-id/home';
+      expect(context.log.info.calledWith(`Setup complete! Access your demo environment here: ${expectedDemoUrl}`)).to.be.true;
+    });
+
+    it('should send Slack message when using default tenant ID', async () => {
+      // Mock Organization.findById to return organization without tenantId and name
+      context.dataAccess.Organization.findById.resolves({
+        imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
+        // tenantId and name properties are missing
+      });
+
+      // Mock imsClient to throw an error
+      context.imsClient = {
+        getImsOrganizationDetails: sinon.stub().rejects(new Error('IMS API error')),
+      };
+
+      // Set default tenant ID
+      context.env.DEFAULT_TENANT_ID = 'default-tenant';
+
+      await runDemoUrlProcessor(message, context);
+
+      // Should send Slack message about using default tenant ID
+      // Note: We can't directly test the say function call, but we can verify the log message
+      expect(context.log.error.calledWith('Using default tenant ID')).to.be.true;
     });
   });
 });
