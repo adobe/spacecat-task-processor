@@ -105,7 +105,7 @@ describe('Disable Import Audit Processor', () => {
       // Check saves were called
       expect(mockSite.save.called).to.be.true;
       expect(mockConfiguration.save.called).to.be.true;
-      expect(context.log.info.calledWith('Disabled imports and audits')).to.be.true;
+      expect(context.log.info.calledWith('For siteId: test-site-id, Disabled imports and audits')).to.be.true;
     });
 
     it('should handle site not found error', async () => {
@@ -132,7 +132,7 @@ describe('Disable Import Audit Processor', () => {
       await runDisableImportAuditProcessor(message, context);
 
       // Should complete without error
-      expect(context.log.info.calledWith('Disabled imports and audits')).to.be.true;
+      expect(context.log.info.calledWith('For siteId: test-site-id, Disabled imports and audits')).to.be.true;
     });
   });
 });
