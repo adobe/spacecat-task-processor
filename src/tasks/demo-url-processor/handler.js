@@ -26,21 +26,26 @@ const TASK_TYPE = 'demo-url-processor';
  * @returns {string} The IMS tenant ID
  */
 async function getImsTenantId(imsOrgId, organization, context, log, env, slackContext) {
+  // Get tenantId from organization
   const { name, tenantId } = organization;
-
-  // If tenantId is there, return it
   if (tenantId) {
     return tenantId;
+  } else {
+    // Get tenantId from IMS org details if tenantId is not there in organization
+    let imsOrgDetails;
+    try {
+      imsOrgDetails = await context.imsClient.getImsOrganizationDetails(imsOrgId);
+      return imsOrgDetails.tenantId;
+    } catch (error) {
+      log.error(`Error retrieving IMS Org details: ${error.message}`);
+    }
   }
-
-  // If tenantId isn't there, use name to generate (backward compatible for existing orgs)
+  // As a fallback option, use name to generate tenant id (backward compatible for existing orgs)
   if (name) {
     return name.toLowerCase().replace(/\s+/g, '');
   }
-
-  // If name is also not there, log an error and return DEFAULT_TENANT_ID
-  log.error('Organization name and tenantId are missing, using default tenant ID');
-  await say(env, log, slackContext, ':x: Organization name and tenantId are missing, using default tenant ID');
+  log.error('Using default tenant ID');
+  await say(env, log, slackContext, ':x: Using default tenant ID');
   return context.env.DEFAULT_TENANT_ID;
 }
 

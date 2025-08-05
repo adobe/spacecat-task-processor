@@ -15,6 +15,7 @@ import secrets from '@adobe/helix-shared-secrets';
 import dataAccess from '@adobe/spacecat-shared-data-access';
 import { sqsEventAdapter } from '@adobe/spacecat-shared-utils';
 import { internalServerError, notFound, ok } from '@adobe/spacecat-shared-http-utils';
+import { imsClientWrapper } from '@adobe/spacecat-shared-ims-client';
 
 import { runOpportunityStatusProcessor as opportunityStatusProcessor } from './tasks/opportunity-status-processor/handler.js';
 import { runDisableImportAuditProcessor as disableImportAuditProcessor } from './tasks/disable-import-audit-processor/handler.js';
@@ -76,5 +77,6 @@ async function run(message, context) {
 export const main = wrap(run)
   .with(dataAccess)
   .with(sqsEventAdapter)
+  .with(imsClientWrapper)
   .with(secrets, { name: getSecretName })
   .with(helixStatus);
