@@ -98,7 +98,9 @@ export async function runOpportunityStatusProcessor(message, context) {
 
     // send status messages to slack
     if (statusMessages.length > 0) {
+      const slackMessage = `:white_check_mark: *Opportunities status for site ${siteId}*:`;
       const combinedMessage = statusMessages.join('\n');
+      await say(env, log, slackContext, slackMessage);
       await say(env, log, slackContext, combinedMessage);
     }
   } catch (error) {
