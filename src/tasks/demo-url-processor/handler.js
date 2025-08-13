@@ -17,6 +17,7 @@ const TASK_TYPE = 'demo-url-processor';
 
 /**
  * Gets the IMS tenant ID from the organization
+ * @param {object} imsOrgId - The IMS organization ID
  * @param {object} organization - The organization object
  * @param {object} context - The context object
  * @param {object} log - The log object
@@ -44,15 +45,15 @@ function getImsTenantId(imsOrgId, organization, context, log) {
 }
 
 /**
- * Runs the audit status processor
- * @param {object} demoUrlMessage - The demoUrlMessage object
+ * Runs the demo URL processor
+ * @param {object} message - The message object
  * @param {object} context - The context object
  */
 export async function runDemoUrlProcessor(message, context) {
   const { log, env, dataAccess } = context;
   const { Organization } = dataAccess;
   const {
-    siteId, imsOrgId, organizationId, taskContext,
+    siteId, siteUrl, imsOrgId, organizationId, taskContext,
   } = message;
   const {
     experienceUrl, slackContext,
@@ -61,22 +62,35 @@ export async function runDemoUrlProcessor(message, context) {
   log.info('Processing demo url for site:', {
     taskType: TASK_TYPE,
     siteId,
+    siteUrl,
+    imsOrgId,
     experienceUrl,
     organizationId,
   });
 
-  const organization = await Organization.findById(organizationId);
-  if (!organization) {
-    log.error(`Organization not found for organizationId: ${organizationId}`);
-    await say(env, log, slackContext, `:x: Organization not found for organizationId: ${organizationId}`);
-    return ok({ message: 'Organization not found' });
+  let imsTenantId = context.env.DEFAULT_TENANT_ID;
+  try {
+    const organization = await Organization.findById(organizationId);
+    if (!organization) {
+      log.error(`Organization not found for organizationId: ${organizationId}`);
+      if (slackContext) {
+        await say(env, log, slackContext, `:x: Organization not found for organizationId: ${organizationId}`);
+      }
+      return ok({ message: 'Organization not found' });
+    }
+    imsTenantId = getImsTenantId(imsOrgId, organization, context, log);
+  } catch (error) {
+    log.error(`Error finding organization for organizationId: ${organizationId}`, error);
   }
 
-  const imsTenantId = getImsTenantId(imsOrgId, organization, context, log);
   const demoUrl = `${experienceUrl}?organizationId=${organizationId}#/@${imsTenantId}/sites-optimizer/sites/${siteId}/home`;
-  const slackMessage = `:white_check_mark: Setup complete! Access your demo environment here: ${demoUrl}`;
-  await say(env, log, slackContext, slackMessage);
-  log.info(`Setup complete! Access your demo environment here: ${demoUrl}`);
+  const slackMessage = `:white_check_mark: Setup complete for site ${siteUrl}! Access your environment here: ${demoUrl}`;
+
+  if (slackContext) {
+    await say(env, log, slackContext, slackMessage);
+  }
+
+  log.info(`Setup complete for site ${siteUrl}! Access your environment here: ${demoUrl}`);
 
   return ok({ message: 'Demo URL processor completed' });
 }

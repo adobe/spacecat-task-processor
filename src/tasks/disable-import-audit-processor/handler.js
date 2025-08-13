@@ -54,8 +54,10 @@ export async function runDisableImportAuditProcessor(message, context) {
 
     await site.save();
     await configuration.save();
-    log.info('Disabled imports and audits');
-    const slackMessage = `:broom: *Disabled imports*: ${importTypes.join(', ')} *and audits*: ${auditTypes.join(', ')}`;
+    log.info(`For site: ${siteUrl}: Disabled imports and audits`);
+    let slackMessage = `:broom: *For site: ${siteUrl}: Disabled imports*: ${importTypes.join(', ')} *and audits*: ${auditTypes.join(', ')}`;
+    await say(env, log, slackContext, slackMessage);
+    slackMessage = ':information_source: The list of enabled imports and audits may differ from the disabled ones because items that are already enabled are not automatically disabled.';
     await say(env, log, slackContext, slackMessage);
   } catch (error) {
     log.error('Error in disable import and audit processor:', error);
