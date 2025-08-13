@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/adobe/spacecat-task-processor/compare/v1.0.27...v1.1.0) (2025-08-13)
+
+
+### Features
+
+* onboard automation fix for multiple sites using csv file ([#31](https://github.com/adobe/spacecat-task-processor/issues/31)) ([8b9cef6](https://github.com/adobe/spacecat-task-processor/commit/8b9cef6ac51407a0e124f2100c041c84f67ab806))
+
 ## [1.0.27](https://github.com/adobe/spacecat-task-processor/compare/v1.0.26...v1.0.27) (2025-08-12)
 
 
