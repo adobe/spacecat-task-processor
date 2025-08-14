@@ -1,3 +1,10 @@
+## [1.1.3](https://github.com/adobe/spacecat-task-processor/compare/v1.1.2...v1.1.3) (2025-08-14)
+
+
+### Bug Fixes
+
+* fetch tenant id from organization ([#21](https://github.com/adobe/spacecat-task-processor/issues/21)) ([dae1bc3](https://github.com/adobe/spacecat-task-processor/commit/dae1bc364f784aace22938c5b270f1bb19d33afc))
+
 ## [1.1.2](https://github.com/adobe/spacecat-task-processor/compare/v1.1.1...v1.1.2) (2025-08-14)
 
 
