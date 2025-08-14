@@ -20,14 +20,13 @@ const TASK_TYPE = 'demo-url-processor';
  * @param {string} imsOrgId - The IMS organization ID
  * @param {object} organization - The organization object
  * @param {object} context - The context object
- * @param {object} log - The log object
- * @param {object} env - The environment object
  * @param {object} slackContext - The Slack context object
  * @returns {string} The IMS tenant ID
  */
-async function getImsTenantId(imsOrgId, organization, context, log, env, slackContext) {
+async function getImsTenantId(imsOrgId, organization, context, slackContext) {
   // Get tenantId from organization
   const { name, tenantId } = organization;
+  const { log, env, imsClient } = context;
   if (tenantId) {
     log.info(`Tenant ID found in organization: ${tenantId}`);
     return tenantId;
@@ -35,7 +34,7 @@ async function getImsTenantId(imsOrgId, organization, context, log, env, slackCo
     // Get tenantId from IMS org details if tenantId is not there in organization
     let imsOrgDetails;
     try {
-      imsOrgDetails = await context.imsClient.getImsOrganizationDetails(imsOrgId);
+      imsOrgDetails = await imsClient.getImsOrganizationDetails(imsOrgId);
       log.info(`IMS Org Details: ${imsOrgDetails}`);
       return imsOrgDetails.tenantId;
     } catch (error) {
@@ -86,7 +85,7 @@ export async function runDemoUrlProcessor(message, context) {
       }
       return ok({ message: 'Organization not found' });
     }
-    imsTenantId = await getImsTenantId(imsOrgId, organization, context, log, env, slackContext);
+    imsTenantId = await getImsTenantId(imsOrgId, organization, context, slackContext);
   } catch (error) {
     log.error(`Error finding organization for organizationId: ${organizationId}`, error);
   }
