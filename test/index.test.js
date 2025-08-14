@@ -45,6 +45,20 @@ describe('Index Tests', () => {
         warn: sandbox.stub(),
         debug: sandbox.stub(),
       },
+      env: {
+        imsHost: 'https://ims-na1.adobelogin.com',
+        clientId: 'test-client-id',
+        clientCode: 'test-client-code',
+        clientSecret: 'test-client-secret',
+        DEFAULT_TENANT_ID: 'default-tenant',
+      },
+      imsHost: 'https://ims-na1.adobelogin.com',
+      clientId: 'test-client-id',
+      clientCode: 'test-client-code',
+      clientSecret: 'test-client-secret',
+      imsClient: {
+        getImsOrganizationDetails: sandbox.stub(),
+      },
       runtime: {
         region: 'us-east-1',
       },

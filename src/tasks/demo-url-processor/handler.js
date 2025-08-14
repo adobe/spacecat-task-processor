@@ -17,31 +17,38 @@ const TASK_TYPE = 'demo-url-processor';
 
 /**
  * Gets the IMS tenant ID from the organization
- * @param {object} imsOrgId - The IMS organization ID
+ * @param {string} imsOrgId - The IMS organization ID
  * @param {object} organization - The organization object
  * @param {object} context - The context object
- * @param {object} log - The log object
+ * @param {object} slackContext - The Slack context object
  * @returns {string} The IMS tenant ID
  */
-function getImsTenantId(imsOrgId, organization, context, log) {
-  const { name } = organization;
-  try {
-    const imsOrgToTenantMapping = context.env.IMS_ORG_TENANT_ID_MAPPINGS;
-    if (imsOrgToTenantMapping) {
-      const mapping = JSON.parse(imsOrgToTenantMapping);
-      if (mapping[imsOrgId]) {
-        return mapping[imsOrgId];
-      }
-    }
-  } catch (error) {
-    log.error('Error loading IMS_ORG_TENANT_ID_MAPPINGS mapping:', error.message);
-  }
-  if (!name) {
-    log.error('Organization name is missing, using default tenant ID');
-    return context.env.DEFAULT_TENANT_ID;
+async function getImsTenantId(imsOrgId, organization, context, slackContext) {
+  // Get tenantId from organization
+  const { name, tenantId } = organization;
+  const { log, env, imsClient } = context;
+  if (tenantId) {
+    log.info(`Tenant ID found in organization: ${tenantId}`);
+    return tenantId;
   } else {
+    // Get tenantId from IMS org details if tenantId is not there in organization
+    let imsOrgDetails;
+    try {
+      imsOrgDetails = await imsClient.getImsOrganizationDetails(imsOrgId);
+      log.info(`IMS Org Details: ${imsOrgDetails}`);
+      return imsOrgDetails.tenantId;
+    } catch (error) {
+      log.error(`Error retrieving IMS Org details: ${error.message}`);
+    }
+  }
+  // As a fallback option, use name to generate tenant id (backward compatible for existing orgs)
+  if (name) {
+    log.info(`Using organization name to generate tenant ID: ${name}`);
     return name.toLowerCase().replace(/\s+/g, '');
   }
+  log.error('Using default tenant ID');
+  await say(env, log, slackContext, ':x: Using default tenant ID');
+  return context.env.DEFAULT_TENANT_ID;
 }
 
 /**
@@ -78,7 +85,7 @@ export async function runDemoUrlProcessor(message, context) {
       }
       return ok({ message: 'Organization not found' });
     }
-    imsTenantId = getImsTenantId(imsOrgId, organization, context, log);
+    imsTenantId = await getImsTenantId(imsOrgId, organization, context, slackContext);
   } catch (error) {
     log.error(`Error finding organization for organizationId: ${organizationId}`, error);
   }
