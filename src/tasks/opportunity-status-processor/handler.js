@@ -11,9 +11,33 @@
  */
 
 import { ok } from '@adobe/spacecat-shared-http-utils';
+import RUMAPIClient from '@adobe/spacecat-shared-rum-api-client';
 import { say } from '../../utils/slack-utils.js';
 
 const TASK_TYPE = 'opportunity-status-processor';
+
+/**
+ * Checks if RUM is available for a domain by attempting to get a domainkey
+ * @param {string} domain - The domain to check
+ * @param {object} context - The context object with env and log
+ * @returns {Promise<boolean>} True if RUM is available, false otherwise
+ */
+async function isRUMAvailable(domain, context) {
+  const { log } = context;
+
+  try {
+    const rumClient = RUMAPIClient.createFrom(context);
+
+    // Attempt to get domainkey - if this succeeds, RUM is available
+    await rumClient.retrieveDomainkey(domain);
+
+    log.info(`RUM is available for domain: ${domain}`);
+    return true;
+  } catch (error) {
+    log.info(`RUM is not available for domain: ${domain}. Reason: ${error.message}`);
+    return false;
+  }
+}
 
 /**
  * Gets the opportunity title from the opportunity type
@@ -73,8 +97,19 @@ export async function runOpportunityStatusProcessor(message, context) {
       return ok({ message: 'Site not found' });
     }
 
+    let rumAvailable = false;
+    if (siteUrl) {
+      try {
+        const domain = new URL(siteUrl).hostname;
+        rumAvailable = await isRUMAvailable(domain, context);
+      } catch (error) {
+        log.warn(`Could not parse siteUrl for RUM check: ${siteUrl}`, error);
+        rumAvailable = false;
+      }
+    }
+
     const opportunities = await site.getOpportunities();
-    log.info(`Found ${opportunities.length} opportunities for site ${siteId}`);
+    log.info(`Found ${opportunities.length} opportunities for site ${siteId}. RUM available: ${rumAvailable}`);
 
     // Track processed opportunity types to avoid duplicates
     const processedTypes = new Set();
@@ -95,22 +130,38 @@ export async function runOpportunityStatusProcessor(message, context) {
       const opportunityTitle = getOpportunityTitle(opportunityType);
       const hasSuggestions = suggestions && suggestions.length > 0;
       const status = hasSuggestions ? ':white_check_mark:' : ':cross-x:';
-      statusMessages.push(`${opportunityTitle} ${status}`);
+
+      // Add RUM availability indicator for CWV opportunities
+      let statusMessage = `${opportunityTitle} ${status}`;
+      if (opportunityType === 'cwv') {
+        const rumIndicator = rumAvailable ? ':chart_with_upwards_trend:' : ':no_entry_sign:';
+        statusMessage += ` (RUM: ${rumIndicator})`;
+      }
+
+      statusMessages.push(statusMessage);
     }
 
-    // send status messages to slack
-    if (statusMessages.length > 0) {
-      const slackMessage = `:white_check_mark: *Opportunities status for site ${siteUrl}*:`;
-      const combinedMessage = statusMessages.join('\n');
+    // Send status message to Slack if context is available
+    if (slackContext && statusMessages.length > 0) {
+      const slackMessage = `:clipboard: **Opportunity Status for ${siteUrl || siteId}**\n\n${statusMessages.join('\n')}`;
       await say(env, log, slackContext, slackMessage);
-      await say(env, log, slackContext, combinedMessage);
     }
+
+    log.info(`Processed ${opportunities.length} opportunities for site ${siteId}`);
+
+    return ok({
+      message: `Opportunity status processor completed for ${opportunities.length} opportunities`,
+      opportunitiesProcessed: opportunities.length,
+      rumAvailable,
+    });
   } catch (error) {
     log.error('Error in opportunity status processor:', error);
-    await say(env, log, slackContext, `:x: Error checking site opportunities status: ${error.message}`);
+    await say(env, log, slackContext, `:x: Error processing opportunities for site ${siteId}: ${error.message}`);
+    return ok({
+      message: 'Opportunity status processor completed with errors',
+      error: error.message,
+    });
   }
-
-  return ok({ message: 'Opportunity status processor completed' });
 }
 
 export default runOpportunityStatusProcessor;
