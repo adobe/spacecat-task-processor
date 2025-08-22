@@ -193,7 +193,7 @@ describe('Opportunity Status Processor', () => {
       expect(context.log.info.calledWith('Found 1 opportunities for site test-site-id. RUM available: false')).to.be.true;
     });
 
-    it('should deduplicate opportunity types and skip duplicates', async () => {
+    it('should process all opportunities including duplicates', async () => {
       // Mock opportunities with duplicate types
       const mockOpportunities = [
         {
@@ -217,14 +217,14 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      // Should only process unique types (2 unique types, not 4 total opportunities)
+      // Should process all opportunities (4 total opportunities)
       expect(context.log.info.calledWith('Found 4 opportunities for site test-site-id. RUM available: false')).to.be.true;
 
-      // Verify that getSuggestions was only called for unique types (2 times, not 4)
+      // Verify that getSuggestions was called for all opportunities
       expect(mockOpportunities[0].getSuggestions.called).to.be.true;
-      expect(mockOpportunities[1].getSuggestions.called).to.be.false; // Should be skipped
+      expect(mockOpportunities[1].getSuggestions.called).to.be.true;
       expect(mockOpportunities[2].getSuggestions.called).to.be.true;
-      expect(mockOpportunities[3].getSuggestions.called).to.be.false; // Should be skipped
+      expect(mockOpportunities[3].getSuggestions.called).to.be.true;
     });
 
     it('should handle RUM availability scenarios', async () => {

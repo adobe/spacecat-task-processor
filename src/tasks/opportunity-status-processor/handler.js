@@ -104,46 +104,31 @@ export async function runOpportunityStatusProcessor(message, context) {
         rumAvailable = await isRUMAvailable(domain, context);
       } catch (error) {
         log.warn(`Could not parse siteUrl for RUM check: ${siteUrl}`, error);
-        rumAvailable = false;
       }
     }
 
     const opportunities = await site.getOpportunities();
     log.info(`Found ${opportunities.length} opportunities for site ${siteId}. RUM available: ${rumAvailable}`);
 
-    // Track processed opportunity types to avoid duplicates
-    const processedTypes = new Set();
     const statusMessages = [];
+    const rumStatus = rumAvailable ? ':white_check_mark:' : ':cross-x:';
+    statusMessages.push(`RUM ${rumStatus}`);
 
     for (const opportunity of opportunities) {
-      const opportunityType = opportunity.getType();
-      if (processedTypes.has(opportunityType)) {
-        // eslint-disable-next-line no-continue
-        continue;
-      }
-      processedTypes.add(opportunityType);
-
       // eslint-disable-next-line no-await-in-loop
       const suggestions = await opportunity.getSuggestions();
 
-      // Get the opportunity title
+      const opportunityType = opportunity.getType();
       const opportunityTitle = getOpportunityTitle(opportunityType);
       const hasSuggestions = suggestions && suggestions.length > 0;
       const status = hasSuggestions ? ':white_check_mark:' : ':cross-x:';
 
-      // Add RUM availability indicator for CWV opportunities
-      let statusMessage = `${opportunityTitle} ${status}`;
-      if (opportunityType === 'cwv') {
-        const rumIndicator = rumAvailable ? ':chart_with_upwards_trend:' : ':no_entry_sign:';
-        statusMessage += ` (RUM: ${rumIndicator})`;
-      }
-
+      const statusMessage = `${opportunityTitle} ${status}`;
       statusMessages.push(statusMessage);
     }
 
-    // Send status message to Slack if context is available
     if (slackContext && statusMessages.length > 0) {
-      const slackMessage = `:clipboard: **Opportunity Status for ${siteUrl || siteId}**\n\n${statusMessages.join('\n')}`;
+      const slackMessage = `:clipboard: **Opportunity Status for ${siteUrl}**\n\n${statusMessages.join('\n')}`;
       await say(env, log, slackContext, slackMessage);
     }
 
