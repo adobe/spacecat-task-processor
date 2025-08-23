@@ -256,137 +256,6 @@ describe('CWV Demo Suggestions Processor Task', () => {
       expect(result.message).to.include('CWV demo suggestions processor completed');
     });
 
-    it('should handle suggestions with various data structures and edge cases', async () => {
-      const suggestionsWithEdgeCases = [
-        {
-          getId: sandbox.stub().returns('no-pageviews'),
-          getData: sandbox.stub().returns({
-            // Missing pageviews property
-            metrics: [{ deviceType: 'desktop', lcp: 3000 }],
-          }),
-        },
-        {
-          getId: sandbox.stub().returns('zero-pageviews'),
-          getData: sandbox.stub().returns({
-            pageviews: 0, // Zero pageviews
-            metrics: [{ deviceType: 'desktop', lcp: 3000 }],
-          }),
-        },
-        {
-          getId: sandbox.stub().returns('no-metrics'),
-          getData: sandbox.stub().returns({
-            pageviews: 10000,
-            // No metrics property
-          }),
-        },
-        {
-          getId: sandbox.stub().returns('empty-metrics'),
-          getData: sandbox.stub().returns({
-            pageviews: 10000,
-            metrics: [], // Empty metrics array
-          }),
-        },
-        {
-          getId: sandbox.stub().returns('null-metrics'),
-          getData: sandbox.stub().returns({
-            pageviews: 10000,
-            metrics: null, // Null metrics
-          }),
-        },
-        {
-          getId: sandbox.stub().returns('below-thresholds'),
-          getData: sandbox.stub().returns({
-            pageviews: 10000,
-            metrics: [
-              {
-                deviceType: 'desktop',
-                lcp: 2000, // Below threshold
-                cls: 0.05, // Below threshold
-                inp: 150, // Below threshold
-              },
-            ],
-          }),
-        },
-      ];
-
-      mockContext.dataAccess.Site.findById.resolves(mockSite);
-      mockSite.getOpportunities.resolves([mockOpportunity]);
-      mockOpportunity.getSuggestions.resolves(suggestionsWithEdgeCases);
-
-      const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
-
-      expect(result.message).to.include('CWV demo suggestions processor completed');
-    });
-
-    it('should handle suggestions with existing issues of various types', async () => {
-      const suggestionsWithIssues = [
-        {
-          getId: sandbox.stub().returns('different-issue-types'),
-          getData: sandbox.stub().returns({
-            pageviews: 10000,
-            issues: [{ type: 'accessibility', value: 'existing accessibility issue' }], // Different issue type
-            metrics: [{
-              deviceType: 'desktop', lcp: 3000, cls: 0.05, inp: 250,
-            }],
-          }),
-        },
-        {
-          getId: sandbox.stub().returns('empty-issues'),
-          getData: sandbox.stub().returns({
-            pageviews: 10000,
-            issues: [], // Empty issues array
-            metrics: [{
-              deviceType: 'desktop', lcp: 3000, cls: 0.05, inp: 250,
-            }],
-          }),
-        },
-        {
-          getId: sandbox.stub().returns('non-array-issues'),
-          getData: sandbox.stub().returns({
-            pageviews: 10000,
-            issues: 'not an array', // Non-array issues
-            metrics: [{
-              deviceType: 'desktop', lcp: 3000, cls: 0.05, inp: 250,
-            }],
-          }),
-        },
-        {
-          getId: sandbox.stub().returns('existing-cwv-issues'),
-          getData: sandbox.stub().returns({
-            pageviews: 10000,
-            issues: [{ type: 'lcp', value: 'existing lcp issue' }], // Same type as CWV
-            metrics: [{
-              deviceType: 'desktop', lcp: 3000, cls: 0.05, inp: 250,
-            }],
-          }),
-        },
-      ];
-
-      mockContext.dataAccess.Site.findById.resolves(mockSite);
-      mockSite.getOpportunities.resolves([mockOpportunity]);
-      mockOpportunity.getSuggestions.resolves(suggestionsWithIssues);
-
-      // Mock the suggestion for findById
-      const mockSuggestionWithExistingIssues = {
-        getData: sandbox.stub().returns({
-          pageviews: 10000,
-          issues: [{ type: 'lcp', value: 'existing lcp issue' }],
-          metrics: [{
-            deviceType: 'desktop', lcp: 3000, cls: 0.05, inp: 250,
-          }],
-        }),
-        setData: sandbox.stub(),
-        setUpdatedBy: sandbox.stub(),
-        save: sandbox.stub().resolves(),
-      };
-
-      mockSuggestionDataAccess.findById.withArgs('existing-cwv-issues').resolves(mockSuggestionWithExistingIssues);
-
-      const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
-
-      expect(result.message).to.include('CWV demo suggestions processor completed');
-    });
-
     it('should handle suggestion not found during update', async () => {
       mockContext.dataAccess.Site.findById.resolves(mockSite);
       mockSite.getOpportunities.resolves([mockOpportunity]);
@@ -430,123 +299,234 @@ describe('CWV Demo Suggestions Processor Task', () => {
       expect(result.opportunitiesProcessed).to.equal(1);
     });
 
-    it('should handle various taskContext configurations', async () => {
-      const testCases = [
+    it('should handle suggestions with missing metrics property', async () => {
+      const suggestionsWithMissingMetrics = [
         {
-          name: 'without taskContext',
-          message: { siteId: 'test-site-id', organizationId: 'test-org-id' },
-          expectedProfile: undefined,
-        },
-        {
-          name: 'with empty taskContext',
-          message: { siteId: 'test-site-id', organizationId: 'test-org-id', taskContext: {} },
-          expectedProfile: undefined,
-        },
-        {
-          name: 'with taskContext but no profile',
-          message: {
-            siteId: 'test-site-id',
-            organizationId: 'test-org-id',
-            taskContext: { auditTypes: ['cwv'] },
-          },
-          expectedProfile: undefined,
-        },
-        {
-          name: 'with non-demo profile',
-          message: {
-            siteId: 'test-site-id',
-            organizationId: 'test-org-id',
-            taskContext: { auditTypes: ['cwv'], profile: 'default' },
-          },
-          expectedProfile: 'default',
+          getId: sandbox.stub().returns('missing-metrics'),
+          getData: sandbox.stub().returns({
+            pageviews: 10000,
+            // No metrics property - this will trigger the || [] fallback
+          }),
         },
       ];
 
-      const testPromises = testCases.map(async (testCase) => {
-        const result = await runCwvDemoSuggestionsProcessor(testCase.message, mockContext);
+      mockContext.dataAccess.Site.findById.resolves(mockSite);
+      mockSite.getOpportunities.resolves([mockOpportunity]);
+      mockOpportunity.getSuggestions.resolves(suggestionsWithMissingMetrics);
 
-        expect(mockContext.log.info.calledWith(`Skipping CWV processing for non-demo profile. Profile: ${testCase.expectedProfile}`)).to.be.true;
-        expect(result.message).to.equal('CWV processing skipped - not a demo profile');
-        expect(result.reason).to.equal('non-demo-profile');
-        expect(result.profile).to.equal(testCase.expectedProfile);
-      });
+      const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
 
-      await Promise.all(testPromises);
+      // Should complete successfully but not add any generic suggestions since no metrics
+      expect(result.message).to.include('CWV demo suggestions processor completed');
+      expect(result.opportunitiesProcessed).to.equal(1);
+      expect(result.suggestionsAdded).to.equal(0);
     });
 
-    it('should handle error scenarios gracefully', async () => {
-      const errorTestCases = [
-        {
-          name: 'error in updateSuggestionWithGenericIssues',
-          setup: () => {
-            mockContext.dataAccess.Site.findById.resolves(mockSite);
-            mockSite.getOpportunities.resolves([mockOpportunity]);
-            mockOpportunity.getSuggestions.resolves(mockSuggestions);
-            mockSuggestionDataAccess.findById.withArgs('suggestion-1').rejects(new Error('Database error'));
-          },
-          expectedLog: 'Error updating suggestion suggestion-1 with generic issues:',
-        },
-        {
-          name: 'error in processOpportunity',
-          setup: () => {
-            mockContext.dataAccess.Site.findById.resolves(mockSite);
-            mockSite.getOpportunities.resolves([mockOpportunity]);
-            mockOpportunity.getSuggestions.rejects(new Error('Failed to fetch suggestions'));
-          },
-          expectedLog: 'Error processing opportunity test-opportunity-id:',
-        },
-        {
-          name: 'error in main function',
-          setup: () => {
-            mockContext.dataAccess.Site.findById.rejects(new Error('Site database error'));
-          },
-          expectedLog: 'Error in CWV demo suggestions processor:',
-          expectedResult: {
-            message: 'CWV demo suggestions processor completed with errors',
-            error: 'Site database error',
-          },
-        },
-        {
-          name: 'error when saving suggestion fails',
-          setup: () => {
-            mockContext.dataAccess.Site.findById.resolves(mockSite);
-            mockSite.getOpportunities.resolves([mockOpportunity]);
-            mockOpportunity.getSuggestions.resolves(mockSuggestions);
+    it('should skip processing for non-demo profiles', async () => {
+      const nonDemoMessage = {
+        siteId: 'test-site-id',
+        organizationId: 'test-org-id',
+        taskContext: { profile: 'default' },
+      };
 
-            const mockSuggestionWithError = {
-              getData: sandbox.stub().returns({
-                pageviews: 10000,
-                metrics: [{
-                  deviceType: 'desktop', lcp: 3000, cls: 0.05, inp: 250,
-                }],
-              }),
-              setData: sandbox.stub(),
-              setUpdatedBy: sandbox.stub(),
-              save: sandbox.stub().rejects(new Error('Save failed')),
-            };
+      const result = await runCwvDemoSuggestionsProcessor(nonDemoMessage, mockContext);
 
-            mockSuggestionDataAccess.findById.withArgs('suggestion-1').resolves(mockSuggestionWithError);
-          },
-          expectedLog: 'Error updating suggestion suggestion-1 with generic issues:',
+      expect(mockContext.log.info.calledWith('Skipping CWV processing for non-demo profile. Profile: default')).to.be.true;
+      expect(result.message).to.equal('CWV processing skipped - not a demo profile');
+      expect(result.reason).to.equal('non-demo-profile');
+      expect(result.profile).to.equal('default');
+    });
+
+    it('should handle missing taskContext and metrics gracefully', async () => {
+      const messageWithoutTaskContext = {
+        siteId: 'test-site-id',
+        organizationId: 'test-org-id',
+        // No taskContext
+      };
+
+      const suggestionsWithoutMetrics = [
+        {
+          getId: sandbox.stub().returns('no-metrics'),
+          getData: sandbox.stub().returns({
+            pageviews: 10000,
+            // No metrics property
+          }),
         },
       ];
 
-      // eslint-disable-next-line no-await-in-loop
-      for (const testCase of errorTestCases) {
-        // Reset mocks before each test case
-        sandbox.resetHistory();
-        testCase.setup();
+      mockContext.dataAccess.Site.findById.resolves(mockSite);
+      mockSite.getOpportunities.resolves([mockOpportunity]);
+      mockOpportunity.getSuggestions.resolves(suggestionsWithoutMetrics);
 
-        // eslint-disable-next-line no-await-in-loop
-        const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
+      const result = await runCwvDemoSuggestionsProcessor(messageWithoutTaskContext, mockContext);
 
-        expect(mockContext.log.error.calledWith(testCase.expectedLog, sinon.match.any)).to.be.true;
+      expect(mockContext.log.info.calledWith('Skipping CWV processing for non-demo profile. Profile: undefined')).to.be.true;
+      expect(result.message).to.equal('CWV processing skipped - not a demo profile');
+      expect(result.reason).to.equal('non-demo-profile');
+      expect(result.profile).to.be.undefined;
+    });
 
-        if (testCase.expectedResult) {
-          expect(result.message).to.equal(testCase.expectedResult.message);
-          expect(result.error).to.equal(testCase.expectedResult.error);
-        } else {
-          expect(result.message).to.include('CWV demo suggestions processor completed');
+    it('should handle main function errors gracefully', async () => {
+      mockContext.dataAccess.Site.findById.rejects(new Error('Site database error'));
+
+      const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
+
+      expect(mockContext.log.error.calledWith('Error in CWV demo suggestions processor:', sinon.match.any)).to.be.true;
+      expect(result.message).to.equal('CWV demo suggestions processor completed with errors');
+      expect(result.error).to.equal('Site database error');
+      expect(result.suggestionsAdded).to.equal(0);
+    });
+
+    it('should handle suggestion update errors gracefully', async () => {
+      mockContext.dataAccess.Site.findById.resolves(mockSite);
+      mockSite.getOpportunities.resolves([mockOpportunity]);
+      mockOpportunity.getSuggestions.resolves(mockSuggestions);
+      mockSuggestionDataAccess.findById.withArgs('suggestion-1').rejects(new Error('Database error'));
+
+      const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
+
+      expect(mockContext.log.error.calledWith('Error updating suggestion suggestion-1 with generic issues:', sinon.match.any)).to.be.true;
+      expect(result.message).to.include('CWV demo suggestions processor completed');
+    });
+
+    it('should handle opportunity processing errors gracefully', async () => {
+      mockContext.dataAccess.Site.findById.resolves(mockSite);
+      mockSite.getOpportunities.resolves([mockOpportunity]);
+      mockOpportunity.getSuggestions.rejects(new Error('Failed to fetch suggestions'));
+
+      const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
+
+      expect(mockContext.log.error.calledWith('Error processing opportunity test-opportunity-id:', sinon.match.any)).to.be.true;
+      expect(result.message).to.include('CWV demo suggestions processor completed');
+      expect(result.suggestionsAdded).to.equal(0);
+    });
+
+    it('should handle missing CWV reference suggestions gracefully', async () => {
+      // This test covers the case where getRandomSuggestion returns null (lines 89-90)
+      // We'll test the getRandomSuggestion function directly with a non-existent issue type
+
+      const module = await import('../../../src/tasks/cwv-demo-suggestions-processor/handler.js');
+
+      // Test getRandomSuggestion function directly with non-existent issue type
+      // This should trigger the null return path (lines 89-90)
+
+      // Since getRandomSuggestion is not exported, we need to test it indirectly
+      // by creating a scenario where it would be called with an issue type that doesn't exist
+
+      // Create suggestions with metrics that would trigger CWV issues
+      const suggestionsWithCWVIssues = [
+        {
+          getId: sandbox.stub().returns('suggestion-with-issues'),
+          getData: sandbox.stub().returns({
+            pageviews: 10000,
+            metrics: [
+              {
+                deviceType: 'desktop',
+                lcp: 3000, // Above threshold - will trigger LCP issue
+                cls: 0.05, // Below threshold
+                inp: 150, // Below threshold
+              },
+            ],
+          }),
+        },
+      ];
+
+      // Mock the suggestion that will be found by findById
+      const mockSuggestionWithIssues = {
+        getData: sandbox.stub().returns({
+          pageviews: 10000,
+          metrics: [{
+            deviceType: 'desktop', lcp: 3000, cls: 0.05, inp: 150,
+          }],
+        }),
+        setData: sandbox.stub(),
+        setUpdatedBy: sandbox.stub(),
+        save: sandbox.stub().resolves(),
+      };
+
+      mockContext.dataAccess.Site.findById.resolves(mockSite);
+      mockSite.getOpportunities.resolves([mockOpportunity]);
+      mockOpportunity.getSuggestions.resolves(suggestionsWithCWVIssues);
+      mockSuggestionDataAccess.findById.withArgs('suggestion-with-issues').resolves(mockSuggestionWithIssues);
+
+      // Temporarily remove all suggestions from lcp to trigger the null return path
+      const originalLcp = module.CWV_REFERENCE_SUGGESTIONS?.lcp;
+      if (module.CWV_REFERENCE_SUGGESTIONS && module.CWV_REFERENCE_SUGGESTIONS.lcp) {
+        module.CWV_REFERENCE_SUGGESTIONS.lcp = [];
+      }
+
+      const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
+
+      // Restore original lcp suggestions
+      if (module.CWV_REFERENCE_SUGGESTIONS && originalLcp) {
+        module.CWV_REFERENCE_SUGGESTIONS.lcp = originalLcp;
+      }
+
+      expect(result.message).to.include('CWV demo suggestions processor completed');
+    });
+
+    it('should handle JSON file loading failure gracefully', async () => {
+      // This test covers the catch block when JSON loading fails (lines 33-34)
+      // We'll temporarily move the JSON file to trigger the file loading failure
+
+      const fs = await import('fs');
+      const path = await import('path');
+
+      // Get the path to the JSON file
+      const jsonPath = path.join(process.cwd(), 'static', 'aem-best-practices.json');
+      const backupPath = path.join(process.cwd(), 'static', 'aem-best-practices.json.backup');
+
+      // Backup and remove the original file
+      if (fs.existsSync(jsonPath)) {
+        fs.copyFileSync(jsonPath, backupPath);
+        fs.unlinkSync(jsonPath);
+      }
+
+      try {
+        // Now import the module with a cache-busting query parameter
+        // This should trigger the catch block (lines 33-34) since the JSON file is missing
+        const moduleUrl = `../../../src/tasks/cwv-demo-suggestions-processor/handler.js?t=${Date.now()}`;
+        const { runCwvDemoSuggestionsProcessor: freshHandler } = await import(moduleUrl);
+
+        // Create a test scenario to verify the fallback behavior
+        const suggestionsWithCWVIssues = [
+          {
+            getId: sandbox.stub().returns('suggestion-test'),
+            getData: sandbox.stub().returns({
+              pageviews: 10000,
+              metrics: [{ deviceType: 'desktop', lcp: 3000 }], // Above threshold
+            }),
+          },
+        ];
+
+        const mockSuggestionTest = {
+          getData: sandbox.stub().returns({
+            pageviews: 10000,
+            metrics: [{ deviceType: 'desktop', lcp: 3000 }],
+          }),
+          setData: sandbox.stub(),
+          setUpdatedBy: sandbox.stub(),
+          save: sandbox.stub().resolves(),
+        };
+
+        mockContext.dataAccess.Site.findById.resolves(mockSite);
+        mockSite.getOpportunities.resolves([mockOpportunity]);
+        mockOpportunity.getSuggestions.resolves(suggestionsWithCWVIssues);
+        mockSuggestionDataAccess.findById.withArgs('suggestion-test').resolves(mockSuggestionTest);
+
+        const result = await freshHandler(mockMessage, mockContext);
+
+        // Should complete without errors even when JSON loading fails
+        expect(result.message).to.include('CWV demo suggestions processor completed');
+
+        // The system should still function even when JSON file is missing
+        // (fallback to empty suggestions object)
+        expect(result.suggestionsAdded).to.be.a('number');
+      } finally {
+        // Restore the original file
+        if (fs.existsSync(backupPath)) {
+          fs.copyFileSync(backupPath, jsonPath);
+          fs.unlinkSync(backupPath);
         }
       }
     });

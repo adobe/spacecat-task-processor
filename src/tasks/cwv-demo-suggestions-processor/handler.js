@@ -11,32 +11,29 @@
  */
 
 import { isNonEmptyArray } from '@adobe/spacecat-shared-utils';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { fileURLToPath } from 'url';
 
 const TASK_TYPE = 'cwv-demo-suggestions-processor';
 const LCP = 'lcp';
 const CLS = 'cls';
 const INP = 'inp';
 const DEMO = 'demo';
+const STATIC_DIR = 'static';
+const CWV_SUGGESTIONS_FILE_NAME = 'aem-best-practices.json';
 const MAX_CWV_DEMO_SUGGESTIONS = 2;
 
-/**
- * CWV Reference Suggestions from wiki
- * These are generic recommendations for LCP, CLS, and INP issues
- */
-const CWV_REFERENCE_SUGGESTIONS = {
-  [LCP]: {
-    type: LCP,
-    value: '## 1. **Title:** Defer Non-Essential JavaScript, SVGs, and jQuery from Critical Path\n\n*   **Description:** Several JavaScript files, decorative SVGs, and jQuery are loaded eagerly but are not essential for rendering the LCP. Deferring them will free up bandwidth and CPU for critical resources.\n *   **Implementation Priority:** Medium\n *   **Implementation Effort:** Medium\n *   **Details:**\n     *   **Lottie Animations & Player:** Defer `unpkg.com/@dotlottie/player-component` (and its chunks like `chunk-HDDX7F4A.mjs`) and the lottie animation file (`YVBP7LmN0o.lottie` from `lottie.host`) to be loaded in `loadLazy` or `loadDelayed` in `scripts.js`. Instantiate Lottie animations only when they become visible using an IntersectionObserver.\n     *   **Decorative SVGs:** Inline SVGs (`section-arc.svg`, `background-arc.svg`) identified in rule violations should be converted to `<img>` tags with `loading="lazy"` attribute and appropriate `width`/`height` or loaded via CSS that is part of `lazy-styles.css` or block-specific CSS loaded lazily.\n     *   **jQuery:** Defer `jquery-3.7.1.min.js` (30KB) to `loadLazy` or `loadDelayed` if it\'s not strictly required for LCP rendering logic.\n     *   **Other Non-LCP Images:** Images from `assets.ups.com` (e.g., `urn:aaid:aem:8e7fc503...`, `urn:aaid:aem:8195feea...`) that are not the LCP element but are above the fold should be converted to `<img>` by JS with `loading="eager"` and `fetchpriority="auto"`. If below the fold, use `loading="lazy"`. Ensure `width` and `height` are set.\n *   **Expected Impact:** LCP reduction of 300-600ms. INP improvement of 50-100ms.',
-  },
-  [CLS]: {
-    type: CLS,
-    value: '## 1. **Title:** Ensure Image Dimensions are Set for Dynamically Loaded Images\n\n*   **Description:** Many images on the page are initially `<a>` tags and are converted to `<img>` tags by JavaScript. If these images lack `width` and `height` attributes or `aspect-ratio` CSS, they can cause layout shifts when they load.\n*   **Implementation Priority:** Medium\n*   **Implementation Effort:** Medium\n*   **Details:**\n    *   Modify the JavaScript in `scripts.js` or block-specific scripts that transform `<a>` tags (especially those from `assets.ups.com`) into `<img>` tags.\n    *   Ensure the script adds explicit `width` and `height` attributes to the generated `<img>` tags.\n    *   Alternatively, define `aspect-ratio` for these images via CSS if their dimensions are responsive but maintain a consistent aspect ratio.\n*   **Expected Impact:** CLS reduction of <0.05, depending on how many images are affected.\n\n',
-  },
-  [INP]: {
-    type: INP,
-    value: '## 1. **Title:** Optimize JavaScript Execution and Reduce Main Thread Blocking\n\n*   **Description:** JavaScript execution on the main thread can block user interactions, leading to poor INP scores. Long tasks and excessive JavaScript execution should be optimized.\n*   **Implementation Priority:** High\n*   **Implementation Effort:** Medium\n*   **Details:**\n    *   Break down long JavaScript tasks into smaller chunks using `setTimeout` or `requestIdleCallback`.\n    *   Move non-critical JavaScript to web workers where possible.\n    *   Optimize event handlers to avoid blocking the main thread.\n    *   Use `passive: true` for scroll and touch event listeners.\n    *   Implement debouncing for input events.\n*   **Expected Impact:** INP improvement of 100-200ms.\n\n',
-  },
-};
+let CWV_REFERENCE_SUGGESTIONS = {};
+try {
+  const filename = fileURLToPath(import.meta.url);
+  const dirname = join(filename, '..', '..', '..', '..');
+  const CWV_SUGGESTIONS_FILE_PATH = join(dirname, STATIC_DIR, CWV_SUGGESTIONS_FILE_NAME);
+  const jsonContent = readFileSync(CWV_SUGGESTIONS_FILE_PATH, 'utf8');
+  CWV_REFERENCE_SUGGESTIONS = JSON.parse(jsonContent);
+} catch {
+  // Fallback to empty object if file loading fails - already initialized above
+}
 
 /**
  * CWV thresholds for determining if metrics have issues
@@ -81,6 +78,21 @@ function hasExistingIssues(suggestion) {
 }
 
 /**
+ * Gets a random suggestion from the available suggestions for a given issue type
+ * @param {string} issueType - The type of issue (lcp, cls, inp)
+ * @returns {string|null} A random suggestion or null if none available
+ */
+function getRandomSuggestion(issueType) {
+  const suggestions = CWV_REFERENCE_SUGGESTIONS[issueType];
+  if (!suggestions || !Array.isArray(suggestions) || suggestions.length === 0) {
+    return null;
+  }
+
+  const randomIndex = Math.floor(Math.random() * suggestions.length);
+  return suggestions[randomIndex];
+}
+
+/**
  * Updates a suggestion with generic CWV issues
  * @param {object} suggestion - The suggestion object
  * @param {Array} metricIssues - Array of metric issue types
@@ -104,8 +116,12 @@ async function updateSuggestionWithGenericIssues(suggestion, metricIssues, Sugge
     }
 
     for (const issueType of metricIssues) {
-      if (CWV_REFERENCE_SUGGESTIONS[issueType]) {
-        const genericIssue = CWV_REFERENCE_SUGGESTIONS[issueType];
+      const randomSuggestion = getRandomSuggestion(issueType);
+      if (randomSuggestion) {
+        const genericIssue = {
+          type: issueType,
+          value: randomSuggestion,
+        };
         data.issues.push(genericIssue);
       }
     }
