@@ -12,6 +12,7 @@
 
 import { ok } from '@adobe/spacecat-shared-http-utils';
 import RUMAPIClient from '@adobe/spacecat-shared-rum-api-client';
+import { resolveCanonicalUrl } from '@adobe/spacecat-shared-utils';
 import { say } from '../../utils/slack-utils.js';
 
 const TASK_TYPE = 'opportunity-status-processor';
@@ -100,10 +101,11 @@ export async function runOpportunityStatusProcessor(message, context) {
     let rumAvailable = false;
     if (siteUrl) {
       try {
-        const domain = new URL(siteUrl).hostname;
+        const resolvedUrl = await resolveCanonicalUrl(siteUrl);
+        const domain = new URL(resolvedUrl).hostname;
         rumAvailable = await isRUMAvailable(domain, context);
       } catch (error) {
-        log.warn(`Could not parse siteUrl for RUM check: ${siteUrl}`, error);
+        log.warn(`Could not resolve canonical URL or parse siteUrl for RUM check: ${siteUrl}`, error);
       }
     }
 
