@@ -127,8 +127,9 @@ async function updateSuggestionWithGenericIssues(suggestion, metricIssues, Sugge
  * @param {object} opportunity - The opportunity object
  * @param {object} Suggestion - The Suggestion data access object
  * @param {object} logger - The logger object
+ * @returns {number} Number of suggestions updated
  */
-async function processOpportunity(opportunity, Suggestion, logger) {
+async function processCWVOpportunity(opportunity, Suggestion, logger) {
   try {
     const suggestions = await opportunity.getSuggestions();
 
@@ -136,7 +137,7 @@ async function processOpportunity(opportunity, Suggestion, logger) {
 
     if (hasSuggestionsWithIssues) {
       logger.info(`Opportunity ${opportunity.getId()} already has suggestions with issues, skipping generic suggestions`);
-      return;
+      return 0;
     }
 
     // Sort suggestions by pageviews (descending)
@@ -188,8 +189,11 @@ async function processOpportunity(opportunity, Suggestion, logger) {
     if (suggestionsToUpdate.length > 0) {
       logger.info(`Added ${suggestionsToUpdate.length} generic suggestions to opportunity ${opportunity.getId()}`);
     }
+
+    return suggestionsToUpdate.length;
   } catch (error) {
     logger.error(`Error processing opportunity ${opportunity.getId()}:`, error);
+    return 0;
   }
 }
 
@@ -239,16 +243,13 @@ export async function runCwvDemoSuggestionsProcessor(message, context) {
       return { message: 'No CWV opportunities found' };
     }
 
-    const processPromises = cwvOpportunities.map(
-      (opportunity) => processOpportunity(opportunity, Suggestion, log),
-    );
-    await Promise.all(processPromises);
+    const suggestionsUpdated = await processCWVOpportunity(cwvOpportunities[0], Suggestion, log);
 
-    log.info(`Processed ${cwvOpportunities.length} CWV opportunities for generic suggestions`);
+    log.info(`Processed CWV opportunity for generic suggestions. Updated ${suggestionsUpdated} suggestions.`);
 
     return {
-      message: `CWV demo suggestions processor completed for ${cwvOpportunities.length} opportunities`,
-      opportunitiesProcessed: cwvOpportunities.length,
+      message: 'CWV demo suggestions processor completed',
+      opportunitiesProcessed: 1,
     };
   } catch (error) {
     log.error('Error in CWV demo suggestions processor:', error);

@@ -177,7 +177,7 @@ describe('CWV Demo Suggestions Processor Task', () => {
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
 
       expect(mockContext.log.info.calledWith('Opportunity test-opportunity-id already has suggestions with issues, skipping generic suggestions')).to.be.true;
-      expect(result.message).to.include('completed for 1 opportunities');
+      expect(result.message).to.include('CWV demo suggestions processor completed');
     });
 
     it('should add generic suggestions to opportunities without issues', async () => {
@@ -191,7 +191,7 @@ describe('CWV Demo Suggestions Processor Task', () => {
       expect(mockSuggestionDataAccess.findById).to.have.been.calledWith('suggestion-1');
       expect(mockSuggestionDataAccess.findById).to.have.been.calledWith('suggestion-2');
 
-      expect(result.message).to.include('completed for 1 opportunities');
+      expect(result.message).to.include('CWV demo suggestions processor completed');
       expect(result.opportunitiesProcessed).to.equal(1);
     });
 
@@ -253,7 +253,7 @@ describe('CWV Demo Suggestions Processor Task', () => {
       expect(mockSuggestionDataAccess.findById).to.have.been.calledWith('suggestion-2');
       expect(mockSuggestionDataAccess.findById).to.not.have.been.calledWith('suggestion-3');
 
-      expect(result.message).to.include('completed for 1 opportunities');
+      expect(result.message).to.include('CWV demo suggestions processor completed');
     });
 
     it('should handle suggestions with various data structures and edge cases', async () => {
@@ -315,7 +315,7 @@ describe('CWV Demo Suggestions Processor Task', () => {
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
 
-      expect(result.message).to.include('completed for 1 opportunities');
+      expect(result.message).to.include('CWV demo suggestions processor completed');
     });
 
     it('should handle suggestions with existing issues of various types', async () => {
@@ -384,7 +384,7 @@ describe('CWV Demo Suggestions Processor Task', () => {
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
 
-      expect(result.message).to.include('completed for 1 opportunities');
+      expect(result.message).to.include('CWV demo suggestions processor completed');
     });
 
     it('should handle suggestion not found during update', async () => {
@@ -398,7 +398,7 @@ describe('CWV Demo Suggestions Processor Task', () => {
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
 
       expect(mockContext.log.warn.calledWith('Suggestion suggestion-1 not found, skipping update')).to.be.true;
-      expect(result.message).to.include('completed for 1 opportunities');
+      expect(result.message).to.include('CWV demo suggestions processor completed');
     });
 
     it('should handle case when no suggestions meet CWV criteria', async () => {
@@ -426,7 +426,7 @@ describe('CWV Demo Suggestions Processor Task', () => {
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
 
       // Should complete successfully but not add any generic suggestions
-      expect(result.message).to.include('completed for 1 opportunities');
+      expect(result.message).to.include('CWV demo suggestions processor completed');
       expect(result.opportunitiesProcessed).to.equal(1);
     });
 
@@ -546,7 +546,7 @@ describe('CWV Demo Suggestions Processor Task', () => {
           expect(result.message).to.equal(testCase.expectedResult.message);
           expect(result.error).to.equal(testCase.expectedResult.error);
         } else {
-          expect(result.message).to.include('completed for 1 opportunities');
+          expect(result.message).to.include('CWV demo suggestions processor completed');
         }
       }
     });
