@@ -224,6 +224,7 @@ export async function runCwvDemoSuggestionsProcessor(message, context) {
         message: 'CWV processing skipped - not a demo profile',
         reason: 'non-demo-profile',
         profile,
+        suggestionsAdded: 0,
       };
     }
 
@@ -232,7 +233,10 @@ export async function runCwvDemoSuggestionsProcessor(message, context) {
     const site = await Site.findById(siteId);
     if (!site) {
       log.error(`Site not found for siteId: ${siteId}`);
-      return { message: 'Site not found' };
+      return {
+        message: 'Site not found',
+        suggestionsAdded: 0,
+      };
     }
 
     const opportunities = await site.getOpportunities();
@@ -240,7 +244,10 @@ export async function runCwvDemoSuggestionsProcessor(message, context) {
 
     if (cwvOpportunities.length === 0) {
       log.info('No CWV opportunities found for site, skipping generic suggestions');
-      return { message: 'No CWV opportunities found' };
+      return {
+        message: 'No CWV opportunities found',
+        suggestionsAdded: 0,
+      };
     }
 
     const suggestionsUpdated = await processCWVOpportunity(cwvOpportunities[0], Suggestion, log);
@@ -250,12 +257,14 @@ export async function runCwvDemoSuggestionsProcessor(message, context) {
     return {
       message: 'CWV demo suggestions processor completed',
       opportunitiesProcessed: 1,
+      suggestionsAdded: suggestionsUpdated,
     };
   } catch (error) {
     log.error('Error in CWV demo suggestions processor:', error);
     return {
       message: 'CWV demo suggestions processor completed with errors',
       error: error.message,
+      suggestionsAdded: 0,
     };
   }
 }
