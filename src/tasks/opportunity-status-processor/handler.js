@@ -117,6 +117,9 @@ export async function runOpportunityStatusProcessor(message, context) {
     const rumStatus = rumAvailable ? ':white_check_mark:' : ':cross-x:';
     statusMessages.push(`RUM ${rumStatus}`);
 
+    // Group opportunities by type to avoid duplicates
+    const opportunityTypeMap = new Map();
+
     for (const opportunity of opportunities) {
       // eslint-disable-next-line no-await-in-loop
       const suggestions = await opportunity.getSuggestions();
@@ -126,7 +129,22 @@ export async function runOpportunityStatusProcessor(message, context) {
       const hasSuggestions = suggestions && suggestions.length > 0;
       const status = hasSuggestions ? ':white_check_mark:' : ':cross-x:';
 
-      const statusMessage = `${opportunityTitle} ${status}`;
+      // If we already have this opportunity type, check if we need to update the status
+      if (opportunityTypeMap.has(opportunityType)) {
+        const existingStatus = opportunityTypeMap.get(opportunityType);
+        // If existing status is already a checkmark, keep it;
+        // otherwise update if this one has suggestions
+        if (existingStatus.includes(':cross-x:') && hasSuggestions) {
+          opportunityTypeMap.set(opportunityType, `${opportunityTitle} ${status}`);
+        }
+      } else {
+        // First time seeing this opportunity type
+        opportunityTypeMap.set(opportunityType, `${opportunityTitle} ${status}`);
+      }
+    }
+
+    // Add all unique opportunity types to status messages
+    for (const statusMessage of opportunityTypeMap.values()) {
       statusMessages.push(statusMessage);
     }
 
