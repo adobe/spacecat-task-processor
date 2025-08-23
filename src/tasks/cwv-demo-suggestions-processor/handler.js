@@ -48,9 +48,9 @@ const CWV_THRESHOLDS = {
 };
 
 /**
- * Checks if a metric has issues based on CWV thresholds
- * @param {Object} metrics - The metrics object containing lcp, cls, inp values
- * @returns {Array} Array of metric types that have issues
+ * Gets metric issues based on CWV thresholds
+ * @param {object} metrics - The metrics object
+ * @returns {Array} Array of issue types
  */
 function getMetricIssues(metrics) {
   const issues = [];
@@ -71,9 +71,9 @@ function getMetricIssues(metrics) {
 }
 
 /**
- * Checks if a suggestion already has issues data
- * @param {Object} suggestion - The suggestion object
- * @returns {boolean} True if suggestion already has issues
+ * Checks if a suggestion has existing issues
+ * @param {object} suggestion - The suggestion object
+ * @returns {boolean} True if suggestion has existing issues
  */
 function hasExistingIssues(suggestion) {
   const data = suggestion.getData();
@@ -81,20 +81,19 @@ function hasExistingIssues(suggestion) {
 }
 
 /**
- * Updates a suggestion with generic CWV issues using the proper API pattern
- * @param {Object} suggestion - The suggestion object
- * @param {Array} metricIssues - Array of metric types with issues
- * @param {Object} log - The logger object
- * @param {Object} Suggestion - The Suggestion data access object
- * @returns {Promise<void>}
+ * Updates a suggestion with generic CWV issues
+ * @param {object} suggestion - The suggestion object
+ * @param {Array} metricIssues - Array of metric issue types
+ * @param {object} Suggestion - The Suggestion data access object
+ * @param {object} logger - The logger object
  */
-async function updateSuggestionWithGenericIssues(suggestion, metricIssues, log, Suggestion) {
+async function updateSuggestionWithGenericIssues(suggestion, metricIssues, Suggestion, logger) {
   try {
     const suggestionId = suggestion.getId();
 
     const suggestionToUpdate = await Suggestion.findById(suggestionId);
     if (!suggestionToUpdate) {
-      log.warn(`Suggestion ${suggestionId} not found, skipping update`);
+      logger.warn(`Suggestion ${suggestionId} not found, skipping update`);
       return;
     }
 
@@ -117,27 +116,26 @@ async function updateSuggestionWithGenericIssues(suggestion, metricIssues, log, 
     suggestionToUpdate.setUpdatedBy('system');
     await suggestionToUpdate.save();
 
-    log.info(`Updated suggestion ${suggestionId} with generic CWV issues: ${metricIssues.join(', ')}`);
+    logger.info(`Updated suggestion ${suggestionId} with generic CWV issues: ${metricIssues.join(', ')}`);
   } catch (error) {
-    log.error(`Error updating suggestion ${suggestion.getId()} with generic issues:`, error);
+    logger.error(`Error updating suggestion ${suggestion.getId()} with generic issues:`, error);
   }
 }
 
 /**
- * Processes a single CWV opportunity to add generic suggestions
- * @param {Object} opportunity - The opportunity object
- * @param {Object} log - The logger object
- * @param {Object} Suggestion - The Suggestion data access object
- * @returns {Promise<void>}
+ * Processes a single opportunity
+ * @param {object} opportunity - The opportunity object
+ * @param {object} Suggestion - The Suggestion data access object
+ * @param {object} logger - The logger object
  */
-async function processOpportunity(opportunity, log, Suggestion) {
+async function processOpportunity(opportunity, Suggestion, logger) {
   try {
     const suggestions = await opportunity.getSuggestions();
 
     const hasSuggestionsWithIssues = suggestions.some(hasExistingIssues);
 
     if (hasSuggestionsWithIssues) {
-      log.info(`Opportunity ${opportunity.getId()} already has suggestions with issues, skipping generic suggestions`);
+      logger.info(`Opportunity ${opportunity.getId()} already has suggestions with issues, skipping generic suggestions`);
       return;
     }
 
@@ -181,17 +179,17 @@ async function processOpportunity(opportunity, log, Suggestion) {
       ({ suggestion, metricIssues }) => updateSuggestionWithGenericIssues(
         suggestion,
         metricIssues,
-        log,
         Suggestion,
+        logger,
       ),
     );
     await Promise.all(updatePromises);
 
     if (suggestionsToUpdate.length > 0) {
-      log.info(`Added ${suggestionsToUpdate.length} generic suggestions to opportunity ${opportunity.getId()}`);
+      logger.info(`Added ${suggestionsToUpdate.length} generic suggestions to opportunity ${opportunity.getId()}`);
     }
   } catch (error) {
-    log.error(`Error processing opportunity ${opportunity.getId()}:`, error);
+    logger.error(`Error processing opportunity ${opportunity.getId()}:`, error);
   }
 }
 
@@ -242,7 +240,7 @@ export async function runCwvDemoSuggestionsProcessor(message, context) {
     }
 
     const processPromises = cwvOpportunities.map(
-      (opportunity) => processOpportunity(opportunity, log, Suggestion),
+      (opportunity) => processOpportunity(opportunity, Suggestion, log),
     );
     await Promise.all(processPromises);
 
