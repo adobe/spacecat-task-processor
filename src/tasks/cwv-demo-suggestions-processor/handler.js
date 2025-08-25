@@ -12,8 +12,7 @@
 
 import { isNonEmptyArray } from '@adobe/spacecat-shared-utils';
 import { readFileSync } from 'fs';
-import { join } from 'path';
-import { fileURLToPath } from 'url';
+import path from 'path';
 
 const TASK_TYPE = 'cwv-demo-suggestions-processor';
 const LCP = 'lcp';
@@ -24,13 +23,16 @@ const STATIC_DIR = 'static';
 const CWV_SUGGESTIONS_FILE_NAME = 'aem-best-practices.json';
 const MAX_CWV_DEMO_SUGGESTIONS = 2;
 
-let CWV_REFERENCE_SUGGESTIONS = {};
+const CWV_SUGGESTIONS_FILE_PATH = path.resolve(
+  process.cwd(),
+  STATIC_DIR,
+  CWV_SUGGESTIONS_FILE_NAME,
+);
+
+let cwvReferenceSuggestions = {};
 try {
-  const filename = fileURLToPath(import.meta.url);
-  const dirname = join(filename, '..', '..', '..', '..');
-  const CWV_SUGGESTIONS_FILE_PATH = join(dirname, STATIC_DIR, CWV_SUGGESTIONS_FILE_NAME);
   const jsonContent = readFileSync(CWV_SUGGESTIONS_FILE_PATH, 'utf8');
-  CWV_REFERENCE_SUGGESTIONS = JSON.parse(jsonContent);
+  cwvReferenceSuggestions = JSON.parse(jsonContent);
 } catch {
   // Fallback to empty object if file loading fails - already initialized above
 }
@@ -83,7 +85,7 @@ function hasExistingIssues(suggestion) {
  * @returns {string|null} A random suggestion or null if none available
  */
 function getRandomSuggestion(issueType) {
-  const suggestions = CWV_REFERENCE_SUGGESTIONS[issueType];
+  const suggestions = cwvReferenceSuggestions[issueType];
   if (!suggestions || !Array.isArray(suggestions) || suggestions.length === 0) {
     return null;
   }
