@@ -398,14 +398,14 @@ describe('Opportunity Status Processor', () => {
     });
 
     it('should handle RUM success scenarios', async () => {
-      // Test RUM available (success case) - use a working domain for coverage
+      // Test RUM available (success case) - use a simple URL that should resolve quickly
       mockRUMClient.retrieveDomainkey.resolves('test-domain-key');
       const RUMAPIClient = await import('@adobe/spacecat-shared-rum-api-client');
       const createFromStub = sinon.stub(RUMAPIClient.default, 'createFrom').returns(mockRUMClient);
 
       const testMessage = {
         siteId: 'test-site-id',
-        siteUrl: 'https://httpbin.org', // Use a fast, reliable test service for coverage
+        siteUrl: 'https://example.com',
         organizationId: 'test-org-id',
         taskContext: {
           auditTypes: ['cwv'],
@@ -428,8 +428,8 @@ describe('Opportunity Status Processor', () => {
 
       // Verify RUM was checked successfully - this should cover lines 26-37
       expect(createFromStub.calledWith(testContext)).to.be.true;
-      expect(mockRUMClient.retrieveDomainkey.calledWith('httpbin.org')).to.be.true;
-      expect(testContext.log.info.calledWith('RUM is available for domain: httpbin.org')).to.be.true;
+      expect(mockRUMClient.retrieveDomainkey.calledWith('example.com')).to.be.true;
+      expect(testContext.log.info.calledWith('RUM is available for domain: example.com')).to.be.true;
       expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. RUM available: true')).to.be.true;
 
       createFromStub.restore();

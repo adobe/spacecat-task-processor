@@ -138,8 +138,10 @@ export async function runOpportunityStatusProcessor(message, context) {
     }
 
     if (slackContext && statusMessages.length > 0) {
-      const slackMessage = `:clipboard: **Opportunity Status for ${siteUrl}**\n\n${statusMessages.join('\n')}`;
+      const slackMessage = `:white_check_mark: *Opportunities status for site ${siteUrl}*:`;
+      const combinedMessage = statusMessages.join('\n');
       await say(env, log, slackContext, slackMessage);
+      await say(env, log, slackContext, combinedMessage);
     }
 
     log.info(`Processed ${opportunities.length} opportunities for site ${siteId}`);
