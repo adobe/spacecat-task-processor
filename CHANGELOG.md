@@ -1,3 +1,10 @@
+## [1.1.12](https://github.com/adobe/spacecat-task-processor/compare/v1.1.11...v1.1.12) (2025-08-25)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adobe/spacecat-shared-rum-api-client to v2.36.5 ([#52](https://github.com/adobe/spacecat-task-processor/issues/52)) ([3cd57d0](https://github.com/adobe/spacecat-task-processor/commit/3cd57d01fa62918562a420b50a30776e5e240ef9))
+
 ## [1.1.11](https://github.com/adobe/spacecat-task-processor/compare/v1.1.10...v1.1.11) (2025-08-25)
 
 
