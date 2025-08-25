@@ -77,6 +77,9 @@ describe('CWV Demo Suggestions Processor Task', () => {
             },
           ],
         }),
+        setData: sandbox.stub(),
+        setUpdatedBy: sandbox.stub(),
+        save: sandbox.stub().resolves(),
       },
       {
         getId: sandbox.stub().returns('suggestion-2'),
@@ -91,6 +94,9 @@ describe('CWV Demo Suggestions Processor Task', () => {
             },
           ],
         }),
+        setData: sandbox.stub(),
+        setUpdatedBy: sandbox.stub(),
+        save: sandbox.stub().resolves(),
       },
     ];
 
@@ -187,10 +193,6 @@ describe('CWV Demo Suggestions Processor Task', () => {
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
 
-      // Verify findById was called for each suggestion
-      expect(mockSuggestionDataAccess.findById).to.have.been.calledWith('suggestion-1');
-      expect(mockSuggestionDataAccess.findById).to.have.been.calledWith('suggestion-2');
-
       expect(result.message).to.include('CWV demo suggestions processor completed');
       expect(result.opportunitiesProcessed).to.equal(1);
     });
@@ -248,11 +250,6 @@ describe('CWV Demo Suggestions Processor Task', () => {
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
 
-      // Should only process first 2 suggestions
-      expect(mockSuggestionDataAccess.findById).to.have.been.calledWith('suggestion-1');
-      expect(mockSuggestionDataAccess.findById).to.have.been.calledWith('suggestion-2');
-      expect(mockSuggestionDataAccess.findById).to.not.have.been.calledWith('suggestion-3');
-
       expect(result.message).to.include('CWV demo suggestions processor completed');
     });
 
@@ -261,12 +258,8 @@ describe('CWV Demo Suggestions Processor Task', () => {
       mockSite.getOpportunities.resolves([mockOpportunity]);
       mockOpportunity.getSuggestions.resolves(mockSuggestions);
 
-      // Mock findById to return null for one suggestion
-      mockSuggestionDataAccess.findById.withArgs('suggestion-1').resolves(null);
-
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
 
-      expect(mockContext.log.warn.calledWith('Suggestion suggestion-1 not found, skipping update')).to.be.true;
       expect(result.message).to.include('CWV demo suggestions processor completed');
     });
 
@@ -375,18 +368,6 @@ describe('CWV Demo Suggestions Processor Task', () => {
       expect(result.message).to.equal('CWV demo suggestions processor completed with errors');
       expect(result.error).to.equal('Site database error');
       expect(result.suggestionsAdded).to.equal(0);
-    });
-
-    it('should handle suggestion update errors gracefully', async () => {
-      mockContext.dataAccess.Site.findById.resolves(mockSite);
-      mockSite.getOpportunities.resolves([mockOpportunity]);
-      mockOpportunity.getSuggestions.resolves(mockSuggestions);
-      mockSuggestionDataAccess.findById.withArgs('suggestion-1').rejects(new Error('Database error'));
-
-      const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
-
-      expect(mockContext.log.error.calledWith('Error updating suggestion suggestion-1 with generic issues:', sinon.match.any)).to.be.true;
-      expect(result.message).to.include('CWV demo suggestions processor completed');
     });
 
     it('should handle opportunity processing errors gracefully', async () => {
