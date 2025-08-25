@@ -1,3 +1,10 @@
+## [1.1.11](https://github.com/adobe/spacecat-task-processor/compare/v1.1.10...v1.1.11) (2025-08-25)
+
+
+### Bug Fixes
+
+* adding RUM status in status-processor ([#49](https://github.com/adobe/spacecat-task-processor/issues/49)) ([0aad481](https://github.com/adobe/spacecat-task-processor/commit/0aad481a0a90091af65e4661b8496cf07f3930ad))
+
 ## [1.1.10](https://github.com/adobe/spacecat-task-processor/compare/v1.1.9...v1.1.10) (2025-08-23)
 
 
