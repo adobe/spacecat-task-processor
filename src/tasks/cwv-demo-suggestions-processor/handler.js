@@ -21,7 +21,7 @@ const CLS = 'cls';
 const INP = 'inp';
 const DEMO = 'demo';
 const MAX_CWV_DEMO_SUGGESTIONS = 2;
-const CWV_SUGGESTIONS_FILE_PATH = path.resolve(process.cwd(), 'static', 'aem-best-practices.json');
+const CWV_SUGGESTIONS_FILE_PATH = path.resolve(process.cwd(), 'static/aem-best-practices.json');
 
 /**
  * CWV thresholds for determining if metrics have issues
@@ -97,15 +97,16 @@ async function updateSuggestionWithGenericIssues(
   env,
   slackContext,
 ) {
-  // Load CWV reference suggestions
   let cwvReferenceSuggestions = {};
+
   try {
+    logger.info(`Loading CWV suggestions from: ${CWV_SUGGESTIONS_FILE_PATH}`);
     const jsonContent = readFileSync(CWV_SUGGESTIONS_FILE_PATH, 'utf8');
     cwvReferenceSuggestions = JSON.parse(jsonContent);
-  } catch {
-    // Fallback to empty object if file loading fails
-    logger.warn('Failed to load CWV reference suggestions, using empty suggestions');
-    await say(env, logger, slackContext, 'Failed to load CWV reference suggestions, using empty suggestions');
+    logger.info(`Successfully loaded CWV suggestions with keys: ${Object.keys(cwvReferenceSuggestions).join(', ')}`);
+  } catch (error) {
+    logger.warn(`Failed to load CWV reference suggestions from ${CWV_SUGGESTIONS_FILE_PATH}: ${error.message}`);
+    await say(env, logger, slackContext, `Failed to load CWV reference suggestions: ${error.message}`);
   }
 
   let issuesAdded = 0;
@@ -212,8 +213,8 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
     const totalIssuesAdded = issuesAddedResults.reduce((sum, issuesAdded) => sum + issuesAdded, 0);
 
     if (suggestionsToUpdate.length > 0) {
-      logger.info(`Added ${totalIssuesAdded} generic CWV issues to ${suggestionsToUpdate.length} suggestions for opportunity ${opportunity.getId()}`);
-      await say(env, logger, slackContext, `🎯 Added ${totalIssuesAdded} generic CWV issues to ${suggestionsToUpdate.length} suggestions for opportunity ${opportunity.getId()}`);
+      logger.info(`Added ${totalIssuesAdded} generic CWV suggestions for opportunity ${opportunity.getId()}`);
+      await say(env, logger, slackContext, `🎯 Added ${totalIssuesAdded} generic CWV suggestions for opportunity ${opportunity.getId()}`);
     }
 
     return suggestionsToUpdate.length;
