@@ -193,7 +193,7 @@ describe('Opportunity Status Processor', () => {
       expect(context.log.info.calledWith('Found 1 opportunities for site test-site-id. RUM available: false')).to.be.true;
     });
 
-    it('should process all opportunities including duplicates', async () => {
+    it('should process opportunities by type avoiding duplicates', async () => {
       // Mock opportunities with duplicate types
       const mockOpportunities = [
         {
@@ -201,7 +201,7 @@ describe('Opportunity Status Processor', () => {
           getSuggestions: sinon.stub().resolves(['suggestion1']),
         },
         {
-          getType: () => 'cwv', // Duplicate type
+          getType: () => 'cwv', // Duplicate type - should be skipped
           getSuggestions: sinon.stub().resolves(['suggestion2']),
         },
         {
@@ -209,7 +209,7 @@ describe('Opportunity Status Processor', () => {
           getSuggestions: sinon.stub().resolves([]),
         },
         {
-          getType: () => 'broken-links', // Another duplicate type
+          getType: () => 'broken-links', // Another duplicate type - should be skipped
           getSuggestions: sinon.stub().resolves(['suggestion3']),
         },
       ];
@@ -220,11 +220,15 @@ describe('Opportunity Status Processor', () => {
       // Should process all opportunities (4 total opportunities)
       expect(context.log.info.calledWith('Found 4 opportunities for site test-site-id. RUM available: false')).to.be.true;
 
-      // Verify that getSuggestions was called for all opportunities
+      // With the new logic, getSuggestions should only be called for unique opportunity types
+      // First occurrence of 'cwv' should be processed
       expect(mockOpportunities[0].getSuggestions.called).to.be.true;
-      expect(mockOpportunities[1].getSuggestions.called).to.be.true;
+      // Second occurrence of 'cwv' should be skipped (duplicate)
+      expect(mockOpportunities[1].getSuggestions.called).to.be.false;
+      // First occurrence of 'broken-links' should be processed
       expect(mockOpportunities[2].getSuggestions.called).to.be.true;
-      expect(mockOpportunities[3].getSuggestions.called).to.be.true;
+      // Second occurrence of 'broken-links' should be skipped (duplicate)
+      expect(mockOpportunities[3].getSuggestions.called).to.be.false;
     });
 
     it('should handle RUM availability check when no siteUrl is provided', async () => {
@@ -292,7 +296,8 @@ describe('Opportunity Status Processor', () => {
       const RUMAPIClient = await import('@adobe/spacecat-shared-rum-api-client');
       const createFromStub = sinon.stub(RUMAPIClient.default, 'createFrom').returns(mockRUMClient);
 
-      const testMessage = {
+      // First test: localhost URL that fails URL resolution
+      const testMessage1 = {
         siteId: 'test-site-id',
         siteUrl: 'http://localhost:3000',
         organizationId: 'test-org-id',
@@ -302,7 +307,7 @@ describe('Opportunity Status Processor', () => {
         },
       };
 
-      const testContext = {
+      const testContext1 = {
         ...mockContext,
         dataAccess: {
           Site: {
@@ -313,11 +318,42 @@ describe('Opportunity Status Processor', () => {
         },
       };
 
-      await runOpportunityStatusProcessor(testMessage, testContext);
+      await runOpportunityStatusProcessor(testMessage1, testContext1);
 
       // Since resolveCanonicalUrl may fail for localhost, verify error handling
-      expect(testContext.log.warn.calledWith('Could not resolve canonical URL or parse siteUrl for RUM check: http://localhost:3000', sinon.match.any)).to.be.true;
-      expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. RUM available: false')).to.be.true;
+      expect(testContext1.log.warn.calledWith('Could not resolve canonical URL or parse siteUrl for RUM check: http://localhost:3000', sinon.match.any)).to.be.true;
+      expect(testContext1.log.info.calledWith('Found 0 opportunities for site test-site-id. RUM available: false')).to.be.true;
+
+      // Second test: valid URL that succeeds URL resolution but fails RUM check
+      // This covers lines 38-40 in isRUMAvailable function
+      const testMessage2 = {
+        siteId: 'test-site-id-2',
+        siteUrl: 'https://example.com',
+        organizationId: 'test-org-id-2',
+        taskContext: {
+          auditTypes: ['cwv'],
+          slackContext: null,
+        },
+      };
+
+      const testContext2 = {
+        ...mockContext,
+        dataAccess: {
+          Site: {
+            findById: sinon.stub().resolves({
+              getOpportunities: sinon.stub().resolves([]),
+            }),
+          },
+        },
+      };
+
+      await runOpportunityStatusProcessor(testMessage2, testContext2);
+
+      // Verify RUM was checked and failed - this should cover lines 38-40
+      expect(createFromStub.calledWith(testContext2)).to.be.true;
+      expect(mockRUMClient.retrieveDomainkey.calledWith('example.com')).to.be.true;
+      expect(testContext2.log.info.calledWith('RUM is not available for domain: example.com. Reason: Domain key not found')).to.be.true;
+      expect(testContext2.log.info.calledWith('Found 0 opportunities for site test-site-id-2. RUM available: false')).to.be.true;
 
       createFromStub.restore();
     });
@@ -359,44 +395,6 @@ describe('Opportunity Status Processor', () => {
         expect(testContext.log.warn.calledWith(`Could not resolve canonical URL or parse siteUrl for RUM check: ${testCase.url}`, sinon.match.any)).to.be.true;
         expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. RUM available: false')).to.be.true;
       }));
-    });
-
-    it('should handle RUM unavailability when retrieveDomainkey fails', async () => {
-      // Test RUM unavailable (failure case) - use a working domain to cover lines 38-40
-      mockRUMClient.retrieveDomainkey.rejects(new Error('Domain key not found'));
-      const RUMAPIClient = await import('@adobe/spacecat-shared-rum-api-client');
-      const createFromStub = sinon.stub(RUMAPIClient.default, 'createFrom').returns(mockRUMClient);
-
-      const testMessage = {
-        siteId: 'test-site-id',
-        siteUrl: 'https://httpbin.org', // Use a working domain to cover the RUM function
-        organizationId: 'test-org-id',
-        taskContext: {
-          auditTypes: ['cwv'],
-          slackContext: null,
-        },
-      };
-
-      const testContext = {
-        ...mockContext,
-        dataAccess: {
-          Site: {
-            findById: sinon.stub().resolves({
-              getOpportunities: sinon.stub().resolves([]),
-            }),
-          },
-        },
-      };
-
-      await runOpportunityStatusProcessor(testMessage, testContext);
-
-      // Verify RUM was checked and failed - this should cover lines 38-40
-      expect(createFromStub.calledWith(testContext)).to.be.true;
-      expect(mockRUMClient.retrieveDomainkey.calledWith('httpbin.org')).to.be.true;
-      expect(testContext.log.info.calledWith('RUM is not available for domain: httpbin.org. Reason: Domain key not found')).to.be.true;
-      expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. RUM available: false')).to.be.true;
-
-      createFromStub.restore();
     });
 
     it('should handle RUM success scenarios', async () => {
