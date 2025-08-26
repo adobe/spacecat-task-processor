@@ -218,6 +218,9 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
     if (suggestionsToUpdate.length > 0) {
       logger.info(`Added ${totalIssuesAdded} generic CWV suggestions for opportunity ${opportunity.getId()}`);
       await say(env, logger, slackContext, `🎯 Added ${totalIssuesAdded} generic CWV suggestions for opportunity ${opportunity.getId()}`);
+    } else {
+      logger.info(`No generic CWV suggestions added for opportunity ${opportunity.getId()}`);
+      await say(env, logger, slackContext, `No generic CWV suggestions added for opportunity ${opportunity.getId()}`);
     }
 
     return suggestionsToUpdate.length;
