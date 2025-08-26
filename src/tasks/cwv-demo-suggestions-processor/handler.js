@@ -215,7 +215,6 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
 
     const issuesAddedResults = await Promise.all(updatePromises);
     const totalIssuesAdded = issuesAddedResults.reduce((sum, issuesAdded) => sum + issuesAdded, 0);
-
     if (totalIssuesAdded > 0) {
       await say(env, logger, slackContext, `🎯 Added ${totalIssuesAdded} generic CWV suggestions for opportunity ${opportunity.getId()}`);
       logger.info(`Added ${totalIssuesAdded} generic CWV suggestions for opportunity ${opportunity.getId()}`);
