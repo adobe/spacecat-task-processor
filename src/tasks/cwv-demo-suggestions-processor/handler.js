@@ -12,7 +12,8 @@
 
 import { isNonEmptyArray } from '@adobe/spacecat-shared-utils';
 import { readFileSync } from 'fs';
-import path from 'path';
+import { join } from 'path';
+import { fileURLToPath } from 'url';
 import { say } from '../../utils/slack-utils.js';
 
 const TASK_TYPE = 'cwv-demo-suggestions-processor';
@@ -21,7 +22,9 @@ const CLS = 'cls';
 const INP = 'inp';
 const DEMO = 'demo';
 const MAX_CWV_DEMO_SUGGESTIONS = 2;
-const CWV_SUGGESTIONS_FILE_PATH = path.resolve(new URL('.', import.meta.url).pathname, '..', '..', 'static', 'aem-best-practices.json');
+const filename = fileURLToPath(import.meta.url);
+const dirname = join(filename, '..', '..', '..', '..');
+const CWV_SUGGESTIONS_FILE_PATH = join(dirname, 'static', 'aem-best-practices.json');
 
 /**
  * CWV thresholds for determining if metrics have issues
