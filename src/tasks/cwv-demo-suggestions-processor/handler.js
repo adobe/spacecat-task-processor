@@ -108,6 +108,7 @@ async function updateSuggestionWithGenericIssues(
     logger.info(`Loading CWV reference suggestions from: ${filename}, ${dirname}, ${jsonPath}`);
     const rawData = fs.readFileSync(jsonPath, 'utf-8');
     cwvReferenceSuggestions = JSON.parse(rawData);
+    await say(env, logger, slackContext, `Loaded CWV reference suggestions from: ${jsonPath}`);
   } catch (error) {
     logger.error(`Error loading CWV reference suggestions: ${error.message}`);
     await say(env, logger, slackContext, `Failed to load CWV reference suggestions: ${error.message}`);
@@ -215,12 +216,12 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
     const issuesAddedResults = await Promise.all(updatePromises);
     const totalIssuesAdded = issuesAddedResults.reduce((sum, issuesAdded) => sum + issuesAdded, 0);
 
-    if (suggestionsToUpdate.length > 0) {
-      logger.info(`Added ${totalIssuesAdded} generic CWV suggestions for opportunity ${opportunity.getId()}`);
+    if (totalIssuesAdded > 0) {
       await say(env, logger, slackContext, `🎯 Added ${totalIssuesAdded} generic CWV suggestions for opportunity ${opportunity.getId()}`);
+      logger.info(`Added ${totalIssuesAdded} generic CWV suggestions for opportunity ${opportunity.getId()}`);
     } else {
+      await say(env, logger, slackContext, `:x: No generic CWV suggestions added for opportunity ${opportunity.getId()}`);
       logger.info(`No generic CWV suggestions added for opportunity ${opportunity.getId()}`);
-      await say(env, logger, slackContext, `No generic CWV suggestions added for opportunity ${opportunity.getId()}`);
     }
 
     return suggestionsToUpdate.length;
