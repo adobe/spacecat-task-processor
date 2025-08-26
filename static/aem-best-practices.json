@@ -1,0 +1,17 @@
+{
+  "lcp": [
+    "## **Optimize Image Delivery:**\n• Use next-gen formats (WebP, AVIF)\n• Implement lazy loading\n• Compress images appropriately\n• Use responsive images with srcset\n• Consider image sprites for icons\n• Preload critical above-the-fold images",
+    "## **Optimize CSS Loading:**\n• Inline critical CSS\n• Defer non-critical CSS\n• Use media queries conditionally\n• Minify CSS files\n• Consider CSS-in-JS for dynamic styling\n• Implement CSS containment",
+    "## **Optimize Server & Network:**\n• Use CDN for global distribution\n• Enable GZIP/Brotli compression\n• Implement HTTP/2 or HTTP/3\n• Use edge caching strategies\n• Consider service workers\n• Use resource hints (preconnect, dns-prefetch)"
+  ],
+  "cls": [
+    "## **Prevent Layout Shifts:**\n• Set explicit width/height on images/videos\n• Use aspect-ratio CSS property\n• Implement skeleton screens\n• Reserve space for dynamic content\n• Avoid inserting content above existing content\n• Use CSS Grid/Flexbox for predictable layouts",
+    "## **Optimize Animations:**\n• Use CSS transforms and opacity\n• Implement will-change property\n• Use transform3d for stacking context\n• Avoid changing layout properties during animations\n• Use requestAnimationFrame for smooth animations\n• Consider CSS transitions over JavaScript animations",
+    "## **Maintain Visual Stability:**\n• Implement skeleton screens\n• Reserve space for dynamic content\n• Use content-visibility CSS property\n• Implement CSS containment\n• Use CSS Grid and Flexbox\n• Avoid cumulative layout shifts"
+  ],
+  "inp": [
+    "## **Break Up JavaScript Tasks:**\n• Use setTimeout or requestIdleCallback\n• Implement web workers for CPU-intensive operations\n• Use requestAnimationFrame for visual updates\n• Consider Intersection Observer API\n• Implement virtual scrolling for long lists\n• Use microtasks and macrotasks appropriately",
+    "## **Optimize Event Handling:**\n• Debounce input events\n• Use passive event listeners\n• Implement event delegation\n• Use AbortController to cancel operations\n• Consider ResizeObserver and MutationObserver\n• Optimize event listener registration",
+    "## **Optimize DOM Manipulation:**\n• Implement virtual scrolling\n• Use DocumentFragment for batch updates\n• Implement object pooling\n• Use Web Components for encapsulation\n• Implement progressive enhancement\n• Minimize DOM queries and mutations"
+  ]
+}
