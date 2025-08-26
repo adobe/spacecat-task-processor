@@ -101,7 +101,7 @@ async function updateSuggestionWithGenericIssues(
 
   try {
     const filename = fileURLToPath(import.meta.url);
-    const dirname = join(filename, '..', '..', '..');
+    const dirname = join(filename, '..', '..', '..', '..', '..');
     const CWV_SUGGESTIONS_FILE_PATH = join(dirname, 'static', 'aem-best-practices.json');
     logger.info(`Loading CWV suggestions from: ${CWV_SUGGESTIONS_FILE_PATH}`);
     // Debug: Log the path resolution for troubleshooting
