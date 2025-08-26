@@ -22,9 +22,6 @@ const CLS = 'cls';
 const INP = 'inp';
 const DEMO = 'demo';
 const MAX_CWV_DEMO_SUGGESTIONS = 2;
-const filename = fileURLToPath(import.meta.url);
-const dirname = join(filename, '..', '..', '..');
-const CWV_SUGGESTIONS_FILE_PATH = join(dirname, 'static', 'aem-best-practices.json');
 
 /**
  * CWV thresholds for determining if metrics have issues
@@ -103,12 +100,20 @@ async function updateSuggestionWithGenericIssues(
   let cwvReferenceSuggestions = {};
 
   try {
+    const filename = fileURLToPath(import.meta.url);
+    const dirname = join(filename, '..', '..', '..');
+    const CWV_SUGGESTIONS_FILE_PATH = join(dirname, 'static', 'aem-best-practices.json');
     logger.info(`Loading CWV suggestions from: ${CWV_SUGGESTIONS_FILE_PATH}`);
+    // Debug: Log the path resolution for troubleshooting
+    logger.debug('Debug - filename:', filename);
+    logger.debug('Debug - dirname:', dirname);
+    logger.debug('Debug - CWV_SUGGESTIONS_FILE_PATH:', CWV_SUGGESTIONS_FILE_PATH);
+
     const jsonContent = readFileSync(CWV_SUGGESTIONS_FILE_PATH, 'utf8');
     cwvReferenceSuggestions = JSON.parse(jsonContent);
     logger.info(`Successfully loaded CWV suggestions with keys: ${Object.keys(cwvReferenceSuggestions).join(', ')}`);
   } catch (error) {
-    logger.warn(`Failed to load CWV reference suggestions from ${CWV_SUGGESTIONS_FILE_PATH}: ${error.message}`);
+    logger.warn(`Failed to load CWV reference suggestions: ${error.message}`);
     await say(env, logger, slackContext, `Failed to load CWV reference suggestions: ${error.message}`);
   }
 
