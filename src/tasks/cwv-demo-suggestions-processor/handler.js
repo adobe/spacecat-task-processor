@@ -11,6 +11,10 @@
  */
 
 import { isNonEmptyArray } from '@adobe/spacecat-shared-utils';
+
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { say } from '../../utils/slack-utils.js';
 
 const TASK_TYPE = 'cwv-demo-suggestions-processor';
@@ -20,24 +24,8 @@ const INP = 'inp';
 const DEMO = 'demo';
 const MAX_CWV_DEMO_SUGGESTIONS = 2;
 
-// CWV reference suggestions defined as global variable to avoid file loading issues
-const cwvReferenceSuggestions = {
-  lcp: [
-    '## **Optimize Image Delivery:**\n• Use next-gen formats (WebP, AVIF)\n• Implement lazy loading\n• Compress images appropriately\n• Use responsive images with srcset\n• Consider image sprites for icons\n• Preload critical above-the-fold images',
-    '## **Optimize CSS Loading:**\n• Inline critical CSS\n• Defer non-critical CSS\n• Use media queries conditionally\n• Minify CSS files\n• Consider CSS-in-JS for dynamic styling\n• Implement CSS containment',
-    '## **Optimize Server & Network:**\n• Use CDN for global distribution\n• Enable GZIP/Brotli compression\n• Implement HTTP/2 or HTTP/3\n• Use edge caching strategies\n• Consider service workers\n• Use resource hints (preconnect, dns-prefetch)',
-  ],
-  cls: [
-    '## **Prevent Layout Shifts:**\n• Set explicit width/height on images/videos\n• Use aspect-ratio CSS property\n• Implement skeleton screens\n• Reserve space for dynamic content\n• Avoid inserting content above existing content\n• Use CSS Grid/Flexbox for predictable layouts',
-    '## **Optimize Animations:**\n• Use CSS transforms and opacity\n• Implement will-change property\n• Use transform3d for stacking context\n• Avoid changing layout properties during animations\n• Use requestAnimationFrame for smooth animations\n• Consider CSS transitions over JavaScript animations',
-    '## **Maintain Visual Stability:**\n• Implement skeleton screens\n• Reserve space for dynamic content\n• Use content-visibility CSS property\n• Implement CSS containment\n• Use CSS Grid and Flexbox\n• Avoid cumulative layout shifts',
-  ],
-  inp: [
-    '## **Break Up JavaScript Tasks:**\n• Use setTimeout or requestIdleCallback\n• Implement web workers for CPU-intensive operations\n• Use requestAnimationFrame for visual updates\n• Consider Intersection Observer API\n• Implement virtual scrolling for long lists\n• Use microtasks and macrotasks appropriately',
-    '## **Optimize Event Handling:**\n• Debounce input events\n• Use passive event listeners\n• Implement event delegation\n• Use AbortController to cancel operations\n• Consider ResizeObserver and MutationObserver\n• Optimize event listener registration',
-    '## **Optimize DOM Manipulation:**\n• Implement virtual scrolling\n• Use DocumentFragment for batch updates\n• Implement object pooling\n• Use Web Components for encapsulation\n• Implement progressive enhancement\n• Minimize DOM queries and mutations',
-  ],
-};
+const filename = fileURLToPath(import.meta.url);
+const dirname = path.dirname(filename);
 
 /**
  * CWV thresholds for determining if metrics have issues
@@ -86,7 +74,7 @@ function hasExistingIssues(suggestion) {
  * @param {string} issueType - The type of issue (lcp, cls, inp)
  * @returns {string|null} A random suggestion or null if none available
  */
-function getRandomSuggestion(issueType) {
+function getRandomSuggestion(issueType, cwvReferenceSuggestions) {
   const suggestions = cwvReferenceSuggestions[issueType];
   if (!isNonEmptyArray(suggestions)) {
     return null;
@@ -109,8 +97,22 @@ async function updateSuggestionWithGenericIssues(
   suggestion,
   metricIssues,
   logger,
+  env,
+  slackContext,
 ) {
   let issuesAdded = 0;
+
+  let cwvReferenceSuggestions = { lcp: [], cls: [], inp: [] };
+  try {
+    const jsonPath = path.resolve(dirname, '../../../static/aem-best-practices.json');
+    logger.info(`Loading CWV reference suggestions from: ${filename}, ${dirname}, ${jsonPath}`);
+    const rawData = fs.readFileSync(jsonPath, 'utf-8');
+    cwvReferenceSuggestions = JSON.parse(rawData);
+  } catch (error) {
+    logger.error(`Error loading CWV reference suggestions: ${error.message}`);
+    await say(env, logger, slackContext, `Failed to load CWV reference suggestions: ${error.message}`);
+    return 0;
+  }
 
   try {
     const data = suggestion.getData();
@@ -120,7 +122,7 @@ async function updateSuggestionWithGenericIssues(
     }
 
     for (const issueType of metricIssues) {
-      const randomSuggestion = getRandomSuggestion(issueType);
+      const randomSuggestion = getRandomSuggestion(issueType, cwvReferenceSuggestions);
       if (randomSuggestion) {
         const genericIssue = {
           type: issueType,
@@ -204,6 +206,8 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
         suggestion,
         metricIssues,
         logger,
+        env,
+        slackContext,
       );
       return issuesAdded;
     });
