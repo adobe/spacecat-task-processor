@@ -21,7 +21,7 @@ const CLS = 'cls';
 const INP = 'inp';
 const DEMO = 'demo';
 const MAX_CWV_DEMO_SUGGESTIONS = 2;
-const CWV_SUGGESTIONS_FILE_PATH = path.resolve(process.cwd(), 'static/aem-best-practices.json');
+const CWV_SUGGESTIONS_FILE_PATH = path.resolve(new URL('.', import.meta.url).pathname, '..', '..', 'static', 'aem-best-practices.json');
 
 /**
  * CWV thresholds for determining if metrics have issues
