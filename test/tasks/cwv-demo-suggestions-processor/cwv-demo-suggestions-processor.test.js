@@ -27,6 +27,33 @@ describe('CWV Demo Suggestions Processor Task', () => {
   let mockSuggestions;
   let mockSuggestionDataAccess;
 
+  // Helper function to create mock suggestions
+  const createMockSuggestion = (id, pageviews, metrics, hasIssues = false) => ({
+    getId: sandbox.stub().returns(id),
+    getData: sandbox.stub().returns({
+      pageviews,
+      metrics,
+      ...(hasIssues && { issues: [{ type: 'lcp', value: 'existing issue' }] }),
+    }),
+    setData: sandbox.stub(),
+    setUpdatedBy: sandbox.stub(),
+    save: sandbox.stub().resolves(),
+  });
+
+  // Helper function to create mock metrics
+  const createMockMetrics = (lcp, cls, inp, deviceType = 'desktop') => ({
+    deviceType,
+    lcp,
+    cls,
+    inp,
+  });
+
+  // Helper function to setup common mocks
+  const setupCommonMocks = () => {
+    mockContext.dataAccess.Site.findById.resolves(mockSite);
+    mockSite.getOpportunities.resolves([mockOpportunity]);
+  };
+
   beforeEach(async () => {
     sandbox = sinon.createSandbox();
 
@@ -62,82 +89,20 @@ describe('CWV Demo Suggestions Processor Task', () => {
       getSuggestions: sandbox.stub(),
     };
 
-    // Mock suggestions
+    // Create mock suggestions using helper functions
     mockSuggestions = [
-      {
-        getId: sandbox.stub().returns('suggestion-1'),
-        getData: sandbox.stub().returns({
-          pageviews: 10000,
-          metrics: [
-            {
-              deviceType: 'desktop',
-              lcp: 3000, // Above threshold
-              cls: 0.05, // Below threshold
-              inp: 250, // Above threshold
-            },
-          ],
-        }),
-        setData: sandbox.stub(),
-        setUpdatedBy: sandbox.stub(),
-        save: sandbox.stub().resolves(),
-      },
-      {
-        getId: sandbox.stub().returns('suggestion-2'),
-        getData: sandbox.stub().returns({
-          pageviews: 5000,
-          metrics: [
-            {
-              deviceType: 'mobile',
-              lcp: 2000, // Below threshold
-              cls: 0.15, // Above threshold
-              inp: 150, // Below threshold
-            },
-          ],
-        }),
-        setData: sandbox.stub(),
-        setUpdatedBy: sandbox.stub(),
-        save: sandbox.stub().resolves(),
-      },
+      createMockSuggestion('suggestion-1', 10000, [
+        createMockMetrics(3000, 0.05, 250), // Above LCP & INP thresholds
+      ]),
+      createMockSuggestion('suggestion-2', 5000, [
+        createMockMetrics(2000, 0.15, 150, 'mobile'), // Above CLS threshold
+      ]),
     ];
 
-    // Mock suggestion objects returned by findById
-    const mockSuggestion1 = {
-      getData: sandbox.stub().returns({
-        pageviews: 10000,
-        metrics: [
-          {
-            deviceType: 'desktop',
-            lcp: 3000, // Above threshold
-            cls: 0.05, // Below threshold
-            inp: 250, // Above threshold
-          },
-        ],
-      }),
-      setData: sandbox.stub(),
-      setUpdatedBy: sandbox.stub(),
-      save: sandbox.stub().resolves(),
-    };
-
-    const mockSuggestion2 = {
-      getData: sandbox.stub().returns({
-        pageviews: 5000,
-        metrics: [
-          {
-            deviceType: 'mobile',
-            lcp: 2000, // Below threshold
-            cls: 0.15, // Above threshold
-            inp: 150, // Below threshold
-          },
-        ],
-      }),
-      setData: sandbox.stub(),
-      setUpdatedBy: sandbox.stub(),
-      save: sandbox.stub().resolves(),
-    };
-
     // Setup findById to return the appropriate mock suggestion
-    mockSuggestionDataAccess.findById.withArgs('suggestion-1').resolves(mockSuggestion1);
-    mockSuggestionDataAccess.findById.withArgs('suggestion-2').resolves(mockSuggestion2);
+    mockSuggestions.forEach((suggestion, index) => {
+      mockSuggestionDataAccess.findById.withArgs(`suggestion-${index + 1}`).resolves(suggestion);
+    });
   });
 
   afterEach(() => {
@@ -167,17 +132,10 @@ describe('CWV Demo Suggestions Processor Task', () => {
 
     it('should skip processing when opportunity already has suggestions with issues', async () => {
       const suggestionsWithIssues = [
-        {
-          getId: sandbox.stub().returns('suggestion-with-issues'),
-          getData: sandbox.stub().returns({
-            pageviews: 10000,
-            issues: [{ type: 'lcp', value: 'existing issue' }],
-          }),
-        },
+        createMockSuggestion('suggestion-with-issues', 10000, [], true), // hasIssues = true
       ];
 
-      mockContext.dataAccess.Site.findById.resolves(mockSite);
-      mockSite.getOpportunities.resolves([mockOpportunity]);
+      setupCommonMocks();
       mockOpportunity.getSuggestions.resolves(suggestionsWithIssues);
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
@@ -187,8 +145,7 @@ describe('CWV Demo Suggestions Processor Task', () => {
     });
 
     it('should add generic suggestions to opportunities without issues', async () => {
-      mockContext.dataAccess.Site.findById.resolves(mockSite);
-      mockSite.getOpportunities.resolves([mockOpportunity]);
+      setupCommonMocks();
       mockOpportunity.getSuggestions.resolves(mockSuggestions);
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
@@ -209,44 +166,13 @@ describe('CWV Demo Suggestions Processor Task', () => {
     it('should process only first 2 suggestions with CWV issues', async () => {
       const manySuggestions = [
         ...mockSuggestions,
-        {
-          getId: sandbox.stub().returns('suggestion-3'),
-          getData: sandbox.stub().returns({
-            pageviews: 3000,
-            metrics: [
-              {
-                deviceType: 'desktop',
-                lcp: 2800, // Above threshold
-                cls: 0.05, // Below threshold
-                inp: 180, // Below threshold
-              },
-            ],
-          }),
-        },
+        createMockSuggestion('suggestion-3', 3000, [
+          createMockMetrics(2800, 0.05, 180), // Above LCP threshold
+        ]),
       ];
 
-      mockContext.dataAccess.Site.findById.resolves(mockSite);
-      mockSite.getOpportunities.resolves([mockOpportunity]);
+      setupCommonMocks();
       mockOpportunity.getSuggestions.resolves(manySuggestions);
-
-      // Mock the third suggestion for findById
-      const mockSuggestion3 = {
-        getData: sandbox.stub().returns({
-          pageviews: 3000,
-          metrics: [
-            {
-              deviceType: 'desktop',
-              lcp: 2800, // Above threshold
-              cls: 0.05, // Below threshold
-              inp: 180, // Below threshold
-            },
-          ],
-        }),
-        setData: sandbox.stub(),
-        setUpdatedBy: sandbox.stub(),
-        save: sandbox.stub().resolves(),
-      };
-      mockSuggestionDataAccess.findById.withArgs('suggestion-3').resolves(mockSuggestion3);
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
 
@@ -254,8 +180,7 @@ describe('CWV Demo Suggestions Processor Task', () => {
     });
 
     it('should handle suggestion not found during update', async () => {
-      mockContext.dataAccess.Site.findById.resolves(mockSite);
-      mockSite.getOpportunities.resolves([mockOpportunity]);
+      setupCommonMocks();
       mockOpportunity.getSuggestions.resolves(mockSuggestions);
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
@@ -265,24 +190,12 @@ describe('CWV Demo Suggestions Processor Task', () => {
 
     it('should handle case when no suggestions meet CWV criteria', async () => {
       const suggestionsWithoutCWVIssues = [
-        {
-          getId: sandbox.stub().returns('no-cwv-issues'),
-          getData: sandbox.stub().returns({
-            pageviews: 10000,
-            metrics: [
-              {
-                deviceType: 'desktop',
-                lcp: 2000, // Below threshold
-                cls: 0.05, // Below threshold
-                inp: 150, // Below threshold
-              },
-            ],
-          }),
-        },
+        createMockSuggestion('no-cwv-issues', 10000, [
+          createMockMetrics(2000, 0.05, 150), // All below thresholds
+        ]),
       ];
 
-      mockContext.dataAccess.Site.findById.resolves(mockSite);
-      mockSite.getOpportunities.resolves([mockOpportunity]);
+      setupCommonMocks();
       mockOpportunity.getSuggestions.resolves(suggestionsWithoutCWVIssues);
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
@@ -294,17 +207,10 @@ describe('CWV Demo Suggestions Processor Task', () => {
 
     it('should handle suggestions with missing metrics property', async () => {
       const suggestionsWithMissingMetrics = [
-        {
-          getId: sandbox.stub().returns('missing-metrics'),
-          getData: sandbox.stub().returns({
-            pageviews: 10000,
-            // No metrics property - this will trigger the || [] fallback
-          }),
-        },
+        createMockSuggestion('missing-metrics', 10000, undefined), // No metrics property
       ];
 
-      mockContext.dataAccess.Site.findById.resolves(mockSite);
-      mockSite.getOpportunities.resolves([mockOpportunity]);
+      setupCommonMocks();
       mockOpportunity.getSuggestions.resolves(suggestionsWithMissingMetrics);
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
@@ -384,66 +290,36 @@ describe('CWV Demo Suggestions Processor Task', () => {
 
     it('should handle missing CWV reference suggestions gracefully', async () => {
       // This test covers the case where getRandomSuggestion returns null (lines 89-90)
-      // We'll test the getRandomSuggestion function directly with a non-existent issue type
+      // We'll test the getRandomSuggestion function indirectly by creating a scenario
+      // where it would be called with an issue type that doesn't exist
 
       const module = await import('../../../src/tasks/cwv-demo-suggestions-processor/handler.js');
 
-      // Test getRandomSuggestion function directly with non-existent issue type
-      // This should trigger the null return path (lines 89-90)
-
-      // Since getRandomSuggestion is not exported, we need to test it indirectly
-      // by creating a scenario where it would be called with an issue type that doesn't exist
-
       // Create suggestions with metrics that would trigger CWV issues
       const suggestionsWithCWVIssues = [
-        {
-          getId: sandbox.stub().returns('suggestion-with-issues'),
-          getData: sandbox.stub().returns({
-            pageviews: 10000,
-            metrics: [
-              {
-                deviceType: 'desktop',
-                lcp: 3000, // Above threshold - will trigger LCP issue
-                cls: 0.05, // Below threshold
-                inp: 150, // Below threshold
-              },
-            ],
-          }),
-        },
+        createMockSuggestion('suggestion-with-issues', 10000, [
+          createMockMetrics(3000, 0.05, 150), // Above LCP threshold
+        ]),
       ];
 
-      // Mock the suggestion that will be found by findById
-      const mockSuggestionWithIssues = {
-        getData: sandbox.stub().returns({
-          pageviews: 10000,
-          metrics: [{
-            deviceType: 'desktop', lcp: 3000, cls: 0.05, inp: 150,
-          }],
-        }),
-        setData: sandbox.stub(),
-        setUpdatedBy: sandbox.stub(),
-        save: sandbox.stub().resolves(),
-      };
-
-      mockContext.dataAccess.Site.findById.resolves(mockSite);
-      mockSite.getOpportunities.resolves([mockOpportunity]);
+      setupCommonMocks();
       mockOpportunity.getSuggestions.resolves(suggestionsWithCWVIssues);
-      mockSuggestionDataAccess.findById.withArgs('suggestion-with-issues').resolves(mockSuggestionWithIssues);
 
       // Temporarily remove all suggestions from lcp to trigger the null return path
-      const originalLcp = module.CWV_REFERENCE_SUGGESTIONS?.lcp;
-      if (module.CWV_REFERENCE_SUGGESTIONS && module.CWV_REFERENCE_SUGGESTIONS.lcp) {
-        module.CWV_REFERENCE_SUGGESTIONS.lcp = [];
+      const originalLcp = module.cwvReferenceSuggestions?.lcp;
+      if (module.cwvReferenceSuggestions && module.cwvReferenceSuggestions.lcp) {
+        module.cwvReferenceSuggestions.lcp = [];
       }
 
-      const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
-
-      // Restore original lcp suggestions
-      if (module.CWV_REFERENCE_SUGGESTIONS && originalLcp) {
-        module.CWV_REFERENCE_SUGGESTIONS.lcp = originalLcp;
+      try {
+        const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
+        expect(result.message).to.include('CWV demo suggestions processor completed');
+      } finally {
+        // Restore original lcp suggestions
+        if (module.cwvReferenceSuggestions && originalLcp) {
+          module.cwvReferenceSuggestions.lcp = originalLcp;
+        }
       }
-
-      expect(result.message).to.include('CWV demo suggestions processor completed');
     });
 
     it('should handle JSON file loading failure gracefully', async () => {

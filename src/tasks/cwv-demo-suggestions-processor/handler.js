@@ -120,7 +120,7 @@ async function updateSuggestionWithGenericIssues(
     }
 
     for (const issueType of metricIssues) {
-      const randomSuggestion = getRandomSuggestion(issueType, cwvReferenceSuggestions);
+      const randomSuggestion = getRandomSuggestion(issueType);
       if (randomSuggestion) {
         const genericIssue = {
           type: issueType,
