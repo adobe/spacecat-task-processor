@@ -101,8 +101,8 @@ async function updateSuggestionWithGenericIssues(
 
   try {
     const filename = fileURLToPath(import.meta.url);
-    logger.debug('Debug - filename:', filename);
-    const CWV_SUGGESTIONS_FILE_PATH = join(filename, '..', '..', '..', 'static', 'aem-best-practices.json');
+    logger.info('Debug - filename:', filename);
+    const CWV_SUGGESTIONS_FILE_PATH = join(filename, '..', '..', '..', '..', '..', 'static', 'aem-best-practices.json');
     logger.info(`Loading CWV suggestions from: ${CWV_SUGGESTIONS_FILE_PATH}`);
 
     const jsonContent = readFileSync(CWV_SUGGESTIONS_FILE_PATH, 'utf8');
