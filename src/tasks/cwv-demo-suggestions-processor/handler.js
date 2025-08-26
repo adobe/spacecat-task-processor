@@ -23,7 +23,7 @@ const INP = 'inp';
 const DEMO = 'demo';
 const MAX_CWV_DEMO_SUGGESTIONS = 2;
 const filename = fileURLToPath(import.meta.url);
-const dirname = join(filename, '..', '..', '..', '..');
+const dirname = join(filename, '..', '..', '..');
 const CWV_SUGGESTIONS_FILE_PATH = join(dirname, 'static', 'aem-best-practices.json');
 
 /**
