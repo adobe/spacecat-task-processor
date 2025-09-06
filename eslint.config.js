@@ -10,27 +10,32 @@
  * governing permissions and limitations under the License.
  */
 
-module.exports = {
-  root: true,
-  parser: '@typescript-eslint/parser',
-  parserOptions: {
-    ecmaVersion: 2020,
-    sourceType: 'module',
-  },
-  extends: [
-    '@adobe/helix',
-    'plugin:@typescript-eslint/recommended',
-  ],
-  plugins: [
-    'import',
-    '@typescript-eslint',
-  ],
-  overrides: [
+import {recommended, source, test} from '@adobe/eslint-config-helix';
+import { defineConfig, globalIgnores } from '@eslint/config-helpers'
+
+export default defineConfig([
+    globalIgnores([
+        '.vscode/*',
+        '.idea/*',
+        'coverage/*',
+        'scripts/*',
+        'test/*/fixtures/*'
+    ]),
     {
-      files: ['*.test.js'],
-      rules: {
-        '@typescript-eslint/no-unused-expressions': 'off',
-      },
+        extends: [ recommended ],
+        plugins: {
+            import: recommended.plugins.import,
+        },
+        rules: {
+            'no-unused-expressions': 'off',
+        },
     },
-  ],
-};
+    {
+        ...source,
+        files: [...source.files],
+    },
+    {
+        ...test,
+        files: [...test.files],
+    }
+]);
