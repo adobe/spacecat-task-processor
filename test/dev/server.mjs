@@ -13,35 +13,35 @@ import { DevelopmentServer } from '@adobe/helix-universal-devserver';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
 
-import { main } from '../../src/index.js';
 import { hasText } from '@adobe/spacecat-shared-utils';
+import { main } from '../../src/index.js';
 
 // eslint-disable-next-line no-underscore-dangle
 global.__rootdir = resolve(fileURLToPath(import.meta.url), '..', '..', '..');
 
 // poor man's env locking. Ask dj.
 function checkEnvSafe() {
-    // Skip AWS token validation in test environment
-    if (process.env.NODE_ENV === 'test') {
-        return;
-    }
-    
-    const x = Buffer.from(process.env.AWS_SESSION_TOKEN || '', 'base64')
-      .toString('utf8')
-      .match(/\d{12}/)?.[0];
-    if (!hasText(x) || !x.includes('8203346262')) {
-        throw new Error('RUNS ONLY ON DEV!');
-    }
+  // Skip AWS token validation in test environment
+  if (process.env.NODE_ENV === 'test') {
+    return;
+  }
+
+  const x = Buffer.from(process.env.AWS_SESSION_TOKEN || '', 'base64')
+    .toString('utf8')
+    .match(/\d{12}/)?.[0];
+  if (!hasText(x) || !x.includes('8203346262')) {
+    throw new Error('RUNS ONLY ON DEV!');
+  }
 }
 
 async function run() {
-    checkEnvSafe();
-    
-    process.env.HLX_DEV_SERVER_HOST = 'localhost:3000';
-    process.env.HLX_DEV_SERVER_SCHEME = 'http';
-    const devServer = await new DevelopmentServer(main)
-        .init();
-    await devServer.start();
+  checkEnvSafe();
+
+  process.env.HLX_DEV_SERVER_HOST = 'localhost:3000';
+  process.env.HLX_DEV_SERVER_SCHEME = 'http';
+  const devServer = await new DevelopmentServer(main)
+    .init();
+  await devServer.start();
 }
 
 run().then(process.stdout).catch(process.stderr);

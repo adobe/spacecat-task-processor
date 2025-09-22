@@ -10,12 +10,6 @@
         "semantic-release"
       ],
       "allowedVersions": ">=23.0"
-    },
-    {
-      "matchPackageNames": [
-        "eslint"
-      ],
-      "allowedVersions": "<9.0.0"
     }
   ]
 }
