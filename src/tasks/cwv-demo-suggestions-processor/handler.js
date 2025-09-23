@@ -73,7 +73,7 @@ function hasExistingIssues(suggestion) {
  */
 function readStaticFile(fileName, logger) {
   try {
-    const filePath = path.resolve(process.cwd(), 'static', fileName);
+    const filePath = path.resolve(process.cwd(), 'src/static', fileName);
     const content = fs.readFileSync(filePath, 'utf-8');
     logger.debug(`Successfully read content from ${fileName} at ${filePath}`);
     return content;
@@ -128,7 +128,7 @@ async function updateSuggestionWithGenericIssues(
 
   let cwvReferenceSuggestions = { lcp: [], cls: [], inp: [] };
   try {
-    const jsonPath = path.resolve(process.cwd(), 'static/aem-best-practices.json');
+    const jsonPath = path.resolve(process.cwd(), 'src/static/aem-best-practices.json');
     logger.info(`Loading CWV reference suggestions from: ${jsonPath}`);
     const rawData = fs.readFileSync(jsonPath, 'utf-8');
     cwvReferenceSuggestions = JSON.parse(rawData);
