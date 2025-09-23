@@ -14,7 +14,6 @@ import { isNonEmptyArray } from '@adobe/spacecat-shared-utils';
 
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { say } from '../../utils/slack-utils.js';
 
 const TASK_TYPE = 'cwv-demo-suggestions-processor';
@@ -23,9 +22,6 @@ const CLS = 'cls';
 const INP = 'inp';
 const DEMO = 'demo';
 const MAX_CWV_DEMO_SUGGESTIONS = 2;
-
-const filename = fileURLToPath(import.meta.url);
-const dirname = path.dirname(filename);
 
 /**
  * CWV thresholds for determining if metrics have issues
@@ -77,9 +73,9 @@ function hasExistingIssues(suggestion) {
  */
 function readStaticFile(fileName, logger) {
   try {
-    const filePath = path.resolve(dirname, '../../../static', fileName);
+    const filePath = path.resolve(process.cwd(), 'static', fileName);
     const content = fs.readFileSync(filePath, 'utf-8');
-    logger.debug(`Successfully read content from ${fileName}`);
+    logger.debug(`Successfully read content from ${fileName} at ${filePath}`);
     return content;
   } catch (error) {
     logger.error(`Error reading static file ${fileName}: ${error.message}`);
@@ -132,8 +128,8 @@ async function updateSuggestionWithGenericIssues(
 
   let cwvReferenceSuggestions = { lcp: [], cls: [], inp: [] };
   try {
-    const jsonPath = path.resolve(dirname, '../../../static/aem-best-practices.json');
-    logger.info(`Loading CWV reference suggestions from: ${filename}, ${dirname}, ${jsonPath}`);
+    const jsonPath = path.resolve(process.cwd(), 'static/aem-best-practices.json');
+    logger.info(`Loading CWV reference suggestions from: ${jsonPath}`);
     const rawData = fs.readFileSync(jsonPath, 'utf-8');
     cwvReferenceSuggestions = JSON.parse(rawData);
     await say(env, logger, slackContext, `Loaded CWV reference suggestions from: ${jsonPath}`);
