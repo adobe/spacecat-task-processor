@@ -70,18 +70,46 @@ function hasExistingIssues(suggestion) {
 }
 
 /**
+ * Reads content from a static file
+ * @param {string} fileName - The filename to read
+ * @param {object} logger - The logger object
+ * @returns {string|null} The file content or null if error
+ */
+function readStaticFile(fileName, logger) {
+  try {
+    const filePath = path.resolve(dirname, '../../../static', fileName);
+    const content = fs.readFileSync(filePath, 'utf-8');
+    logger.debug(`Successfully read content from ${fileName}`);
+    return content;
+  } catch (error) {
+    logger.error(`Error reading static file ${fileName}: ${error.message}`);
+    return null;
+  }
+}
+
+/**
  * Gets a random suggestion from the available suggestions for a given issue type
  * @param {string} issueType - The type of issue (lcp, cls, inp)
+ * @param {object} logger - The logger object
  * @returns {string|null} A random suggestion or null if none available
  */
-function getRandomSuggestion(issueType, cwvReferenceSuggestions) {
+function getRandomSuggestion(issueType, cwvReferenceSuggestions, logger) {
   const suggestions = cwvReferenceSuggestions[issueType];
   if (!isNonEmptyArray(suggestions)) {
     return null;
   }
 
   const randomIndex = Math.floor(Math.random() * suggestions.length);
-  return suggestions[randomIndex];
+  const fileName = suggestions[randomIndex];
+
+  // Read content from the referenced file
+  const content = readStaticFile(fileName, logger);
+  if (!content) {
+    logger.error(`Failed to read content from ${fileName}`);
+    return null;
+  }
+
+  return content;
 }
 
 /**
@@ -123,7 +151,7 @@ async function updateSuggestionWithGenericIssues(
     }
 
     for (const issueType of metricIssues) {
-      const randomSuggestion = getRandomSuggestion(issueType, cwvReferenceSuggestions);
+      const randomSuggestion = getRandomSuggestion(issueType, cwvReferenceSuggestions, logger);
       if (randomSuggestion) {
         const genericIssue = {
           type: issueType,
@@ -163,6 +191,7 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
 
     if (hasSuggestionsWithIssues) {
       logger.info(`Opportunity ${opportunity.getId()} already has suggestions with issues, skipping generic suggestions`);
+      await say(env, logger, slackContext, `ℹ️ CWV suggestions already exist for opportunity ${opportunity.getId()}, skipping demo suggestions`);
       return 0;
     }
 
@@ -216,8 +245,8 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
     const issuesAddedResults = await Promise.all(updatePromises);
     const totalIssuesAdded = issuesAddedResults.reduce((sum, issuesAdded) => sum + issuesAdded, 0);
     if (totalIssuesAdded > 0) {
-      await say(env, logger, slackContext, `🎯 Added ${totalIssuesAdded} generic CWV suggestions for opportunity ${opportunity.getId()}`);
-      logger.info(`Added ${totalIssuesAdded} generic CWV suggestions for opportunity ${opportunity.getId()}`);
+      logger.info(`Added ${totalIssuesAdded} demo CWV suggestions for opportunity ${opportunity.getId()} (regular CWV suggestions were not present)`);
+      await say(env, logger, slackContext, `✅ Added ${totalIssuesAdded} demo CWV suggestions for opportunity ${opportunity.getId()} (regular CWV suggestions were not present)`);
     } else {
       await say(env, logger, slackContext, `:x: No generic CWV suggestions added for opportunity ${opportunity.getId()}`);
       logger.info(`No generic CWV suggestions added for opportunity ${opportunity.getId()}`);
