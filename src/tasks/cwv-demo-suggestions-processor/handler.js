@@ -10,10 +10,11 @@
  * governing permissions and limitations under the License.
  */
 
-import { isNonEmptyArray } from '@adobe/spacecat-shared-utils';
-
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+import { isNonEmptyArray } from '@adobe/spacecat-shared-utils';
+
 import { say } from '../../utils/slack-utils.js';
 
 const TASK_TYPE = 'cwv-demo-suggestions-processor';
@@ -22,6 +23,35 @@ const CLS = 'cls';
 const INP = 'inp';
 const DEMO = 'demo';
 const MAX_CWV_DEMO_SUGGESTIONS = 2;
+
+// Get the directory of the current module for resolving static files
+const filename = fileURLToPath(import.meta.url);
+const dirname = path.dirname(filename);
+
+/**
+ * Maps metric types to their corresponding markdown files
+ */
+const METRIC_FILES = {
+  lcp: ['lcp1.md', 'lcp2.md', 'lcp3.md'],
+  cls: ['cls1.md', 'cls2.md'],
+  inp: ['inp1.md'],
+};
+
+/**
+ * Reads content from a static markdown file
+ * @param {string} fileName - The name of the file to read
+ * @param {object} logger - The logger object for error logging
+ * @returns {string|null} The file content or null if file doesn't exist
+ */
+function readStaticFile(fileName, logger) {
+  try {
+    const filePath = path.resolve(dirname, '../../static', fileName);
+    return fs.readFileSync(filePath, 'utf8');
+  } catch (error) {
+    logger.error(`Failed to read static file ${fileName}:`, error.message);
+    return null;
+  }
+}
 
 /**
  * CWV thresholds for determining if metrics have issues
@@ -66,46 +96,61 @@ function hasExistingIssues(suggestion) {
 }
 
 /**
- * Reads content from a static file
- * @param {string} fileName - The filename to read
- * @param {object} logger - The logger object
- * @returns {string|null} The file content or null if error
- */
-function readStaticFile(fileName, logger) {
-  try {
-    const filePath = path.resolve(process.cwd(), 'src/static', fileName);
-    const content = fs.readFileSync(filePath, 'utf-8');
-    logger.debug(`Successfully read content from ${fileName} at ${filePath}`);
-    return content;
-  } catch (error) {
-    logger.error(`Error reading static file ${fileName}: ${error.message}`);
-    return null;
-  }
-}
-
-/**
- * Gets a random suggestion from the available suggestions for a given issue type
+ * Gets a random suggestion from markdown files for the given issue type
  * @param {string} issueType - The type of issue (lcp, cls, inp)
- * @param {object} logger - The logger object
+ * @param {object} logger - The logger object for error logging
  * @returns {string|null} A random suggestion or null if none available
  */
-function getRandomSuggestion(issueType, cwvReferenceSuggestions, logger) {
-  const suggestions = cwvReferenceSuggestions[issueType];
-  if (!isNonEmptyArray(suggestions)) {
+function getRandomSuggestion(issueType, logger) {
+  const files = METRIC_FILES[issueType];
+  if (!isNonEmptyArray(files)) {
     return null;
   }
 
-  const randomIndex = Math.floor(Math.random() * suggestions.length);
-  const fileName = suggestions[randomIndex];
-
-  // Read content from the referenced file
+  const randomIndex = Math.floor(Math.random() * files.length);
+  const fileName = files[randomIndex];
   const content = readStaticFile(fileName, logger);
+
   if (!content) {
-    logger.error(`Failed to read content from ${fileName}`);
     return null;
   }
 
-  return content;
+  // Extract the main suggestion from the markdown content
+  // Look for the Description section and extract its content
+  const lines = content.split('\n').map((line) => line.trim()).filter((line) => line);
+
+  let inDescriptionSection = false;
+  const descriptionLines = [];
+
+  for (const line of lines) {
+    if (line === '**Description**') {
+      inDescriptionSection = true;
+    } else if (inDescriptionSection) {
+      // Stop when we hit the next section (starts with **)
+      if (line.startsWith('**') && line !== '**Description**') {
+        break;
+      }
+      // Skip empty lines and code blocks
+      if (line && !line.startsWith('```')) {
+        descriptionLines.push(line);
+      }
+    }
+  }
+
+  // Return the first meaningful description line, or join multiple lines if needed
+  if (descriptionLines.length > 0) {
+    return descriptionLines[0];
+  }
+
+  // Fallback: look for any meaningful content after the title
+  for (let i = 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line && !line.startsWith('#') && !line.startsWith('**') && !line.startsWith('-') && !line.startsWith('```')) {
+      return line;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -126,20 +171,10 @@ async function updateSuggestionWithGenericIssues(
 ) {
   let issuesAdded = 0;
 
-  let cwvReferenceSuggestions = { lcp: [], cls: [], inp: [] };
   try {
-    const jsonPath = path.resolve(process.cwd(), 'src/static/aem-best-practices.json');
-    logger.info(`Loading CWV reference suggestions from: ${jsonPath}`);
-    const rawData = fs.readFileSync(jsonPath, 'utf-8');
-    cwvReferenceSuggestions = JSON.parse(rawData);
-    await say(env, logger, slackContext, `Loaded CWV reference suggestions from: ${jsonPath}`);
-  } catch (error) {
-    logger.error(`Error loading CWV reference suggestions: ${error.message}`);
-    await say(env, logger, slackContext, `Failed to load CWV reference suggestions: ${error.message}`);
-    return 0;
-  }
+    logger.info('Loading CWV suggestions from markdown files');
+    await say(env, logger, slackContext, 'Loaded CWV suggestions from markdown files');
 
-  try {
     const data = suggestion.getData();
 
     if (!data.issues) {
@@ -147,7 +182,7 @@ async function updateSuggestionWithGenericIssues(
     }
 
     for (const issueType of metricIssues) {
-      const randomSuggestion = getRandomSuggestion(issueType, cwvReferenceSuggestions, logger);
+      const randomSuggestion = getRandomSuggestion(issueType, logger);
       if (randomSuggestion) {
         const genericIssue = {
           type: issueType,
