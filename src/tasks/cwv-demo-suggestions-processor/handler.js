@@ -279,7 +279,7 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
       logger.info(`Added ${totalIssuesAdded} demo CWV suggestions for opportunity ${opportunity.getId()} (regular CWV suggestions were not present)`);
       await say(env, logger, slackContext, `✅ Added ${totalIssuesAdded} demo CWV suggestions for opportunity ${opportunity.getId()} (regular CWV suggestions were not present)`);
     } else {
-      await say(env, logger, slackContext, `:x: No generic CWV suggestions added for opportunity ${opportunity.getId()}`);
+      await say(env, logger, slackContext, `:x: No generic CWV suggestions added for opportunity ${opportunity.getId()} as total issues added is ${totalIssuesAdded}`);
       logger.info(`No generic CWV suggestions added for opportunity ${opportunity.getId()}`);
     }
 
