@@ -12,6 +12,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { isNonEmptyArray } from '@adobe/spacecat-shared-utils';
 
 import { say } from '../../utils/slack-utils.js';
@@ -22,6 +23,10 @@ const CLS = 'cls';
 const INP = 'inp';
 const DEMO = 'demo';
 const MAX_CWV_DEMO_SUGGESTIONS = 2;
+
+// Proper ESM path resolution
+const filename = fileURLToPath(import.meta.url);
+const dirname = path.dirname(filename);
 
 /**
  * Maps metric types to their corresponding text files
@@ -42,15 +47,18 @@ async function readStaticFile(fileName, logger) {
   try {
     logger.info(`Reading static file ${fileName}`);
 
-    // Try multiple possible paths since process.cwd() is /var/task but handler is elsewhere
+    // Possible file paths
     const possiblePaths = [
-      // Path relative to handler.js location (most likely to work)
-      path.resolve(path.dirname(new URL(import.meta.url).pathname), fileName),
-      // Path from process.cwd() (Lambda runtime directory)
+      // Path relative to handler.js (most likely to work)
+      path.resolve(dirname, fileName),
+      // Path from process.cwd() inside Lambda
       path.resolve(process.cwd(), 'src', 'tasks', 'cwv-demo-suggestions-processor', fileName),
-      // Direct from process.cwd()
+      // Just in case file is copied into root
       path.resolve(process.cwd(), fileName),
     ];
+
+    logger.info(`Handler directory: ${dirname}`);
+    logger.info(`Process cwd: ${process.cwd()}`);
 
     for (const filePath of possiblePaths) {
       logger.info(`Trying path: ${filePath}`);
@@ -58,18 +66,21 @@ async function readStaticFile(fileName, logger) {
         logger.info(`Found file at: ${filePath}`);
         try {
           const content = fs.readFileSync(filePath, 'utf8');
-          logger.info(`Static file content length: ${content ? content.length : 'null'}`);
+          logger.info(`Static file content length: ${content.length}`);
+          logger.info(`First 100 chars: ${content.substring(0, 100)}`);
           return content;
-        } catch (readError) {
-          logger.error(`Failed to read file ${filePath}:`, readError.message);
+        } catch (err) {
+          logger.error(`Failed to read file ${filePath}: ${err.message}`);
         }
+      } else {
+        logger.info(`File does not exist at: ${filePath}`);
       }
     }
 
-    logger.error(`File ${fileName} not found in any of the expected locations`);
+    logger.error(`File ${fileName} not found in any expected location`);
     return null;
   } catch (error) {
-    logger.error(`Failed to read static file ${fileName}:`, error.message);
+    logger.error(`Failed to read static file ${fileName}: ${error.message}`);
     return null;
   }
 }
@@ -90,7 +101,7 @@ async function getRandomSuggestion(issueType, logger, env, slackContext) {
 
   const randomIndex = Math.floor(Math.random() * files.length);
   const fileName = files[randomIndex];
-  const content = await readStaticFile(fileName, logger, env, slackContext);
+  const content = await readStaticFile(fileName, logger);
   await say(env, logger, slackContext, `Random suggestion for issue type: ${issueType} is ${content}`);
   if (!content) {
     return null;
