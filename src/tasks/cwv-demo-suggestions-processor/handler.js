@@ -12,7 +12,6 @@
 
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { isNonEmptyArray } from '@adobe/spacecat-shared-utils';
 
 import { say } from '../../utils/slack-utils.js';
@@ -24,9 +23,7 @@ const INP = 'inp';
 const DEMO = 'demo';
 const MAX_CWV_DEMO_SUGGESTIONS = 2;
 
-// Get the directory of the current module for resolving static files
-const filename = fileURLToPath(import.meta.url);
-const dirname = path.dirname(filename);
+// Static files are now co-located with the handler
 
 /**
  * Maps metric types to their corresponding markdown files
@@ -46,7 +43,8 @@ const METRIC_FILES = {
 function readStaticFile(fileName, logger) {
   try {
     logger.info(`Reading static file ${fileName}`);
-    const filePath = path.join(dirname, fileName);
+    // Use absolute path resolution from process.cwd() to avoid duplicate directory issues
+    const filePath = path.resolve(process.cwd(), 'src', 'tasks', 'cwv-demo-suggestions-processor', fileName);
     logger.info(`Static file path: ${filePath}`);
     return fs.readFileSync(filePath, 'utf8');
   } catch (error) {
