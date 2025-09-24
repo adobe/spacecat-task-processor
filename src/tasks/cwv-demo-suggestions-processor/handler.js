@@ -42,20 +42,13 @@ function readStaticFile(fileName, logger) {
   try {
     logger.info(`Reading static file ${fileName}`);
 
-    // Debug: Log current file and directory info
-    logger.info(`Current file: ${import.meta.url}`);
-    logger.info(`Process cwd: ${process.cwd()}`);
-    logger.info(`__dirname equivalent: ${path.dirname(new URL(import.meta.url).pathname)}`);
-
-    // Try multiple possible paths based on where handler.js is located
+    // Try multiple possible paths since process.cwd() is /var/task but handler is elsewhere
     const possiblePaths = [
-      // Path relative to handler.js location
+      // Path relative to handler.js location (most likely to work)
       path.resolve(path.dirname(new URL(import.meta.url).pathname), fileName),
-      // Path from process.cwd()
+      // Path from process.cwd() (Lambda runtime directory)
       path.resolve(process.cwd(), 'src', 'tasks', 'cwv-demo-suggestions-processor', fileName),
-      // Path without src/
-      path.resolve(process.cwd(), 'tasks', 'cwv-demo-suggestions-processor', fileName),
-      // Direct from cwd
+      // Direct from process.cwd()
       path.resolve(process.cwd(), fileName),
     ];
 
