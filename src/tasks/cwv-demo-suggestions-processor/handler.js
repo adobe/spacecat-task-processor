@@ -118,14 +118,14 @@ function getMetricIssues(metrics) {
 function hasExistingIssues(suggestion) {
   const data = suggestion.getData() || {};
 
-  if (!Array.isArray(data.issues) || data.issues.length === 0) {
-    return false; // no issues at all
+  // Simple check: if no issues array or empty array, return false
+  if (!data.issues || !Array.isArray(data.issues) || data.issues.length === 0) {
+    return false;
   }
 
-  // Only consider an issue as “existing non-generic” if it has a type and is explicitly not generic
-  return data.issues.some(
-    (issue) => issue && typeof issue === 'object' && issue.type && !issue.generic,
-  );
+  // Check if any issues are NOT generic (i.e., they are regular CWV suggestions)
+  // An issue is considered "non-generic" if it doesn't have the generic: true flag
+  return data.issues.some((issue) => issue && issue.type && issue.generic !== true);
 }
 
 /**
@@ -220,22 +220,8 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
     logger.info(`Opportunity ${opportunity.getId()} has ${suggestions.length} suggestions`);
     await say(env, logger, slackContext, `🔍 DEBUG: Opportunity ${opportunity.getId()} has ${suggestions.length} suggestions`);
 
-    // Process all suggestions in parallel to avoid await in loop
-    const debugPromises = suggestions.map(async (suggestion) => {
-      const data = suggestion.getData();
-      logger.info(`Suggestion ${suggestion.getId()}: issues=${data.issues?.length || 0}, genericSuggestions=${data.genericSuggestions || false}`);
-      await say(env, logger, slackContext, `🔍 DEBUG: Suggestion ${suggestion.getId()}: issues=${data.issues?.length || 0}, genericSuggestions=${data.genericSuggestions || false}`);
-
-      if (data.issues && data.issues.length > 0) {
-        const issueSummary = data.issues.map((issue) => `${issue.type}(${issue.generic ? 'generic' : 'regular'})`).join(', ');
-        logger.info(`Issues in suggestion ${suggestion.getId()}: ${issueSummary}`);
-        await say(env, logger, slackContext, `🔍 DEBUG: Issues in suggestion ${suggestion.getId()}: ${issueSummary}`);
-      }
-    });
-
-    await Promise.all(debugPromises);
-
     const hasSuggestionsWithIssues = suggestions.some(hasExistingIssues);
+
     logger.info(`Has suggestions with non-generic issues: ${hasSuggestionsWithIssues}`);
     await say(env, logger, slackContext, `🔍 DEBUG: Has suggestions with non-generic issues: ${hasSuggestionsWithIssues}`);
 
