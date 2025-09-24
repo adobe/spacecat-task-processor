@@ -45,7 +45,9 @@ const METRIC_FILES = {
  */
 function readStaticFile(fileName, logger) {
   try {
+    logger.info(`Reading static file ${fileName}`);
     const filePath = path.resolve(dirname, '../../static', fileName);
+    logger.info(`Static file path: ${filePath}`);
     return fs.readFileSync(filePath, 'utf8');
   } catch (error) {
     logger.error(`Failed to read static file ${fileName}:`, error.message);
@@ -99,7 +101,7 @@ function hasExistingIssues(suggestion) {
  * Gets a random suggestion from markdown files for the given issue type
  * @param {string} issueType - The type of issue (lcp, cls, inp)
  * @param {object} logger - The logger object for error logging
- * @returns {string|null} A random suggestion or null if none available
+ * @returns {string|null} The entire markdown file content or null if none available
  */
 function getRandomSuggestion(issueType, logger) {
   const files = METRIC_FILES[issueType];
@@ -110,47 +112,14 @@ function getRandomSuggestion(issueType, logger) {
   const randomIndex = Math.floor(Math.random() * files.length);
   const fileName = files[randomIndex];
   const content = readStaticFile(fileName, logger);
+  logger.info(`Static file content: ${content}`);
 
   if (!content) {
     return null;
   }
 
-  // Extract the main suggestion from the markdown content
-  // Look for the Description section and extract its content
-  const lines = content.split('\n').map((line) => line.trim()).filter((line) => line);
-
-  let inDescriptionSection = false;
-  const descriptionLines = [];
-
-  for (const line of lines) {
-    if (line === '**Description**') {
-      inDescriptionSection = true;
-    } else if (inDescriptionSection) {
-      // Stop when we hit the next section (starts with **)
-      if (line.startsWith('**') && line !== '**Description**') {
-        break;
-      }
-      // Skip empty lines and code blocks
-      if (line && !line.startsWith('```')) {
-        descriptionLines.push(line);
-      }
-    }
-  }
-
-  // Return the first meaningful description line, or join multiple lines if needed
-  if (descriptionLines.length > 0) {
-    return descriptionLines[0];
-  }
-
-  // Fallback: look for any meaningful content after the title
-  for (let i = 1; i < lines.length; i += 1) {
-    const line = lines[i];
-    if (line && !line.startsWith('#') && !line.startsWith('**') && !line.startsWith('-') && !line.startsWith('```')) {
-      return line;
-    }
-  }
-
-  return null;
+  // Return the entire markdown file content as the suggestion
+  return content;
 }
 
 /**
@@ -182,8 +151,10 @@ async function updateSuggestionWithGenericIssues(
     }
 
     for (const issueType of metricIssues) {
+      logger.info(`Getting random suggestion for issue type: ${issueType}`);
       const randomSuggestion = getRandomSuggestion(issueType, logger);
       if (randomSuggestion) {
+        logger.info(`Random suggestion found for issue type: ${issueType}`);
         const genericIssue = {
           type: issueType,
           value: randomSuggestion,
@@ -202,7 +173,7 @@ async function updateSuggestionWithGenericIssues(
   } catch (error) {
     logger.error(`Error updating suggestion ${suggestion.getId()} with generic issues:`, error);
   }
-
+  logger.info(`Issues added: ${issuesAdded}`);
   return issuesAdded;
 }
 
@@ -274,7 +245,9 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
     });
 
     const issuesAddedResults = await Promise.all(updatePromises);
-    const totalIssuesAdded = issuesAddedResults.reduce((sum, issuesAdded) => sum + issuesAdded, 0);
+    logger.info(`Issues added results: ${issuesAddedResults}`);
+    const totalIssuesAdded = issuesAddedResults.reduce((sum, count) => sum + count, 0);
+    logger.info(`Total issues added: ${totalIssuesAdded}`);
     if (totalIssuesAdded > 0) {
       logger.info(`Added ${totalIssuesAdded} demo CWV suggestions for opportunity ${opportunity.getId()} (regular CWV suggestions were not present)`);
       await say(env, logger, slackContext, `✅ Added ${totalIssuesAdded} demo CWV suggestions for opportunity ${opportunity.getId()} (regular CWV suggestions were not present)`);
