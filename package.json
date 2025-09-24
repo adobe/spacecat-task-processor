@@ -18,10 +18,9 @@
     "semantic-release": "semantic-release",
     "semantic-release-dry": "semantic-release --dry-run --no-ci --branches $CI_BRANCH",
     "build": "hedy -v --test-bundle",
-    "predeploy": "mkdir -p dist/tasks/cwv-demo-suggestions-processor && cp src/tasks/cwv-demo-suggestions-processor/*.txt dist/tasks/cwv-demo-suggestions-processor/",
-    "deploy": "npm run predeploy && hedy -v --deploy --aws-deploy-bucket=spacecat-prod-deploy --pkgVersion=latest",
-    "deploy-stage": "npm run predeploy && hedy -v --deploy --aws-deploy-bucket=spacecat-stage-deploy --pkgVersion=latest",
-    "deploy-dev": "npm run predeploy && hedy -v --deploy --pkgVersion=ci$CI_BUILD_NUM -l latest --aws-deploy-bucket=spacecat-dev-deploy --cleanup-ci=24h",
+    "deploy": "hedy -v --deploy --aws-deploy-bucket=spacecat-prod-deploy --pkgVersion=latest",
+    "deploy-stage": "hedy -v --deploy --aws-deploy-bucket=spacecat-stage-deploy --pkgVersion=latest",
+    "deploy-dev": "hedy -v --deploy --pkgVersion=ci$CI_BUILD_NUM -l latest --aws-deploy-bucket=spacecat-dev-deploy --cleanup-ci=24h",
     "deploy-secrets": "hedy --aws-update-secrets --params-file=secrets/secrets.env",
     "prepare": "husky",
     "local-build": "sam build",
@@ -41,7 +40,14 @@
     "fastlyServiceId!important": "",
     "timeout": 900000,
     "nodeVersion": 22,
-    "static": []
+    "static": [
+      "static/cls1.txt",
+      "static/cls2.txt",
+      "static/inp1.txt",
+      "static/lcp1.txt",
+      "static/lcp2.txt",
+      "static/lcp3.txt"
+    ]
   },
   "repository": {
     "type": "git",

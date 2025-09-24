@@ -12,7 +12,6 @@
 
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { isNonEmptyArray } from '@adobe/spacecat-shared-utils';
 
 import { say } from '../../utils/slack-utils.js';
@@ -23,10 +22,6 @@ const CLS = 'cls';
 const INP = 'inp';
 const DEMO = 'demo';
 const MAX_CWV_DEMO_SUGGESTIONS = 2;
-
-// Proper ESM path resolution
-const filename = fileURLToPath(import.meta.url);
-const dirname = path.dirname(filename);
 
 /**
  * Maps metric types to their corresponding text files
@@ -45,7 +40,7 @@ const METRIC_FILES = {
  */
 const loadSuggestionContent = (fileName) => {
   try {
-    const filePath = path.resolve(dirname, fileName);
+    const filePath = path.resolve(process.cwd(), 'static', fileName);
     const data = fs.readFileSync(filePath, 'utf-8');
     return data;
   } catch (error) {
