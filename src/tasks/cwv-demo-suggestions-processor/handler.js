@@ -113,19 +113,21 @@ function getMetricIssues(metrics) {
 /**
  * Checks if a suggestion has existing non-generic CWV issues
  * @param {object} suggestion - The suggestion object
- * @returns {boolean} True if suggestion has existing non-generic issues
+ * @returns {boolean} True if suggestion has existing non-generic CWV issues
  */
-function hasExistingIssues(suggestion) {
+function hasExistingCwvIssues(suggestion) {
   const data = suggestion.getData() || {};
+  if (!Array.isArray(data.issues)) return false;
 
-  // Simple check: if no issues array or empty array, return false
-  if (!data.issues || !Array.isArray(data.issues) || data.issues.length === 0) {
-    return false;
-  }
+  const cwvMetrics = ['lcp', 'cls', 'inp'];
 
-  // Check if any issues are NOT generic (i.e., they are regular CWV suggestions)
-  // An issue is considered "non-generic" if it doesn't have the generic: true flag
-  return data.issues.some((issue) => issue && issue.type && issue.generic !== true);
+  return data.issues.some(
+    (issue) => issue
+      && typeof issue === 'object'
+      && issue.type
+      && cwvMetrics.includes(issue.type.toLowerCase())
+      && issue.generic !== true,
+  );
 }
 
 /**
@@ -220,7 +222,38 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
     logger.info(`Opportunity ${opportunity.getId()} has ${suggestions.length} suggestions`);
     await say(env, logger, slackContext, `🔍 DEBUG: Opportunity ${opportunity.getId()} has ${suggestions.length} suggestions`);
 
-    const hasSuggestionsWithIssues = suggestions.some(hasExistingIssues);
+    // Check each suggestion individually to find which ones have non-generic CWV issues
+    const cwvCheckPromises = suggestions.map(async (suggestion) => {
+      const data = suggestion.getData() || {};
+      if (data.issues && data.issues.length > 0) {
+        const cwvMetrics = ['lcp', 'cls', 'inp'];
+        const nonGenericCwvIssues = data.issues.filter((issue) => issue
+          && issue.type
+          && cwvMetrics.includes(issue.type.toLowerCase())
+          && issue.generic !== true);
+
+        if (nonGenericCwvIssues.length > 0) {
+          await say(
+            env,
+            logger,
+            slackContext,
+            `🔍 DEBUG: Suggestion ${suggestion.getId()} has ${nonGenericCwvIssues.length} non-generic CWV issues: ${nonGenericCwvIssues.map((i) => i.type).join(', ')}`,
+          );
+          return 1;
+        }
+      }
+      return 0;
+    });
+
+    const cwvCheckResults = await Promise.all(cwvCheckPromises);
+    const suggestionsWithNonGenericCwvIssues = cwvCheckResults.reduce(
+      (sum, count) => sum + count,
+      0,
+    );
+
+    await say(env, logger, slackContext, `🔍 DEBUG: Found ${suggestionsWithNonGenericCwvIssues} suggestions with non-generic CWV issues out of ${suggestions.length} total`);
+
+    const hasSuggestionsWithIssues = suggestions.some(hasExistingCwvIssues);
 
     logger.info(`Has suggestions with non-generic issues: ${hasSuggestionsWithIssues}`);
     await say(env, logger, slackContext, `🔍 DEBUG: Has suggestions with non-generic issues: ${hasSuggestionsWithIssues}`);
