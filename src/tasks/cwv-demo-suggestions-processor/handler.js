@@ -47,38 +47,27 @@ async function readStaticFile(fileName, logger) {
   try {
     logger.info(`Reading static file ${fileName}`);
 
-    // Possible file paths
-    const possiblePaths = [
-      // Path relative to handler.js (most likely to work)
-      path.resolve(dirname, fileName),
-      // Path from process.cwd() inside Lambda
-      path.resolve(process.cwd(), 'src', 'tasks', 'cwv-demo-suggestions-processor', fileName),
-      // Just in case file is copied into root
-      path.resolve(process.cwd(), fileName),
-    ];
+    // Always look in the same folder as this JS file
+    const filePath = path.resolve(dirname, fileName);
 
     logger.info(`Handler directory: ${dirname}`);
-    logger.info(`Process cwd: ${process.cwd()}`);
+    logger.info(`Trying path: ${filePath}`);
 
-    for (const filePath of possiblePaths) {
-      logger.info(`Trying path: ${filePath}`);
-      if (fs.existsSync(filePath)) {
-        logger.info(`Found file at: ${filePath}`);
-        try {
-          const content = fs.readFileSync(filePath, 'utf8');
-          logger.info(`Static file content length: ${content.length}`);
-          logger.info(`First 100 chars: ${content.substring(0, 100)}`);
-          return content;
-        } catch (err) {
-          logger.error(`Failed to read file ${filePath}: ${err.message}`);
-        }
-      } else {
-        logger.info(`File does not exist at: ${filePath}`);
+    if (fs.existsSync(filePath)) {
+      logger.info(`Found file at: ${filePath}`);
+      try {
+        const content = fs.readFileSync(filePath, 'utf8');
+        logger.info(`Static file content length: ${content.length}`);
+        logger.info(`First 100 chars: ${content.substring(0, 100)}`);
+        return content;
+      } catch (err) {
+        logger.error(`Failed to read file ${filePath}: ${err.message}`);
+        return null;
       }
+    } else {
+      logger.error(`File does not exist at: ${filePath}`);
+      return null;
     }
-
-    logger.error(`File ${fileName} not found in any expected location`);
-    return null;
   } catch (error) {
     logger.error(`Failed to read static file ${fileName}: ${error.message}`);
     return null;
@@ -101,6 +90,7 @@ async function getRandomSuggestion(issueType, logger, env, slackContext) {
 
   const randomIndex = Math.floor(Math.random() * files.length);
   const fileName = files[randomIndex];
+  await say(env, logger, slackContext, `Reading static file: ${fileName}`);
   const content = await readStaticFile(fileName, logger);
   await say(env, logger, slackContext, `Random suggestion for issue type: ${issueType} is ${content}`);
   if (!content) {
