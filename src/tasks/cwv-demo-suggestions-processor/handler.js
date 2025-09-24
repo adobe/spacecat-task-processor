@@ -45,29 +45,20 @@ const METRIC_FILES = {
  */
 async function readStaticFile(fileName, logger) {
   try {
-    logger.info(`Reading static file ${fileName}`);
-
-    // Always look in the same folder as this JS file
     const filePath = path.resolve(dirname, fileName);
 
-    logger.info(`Handler directory: ${dirname}`);
-    logger.info(`Trying path: ${filePath}`);
+    logger.info(`Reading static file: ${fileName}`);
+    logger.info(`__dirname at runtime: ${dirname}`);
+    logger.info(`Resolved file path: ${filePath}`);
 
-    if (fs.existsSync(filePath)) {
-      logger.info(`Found file at: ${filePath}`);
-      try {
-        const content = fs.readFileSync(filePath, 'utf8');
-        logger.info(`Static file content length: ${content.length}`);
-        logger.info(`First 100 chars: ${content.substring(0, 100)}`);
-        return content;
-      } catch (err) {
-        logger.error(`Failed to read file ${filePath}: ${err.message}`);
-        return null;
-      }
-    } else {
+    if (!fs.existsSync(filePath)) {
       logger.error(`File does not exist at: ${filePath}`);
       return null;
     }
+
+    const content = fs.readFileSync(filePath, 'utf8');
+    logger.info(`Static file content length: ${content.length}`);
+    return content;
   } catch (error) {
     logger.error(`Failed to read static file ${fileName}: ${error.message}`);
     return null;
