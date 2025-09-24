@@ -56,9 +56,13 @@ function readStaticFile(fileName, logger) {
       logger.info(`Trying path: ${filePath}`);
       if (fs.existsSync(filePath)) {
         logger.info(`Found file at: ${filePath}`);
-        const content = fs.readFileSync(filePath, 'utf8');
-        logger.info(`Static file content length: ${content ? content.length : 'null'}`);
-        return content;
+        try {
+          const content = fs.readFileSync(filePath, 'utf8');
+          logger.info(`Static file content length: ${content ? content.length : 'null'}`);
+          return content;
+        } catch (readError) {
+          logger.error(`Failed to read file ${filePath}:`, readError.message);
+        }
       }
     }
 
