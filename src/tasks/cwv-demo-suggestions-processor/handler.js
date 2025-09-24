@@ -240,10 +240,28 @@ async function updateSuggestionWithGenericIssues(
  */
 async function processCWVOpportunity(opportunity, logger, env, slackContext) {
   try {
-    const suggestions = await opportunity.getSuggestions();
+    const allSuggestions = await opportunity.getSuggestions();
 
-    logger.info(`Processing opportunity ${opportunity.getId()} with ${suggestions.length} suggestions`);
-    await say(env, logger, slackContext, `🔍 Processing opportunity ${opportunity.getId()} with ${suggestions.length} suggestions`);
+    // Filter to only process suggestions with "new" status
+    const suggestions = allSuggestions.filter((suggestion) => {
+      const data = suggestion.getData();
+      const status = data.status || 'unknown';
+      return status === 'new';
+    });
+
+    // Log filtering details
+    const filteredOut = allSuggestions.length - suggestions.length;
+    if (filteredOut > 0) {
+      const filteredStatuses = allSuggestions
+        .filter((s) => s.getData().status !== 'new')
+        .map((s) => s.getData().status || 'unknown');
+      const uniqueStatuses = [...new Set(filteredStatuses)];
+      logger.info(`Filtered out ${filteredOut} suggestions with statuses: ${uniqueStatuses.join(', ')}`);
+      await say(env, logger, slackContext, `🚫 Filtered out ${filteredOut} suggestions with statuses: ${uniqueStatuses.join(', ')}`);
+    }
+
+    logger.info(`Processing opportunity ${opportunity.getId()} with ${suggestions.length} new suggestions (filtered from ${allSuggestions.length} total)`);
+    await say(env, logger, slackContext, `🔍 Processing opportunity ${opportunity.getId()} with ${suggestions.length} new suggestions (filtered from ${allSuggestions.length} total)`);
     await say(env, logger, slackContext, `📋 Available CWV files: ${JSON.stringify(METRIC_FILES)}`);
 
     // Check if any suggestion has CWV issues

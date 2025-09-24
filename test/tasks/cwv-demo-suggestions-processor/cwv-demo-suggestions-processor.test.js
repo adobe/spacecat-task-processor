@@ -30,11 +30,12 @@ describe('CWV Demo Suggestions Processor Task', () => {
   let mockSuggestionDataAccess;
 
   // Helper function to create mock suggestions
-  const createMockSuggestion = (id, pageviews, metrics, hasIssues = false) => ({
+  const createMockSuggestion = (id, pageviews, metrics, hasIssues = false, status = 'new') => ({
     getId: sandbox.stub().returns(id),
     getData: sandbox.stub().returns({
       pageviews,
       metrics,
+      status,
       ...(hasIssues && { issues: [{ type: 'lcp', value: 'existing issue' }] }),
     }),
     setData: sandbox.stub(),
@@ -161,6 +162,24 @@ describe('CWV Demo Suggestions Processor Task', () => {
 
       expect(result.message).to.include('CWV demo suggestions processor completed');
       expect(result.opportunitiesProcessed).to.equal(1);
+    });
+
+    it('should filter out suggestions with non-new status', async () => {
+      const mixedStatusSuggestions = [
+        createMockSuggestion('suggestion-new', 10000, [], false, 'new'),
+        createMockSuggestion('suggestion-outdated', 5000, [], false, 'outdated'),
+        createMockSuggestion('suggestion-resolved', 3000, [], false, 'resolved'),
+        createMockSuggestion('suggestion-new-2', 2000, [], false, 'new'),
+      ];
+
+      setupCommonMocks();
+      mockOpportunity.getSuggestions.resolves(mixedStatusSuggestions);
+
+      const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
+
+      expect(mockContext.log.info.calledWith('Processing opportunity test-opportunity-id with 2 new suggestions (filtered from 4 total)')).to.be.true;
+      expect(mockContext.log.info.calledWith('Filtered out 2 suggestions with statuses: outdated, resolved')).to.be.true;
+      expect(result.message).to.include('CWV demo suggestions processor completed');
     });
 
     it('should handle site not found gracefully', async () => {
