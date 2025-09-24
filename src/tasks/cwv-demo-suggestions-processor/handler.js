@@ -46,7 +46,16 @@ function readStaticFile(fileName, logger) {
     // Use absolute path resolution from process.cwd() to avoid duplicate directory issues
     const filePath = path.resolve(process.cwd(), 'src', 'tasks', 'cwv-demo-suggestions-processor', fileName);
     logger.info(`Static file path: ${filePath}`);
-    return fs.readFileSync(filePath, 'utf8');
+
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      logger.error(`File does not exist: ${filePath}`);
+      return null;
+    }
+
+    const content = fs.readFileSync(filePath, 'utf8');
+    logger.info(`Static file content length: ${content ? content.length : 'null'}`);
+    return content;
   } catch (error) {
     logger.error(`Failed to read static file ${fileName}:`, error.message);
     return null;
