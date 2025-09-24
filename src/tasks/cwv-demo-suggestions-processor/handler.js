@@ -44,23 +44,29 @@ const METRIC_FILES = {
  * @returns {Promise<string|null>} The file content or null if file doesn't exist
  */
 async function readStaticFile(fileName, logger) {
+  // Always resolve relative to this file's folder
+  const filePath = path.resolve(dirname, fileName);
+
+  logger.info(`🔍 Trying to read static file: ${fileName}`);
+  logger.info(`📂 Resolved path: ${filePath}`);
+  logger.info(`📂 __dirname at runtime: ${dirname}`);
+  logger.info(`📂 process.cwd() at runtime: ${process.cwd()}`);
+
   try {
-    const filePath = path.resolve(dirname, fileName);
-
-    logger.info(`Reading static file: ${fileName}`);
-    logger.info(`__dirname at runtime: ${dirname}`);
-    logger.info(`Resolved file path: ${filePath}`);
-
     if (!fs.existsSync(filePath)) {
-      logger.error(`File does not exist at: ${filePath}`);
+      logger.error(
+        `❌ File not found at ${filePath}. `
+        + 'This usually means the file was not included in the Lambda bundle.',
+      );
       return null;
     }
 
     const content = fs.readFileSync(filePath, 'utf8');
-    logger.info(`Static file content length: ${content.length}`);
+    logger.info(`✅ Successfully read ${fileName} (${content.length} chars)`);
+    logger.info(`📝 First 100 chars: ${content.substring(0, 100)}`);
     return content;
-  } catch (error) {
-    logger.error(`Failed to read static file ${fileName}: ${error.message}`);
+  } catch (err) {
+    logger.error(`💥 Error reading ${fileName} at ${filePath}: ${err.message}`);
     return null;
   }
 }
