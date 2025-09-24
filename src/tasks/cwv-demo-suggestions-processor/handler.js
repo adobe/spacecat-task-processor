@@ -64,6 +64,7 @@ const loadSuggestionContent = (fileName) => {
 async function getRandomSuggestion(issueType, logger, env, slackContext) {
   const files = METRIC_FILES[issueType];
   if (!isNonEmptyArray(files)) {
+    await say(env, logger, slackContext, `getRandomSuggestion: No files found for issue type: ${issueType} and files: ${files}`);
     return null;
   }
 
