@@ -139,7 +139,7 @@ describe('CWV Demo Suggestions Processor Task', () => {
       expect(result.message).to.equal('No CWV opportunities found');
     });
 
-    it('should skip processing when opportunity already has suggestions with issues', async () => {
+    it('should continue processing when opportunity already has suggestions with issues', async () => {
       const suggestionsWithIssues = [
         createMockSuggestion('suggestion-with-issues', 10000, [], true), // hasIssues = true
       ];
@@ -149,7 +149,7 @@ describe('CWV Demo Suggestions Processor Task', () => {
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
 
-      expect(mockContext.log.info.calledWith('Opportunity test-opportunity-id already has CWV suggestions, skipping generic suggestions')).to.be.true;
+      expect(mockContext.log.info.calledWith('Opportunity test-opportunity-id already has CWV suggestions, but continuing to add generic suggestions')).to.be.true;
       expect(result.message).to.include('CWV demo suggestions processor completed');
     });
 

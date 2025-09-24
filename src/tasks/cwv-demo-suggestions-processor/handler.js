@@ -163,19 +163,29 @@ async function updateSuggestionWithGenericIssues(
   let issuesAdded = 0;
 
   try {
+    await say(env, logger, slackContext, `🔧 Starting to update suggestion ${suggestion.getId()} with issues: ${metricIssues.join(', ')}`);
+
     const data = suggestion.getData();
+    await say(env, logger, slackContext, `📊 Current suggestion data: ${JSON.stringify(data, null, 2)}`);
+
     if (!data.issues) {
       data.issues = [];
+      await say(env, logger, slackContext, `📝 Initialized empty issues array for suggestion ${suggestion.getId()}`);
+    } else {
+      await say(env, logger, slackContext, `📝 Suggestion ${suggestion.getId()} already has ${data.issues.length} issues`);
     }
 
     // Process all issue types in parallel to avoid await in loop
     const suggestionPromises = metricIssues.map(async (issueType) => {
+      await say(env, logger, slackContext, `🎯 Getting suggestion for issue type: ${issueType}`);
       const randomSuggestion = await getRandomSuggestion(issueType, logger, env, slackContext);
       return { issueType, randomSuggestion };
     });
 
     const suggestions = await Promise.all(suggestionPromises);
 
+    // Collect all say promises to avoid await in loop
+    const sayPromises = [];
     for (const { issueType, randomSuggestion } of suggestions) {
       if (randomSuggestion) {
         // Add to suggestion data issues array as {type: "lcp/cls/inp", value: "content"}
@@ -187,23 +197,36 @@ async function updateSuggestionWithGenericIssues(
         data.issues.push(genericIssue);
         issuesAdded += 1;
 
+        sayPromises.push(say(env, logger, slackContext, `✅ Added generic issue for ${issueType} to suggestion ${suggestion.getId()}`));
         logger.info(`Added generic issue for ${issueType} to suggestion ${suggestion.getId()}`);
+      } else {
+        sayPromises.push(say(env, logger, slackContext, `❌ No suggestion content for issue type: ${issueType}`));
       }
     }
+
+    // Execute all say calls in parallel
+    await Promise.all(sayPromises);
 
     // Requirement: Add "genericSuggestions": true to the data object
     if (issuesAdded > 0) {
       data.genericSuggestions = true;
+      await say(env, logger, slackContext, `💾 Setting genericSuggestions=true and saving suggestion ${suggestion.getId()}`);
+
       suggestion.setData(data);
       suggestion.setUpdatedBy('system');
       await suggestion.save();
 
+      await say(env, logger, slackContext, `✅ Successfully saved suggestion ${suggestion.getId()} with ${issuesAdded} generic CWV issues`);
       logger.info(`Updated suggestion ${suggestion.getId()} with ${issuesAdded} generic CWV issues: ${metricIssues.join(', ')}`);
+    } else {
+      await say(env, logger, slackContext, `⚠️ No issues were added to suggestion ${suggestion.getId()}`);
     }
   } catch (error) {
     logger.error(`Error updating suggestion ${suggestion.getId()} with generic issues:`, error);
+    await say(env, logger, slackContext, `❌ Error updating suggestion ${suggestion.getId()}: ${error.message}`);
   }
 
+  await say(env, logger, slackContext, `📈 Final result: ${issuesAdded} issues added to suggestion ${suggestion.getId()}`);
   return issuesAdded;
 }
 
@@ -223,11 +246,14 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
     await say(env, logger, slackContext, `🔍 Processing opportunity ${opportunity.getId()} with ${suggestions.length} suggestions`);
     await say(env, logger, slackContext, `📋 Available CWV files: ${JSON.stringify(METRIC_FILES)}`);
 
-    // Requirement: Check if any suggestion has CWV issues, then exit
-    if (hasExistingCwvIssues(suggestions)) {
-      logger.info(`Opportunity ${opportunity.getId()} already has CWV suggestions, skipping generic suggestions`);
-      await say(env, logger, slackContext, `ℹ️ CWV suggestions already exist for opportunity ${opportunity.getId()}, skipping demo suggestions`);
-      // return 0; // TODO: Remove this comment and return 0 when we are ready to remove this check
+    // Check if any suggestion has CWV issues
+    const hasExistingCwv = hasExistingCwvIssues(suggestions);
+    if (hasExistingCwv) {
+      logger.info(`Opportunity ${opportunity.getId()} already has CWV suggestions, but continuing to add generic suggestions`);
+      await say(env, logger, slackContext, `ℹ️ CWV suggestions already exist for opportunity ${opportunity.getId()}, but adding generic suggestions anyway`);
+    } else {
+      logger.info(`Opportunity ${opportunity.getId()} has no existing CWV suggestions, adding generic suggestions`);
+      await say(env, logger, slackContext, `✅ Opportunity ${opportunity.getId()} has no existing CWV suggestions, adding generic suggestions`);
     }
 
     // Requirement: Sort suggestions by pageviews (descending)
@@ -239,14 +265,19 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
       .sort((a, b) => b.getData().pageviews - a.getData().pageviews);
 
     logger.info(`Sorted ${sortedSuggestions.length} suggestions by pageviews`);
+    await say(env, logger, slackContext, `📊 Sorted ${sortedSuggestions.length} suggestions by pageviews`);
 
     // Requirement: Find first 2 suggestions with LCP/CLS/INP issues
     const suggestionsToUpdate = [];
+    const sayPromises = [];
+
     for (const suggestion of sortedSuggestions) {
       if (suggestionsToUpdate.length >= MAX_CWV_DEMO_SUGGESTIONS) break;
 
       const data = suggestion.getData();
       const metrics = data.metrics || [];
+
+      sayPromises.push(say(env, logger, slackContext, `🔍 Checking suggestion ${suggestion.getId()} with ${metrics.length} metrics`));
 
       // Check if suggestion has any LCP/CLS/INP issues
       let hasCWVIssues = false;
@@ -254,6 +285,7 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
 
       for (const metric of metrics) {
         const issues = getMetricIssues(metric);
+        sayPromises.push(say(env, logger, slackContext, `📈 Metric ${JSON.stringify(metric)} has issues: ${issues.join(', ')}`));
         if (issues.length > 0) {
           hasCWVIssues = true;
           metricIssues = issues;
@@ -264,10 +296,17 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
       if (hasCWVIssues) {
         suggestionsToUpdate.push({ suggestion, metricIssues });
         logger.info(`Selected suggestion ${suggestion.getId()} with CWV issues: ${metricIssues.join(', ')}`);
+        sayPromises.push(say(env, logger, slackContext, `✅ Selected suggestion ${suggestion.getId()} with CWV issues: ${metricIssues.join(', ')}`));
+      } else {
+        sayPromises.push(say(env, logger, slackContext, `❌ Suggestion ${suggestion.getId()} has no CWV issues, skipping`));
       }
     }
 
+    // Execute all say calls in parallel
+    await Promise.all(sayPromises);
+
     logger.info(`Found ${suggestionsToUpdate.length} suggestions to update with generic suggestions`);
+    await say(env, logger, slackContext, `📝 Found ${suggestionsToUpdate.length} suggestions to update with generic suggestions`);
 
     if (suggestionsToUpdate.length === 0) {
       logger.info(`No suggestions with CWV issues found for opportunity ${opportunity.getId()}`);
@@ -276,7 +315,10 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
     }
 
     // Requirement: Add generic suggestions to selected suggestions
+    await say(env, logger, slackContext, `🚀 Starting to add generic suggestions to ${suggestionsToUpdate.length} suggestions`);
+
     const updatePromises = suggestionsToUpdate.map(async ({ suggestion, metricIssues }) => {
+      await say(env, logger, slackContext, `⚙️ Processing suggestion ${suggestion.getId()} with issues: ${metricIssues.join(', ')}`);
       const issuesAdded = await updateSuggestionWithGenericIssues(
         suggestion,
         metricIssues,
@@ -290,6 +332,8 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
     const results = await Promise.all(updatePromises);
     const totalIssuesAdded = results.reduce((sum, { issuesAdded }) => sum + issuesAdded, 0);
 
+    await say(env, logger, slackContext, `📊 Processing complete. Total issues added: ${totalIssuesAdded}`);
+
     // Requirement: Log information about generic suggestions added
     if (totalIssuesAdded > 0) {
       const updatedSuggestionIds = results
@@ -298,6 +342,53 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
 
       logger.info(`Added generic CWV suggestions for opportunity ${opportunity.getId()} to suggestions: ${updatedSuggestionIds.join(', ')}`);
       await say(env, logger, slackContext, `✅ Added generic CWV suggestions for opportunity ${opportunity.getId()} to suggestions: ${updatedSuggestionIds.join(', ')}`);
+
+      // Add generic suggestions to the opportunity level as well
+      await say(env, logger, slackContext, '🎯 Adding generic suggestions to opportunity level');
+
+      const opportunityData = opportunity.getData();
+      if (!opportunityData.suggestions) {
+        opportunityData.suggestions = [];
+        await say(env, logger, slackContext, '📝 Initialized opportunity suggestions array');
+      }
+
+      // Collect all unique metric issues from the processed suggestions
+      const allMetricIssues = [
+        ...new Set(suggestionsToUpdate.flatMap(({ metricIssues }) => metricIssues)),
+      ];
+      await say(env, logger, slackContext, `📋 Creating opportunity-level suggestions for issues: ${allMetricIssues.join(', ')}`);
+
+      // Create generic suggestions for the opportunity
+      const opportunityPromises = allMetricIssues.map(async (issueType) => {
+        await say(env, logger, slackContext, `🎲 Getting opportunity-level suggestion for ${issueType}`);
+        const randomSuggestion = await getRandomSuggestion(issueType, logger, env, slackContext);
+
+        if (randomSuggestion) {
+          const genericSuggestion = {
+            type: issueType,
+            value: randomSuggestion,
+            generic: true,
+            createdBy: 'system',
+            createdAt: new Date().toISOString(),
+          };
+
+          await say(env, logger, slackContext, `✅ Created opportunity-level suggestion for ${issueType}`);
+          return genericSuggestion;
+        }
+        return null;
+      });
+
+      const opportunitySuggestions = await Promise.all(opportunityPromises);
+      const validOpportunitySuggestions = opportunitySuggestions.filter(Boolean);
+
+      if (validOpportunitySuggestions.length > 0) {
+        opportunityData.suggestions.push(...validOpportunitySuggestions);
+        opportunity.setData(opportunityData);
+        await opportunity.save();
+
+        await say(env, logger, slackContext, `💾 Successfully added ${validOpportunitySuggestions.length} generic suggestions to opportunity ${opportunity.getId()}`);
+        logger.info(`Added ${validOpportunitySuggestions.length} generic suggestions to opportunity ${opportunity.getId()}`);
+      }
     } else {
       logger.info(`No generic CWV suggestions added for opportunity ${opportunity.getId()}`);
       await say(env, logger, slackContext, `❌ No generic CWV suggestions added for opportunity ${opportunity.getId()}`);
