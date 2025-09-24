@@ -23,19 +23,17 @@ const INP = 'inp';
 const DEMO = 'demo';
 const MAX_CWV_DEMO_SUGGESTIONS = 2;
 
-// Static files are now co-located with the handler
-
 /**
- * Maps metric types to their corresponding markdown files
+ * Maps metric types to their corresponding text files
  */
 const METRIC_FILES = {
-  lcp: ['lcp1.md', 'lcp2.md', 'lcp3.md'],
-  cls: ['cls1.md', 'cls2.md'],
-  inp: ['inp1.md'],
+  lcp: ['lcp1.txt', 'lcp2.txt', 'lcp3.txt'],
+  cls: ['cls1.txt', 'cls2.txt'],
+  inp: ['inp1.txt'],
 };
 
 /**
- * Reads content from a static markdown file
+ * Reads content from a static text file
  * @param {string} fileName - The name of the file to read
  * @param {object} logger - The logger object for error logging
  * @returns {string|null} The file content or null if file doesn't exist
@@ -43,23 +41,64 @@ const METRIC_FILES = {
 function readStaticFile(fileName, logger) {
   try {
     logger.info(`Reading static file ${fileName}`);
-    // Use absolute path resolution from process.cwd() to avoid duplicate directory issues
-    const filePath = path.resolve(process.cwd(), 'src', 'tasks', 'cwv-demo-suggestions-processor', fileName);
-    logger.info(`Static file path: ${filePath}`);
 
-    // Check if file exists
-    if (!fs.existsSync(filePath)) {
-      logger.error(`File does not exist: ${filePath}`);
-      return null;
+    // Debug: Log current file and directory info
+    logger.info(`Current file: ${import.meta.url}`);
+    logger.info(`Process cwd: ${process.cwd()}`);
+    logger.info(`__dirname equivalent: ${path.dirname(new URL(import.meta.url).pathname)}`);
+
+    // Try multiple possible paths based on where handler.js is located
+    const possiblePaths = [
+      // Path relative to handler.js location
+      path.resolve(path.dirname(new URL(import.meta.url).pathname), fileName),
+      // Path from process.cwd()
+      path.resolve(process.cwd(), 'src', 'tasks', 'cwv-demo-suggestions-processor', fileName),
+      // Path without src/
+      path.resolve(process.cwd(), 'tasks', 'cwv-demo-suggestions-processor', fileName),
+      // Direct from cwd
+      path.resolve(process.cwd(), fileName),
+    ];
+
+    for (const filePath of possiblePaths) {
+      logger.info(`Trying path: ${filePath}`);
+      if (fs.existsSync(filePath)) {
+        logger.info(`Found file at: ${filePath}`);
+        const content = fs.readFileSync(filePath, 'utf8');
+        logger.info(`Static file content length: ${content ? content.length : 'null'}`);
+        return content;
+      }
     }
 
-    const content = fs.readFileSync(filePath, 'utf8');
-    logger.info(`Static file content length: ${content ? content.length : 'null'}`);
-    return content;
+    logger.error(`File ${fileName} not found in any of the expected locations`);
+    return null;
   } catch (error) {
     logger.error(`Failed to read static file ${fileName}:`, error.message);
     return null;
   }
+}
+
+/**
+ * Gets a random suggestion from text files for the given issue type
+ * @param {string} issueType - The type of issue (lcp, cls, inp)
+ * @param {object} logger - The logger object for error logging
+ * @returns {string|null} The entire text file content or null if none available
+ */
+function getRandomSuggestion(issueType, logger) {
+  const files = METRIC_FILES[issueType];
+  if (!isNonEmptyArray(files)) {
+    return null;
+  }
+
+  const randomIndex = Math.floor(Math.random() * files.length);
+  const fileName = files[randomIndex];
+  const content = readStaticFile(fileName, logger);
+
+  if (!content) {
+    return null;
+  }
+
+  // Return the entire markdown file content as the suggestion
+  return content;
 }
 
 /**
@@ -102,31 +141,6 @@ function getMetricIssues(metrics) {
 function hasExistingIssues(suggestion) {
   const data = suggestion.getData();
   return data.issues && isNonEmptyArray(data.issues);
-}
-
-/**
- * Gets a random suggestion from markdown files for the given issue type
- * @param {string} issueType - The type of issue (lcp, cls, inp)
- * @param {object} logger - The logger object for error logging
- * @returns {string|null} The entire markdown file content or null if none available
- */
-function getRandomSuggestion(issueType, logger) {
-  const files = METRIC_FILES[issueType];
-  if (!isNonEmptyArray(files)) {
-    return null;
-  }
-
-  const randomIndex = Math.floor(Math.random() * files.length);
-  const fileName = files[randomIndex];
-  const content = readStaticFile(fileName, logger);
-  logger.info(`Static file content: ${content}`);
-
-  if (!content) {
-    return null;
-  }
-
-  // Return the entire markdown file content as the suggestion
-  return content;
 }
 
 /**
