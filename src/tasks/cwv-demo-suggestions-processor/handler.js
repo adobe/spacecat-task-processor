@@ -57,9 +57,11 @@ const loadSuggestionContent = (fileName) => {
  * Gets a random suggestion for the given issue type using the spacecat-api-service pattern
  * @param {string} issueType - The type of issue (lcp, cls, inp)
  * @param {object} logger - The logger object for error logging
- * @returns {string|null} A random suggestion or null if none available
+ * @param {object} env - The environment object
+ * @param {object} slackContext - The Slack context object
+ * @returns {Promise<string|null>} A random suggestion or null if none available
  */
-function getRandomSuggestion(issueType, logger) {
+async function getRandomSuggestion(issueType, logger, env, slackContext) {
   const files = METRIC_FILES[issueType];
   if (!isNonEmptyArray(files)) {
     return null;
@@ -71,6 +73,7 @@ function getRandomSuggestion(issueType, logger) {
   try {
     logger.info(`Getting random suggestion for issue type: ${issueType} from file: ${fileName}`);
     const content = loadSuggestionContent(fileName);
+    await say(env, logger, slackContext, `Random suggestion for issue type: ${issueType} is ${content}`);
     logger.info(`✅ Successfully loaded suggestion for ${issueType} (${content.length} chars)`);
     return content;
   } catch (error) {
@@ -149,11 +152,16 @@ async function updateSuggestionWithGenericIssues(
       data.issues = [];
     }
 
-    // Process each issue type to get random suggestions
-    for (const issueType of metricIssues) {
+    // Process all issue types in parallel to avoid await in loop
+    const suggestionPromises = metricIssues.map(async (issueType) => {
       logger.info(`Getting random suggestion for issue type: ${issueType}`);
-      const randomSuggestion = getRandomSuggestion(issueType, logger);
+      const randomSuggestion = await getRandomSuggestion(issueType, logger, env, slackContext);
+      return { issueType, randomSuggestion };
+    });
 
+    const suggestions = await Promise.all(suggestionPromises);
+
+    for (const { issueType, randomSuggestion } of suggestions) {
       if (randomSuggestion) {
         logger.info(`Random suggestion found for issue type: ${issueType}`);
         const genericIssue = {
