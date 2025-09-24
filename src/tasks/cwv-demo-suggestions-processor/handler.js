@@ -36,9 +36,9 @@ const METRIC_FILES = {
  * Reads content from a static text file
  * @param {string} fileName - The name of the file to read
  * @param {object} logger - The logger object for error logging
- * @returns {string|null} The file content or null if file doesn't exist
+ * @returns {Promise<string|null>} The file content or null if file doesn't exist
  */
-function readStaticFile(fileName, logger) {
+async function readStaticFile(fileName, logger) {
   try {
     logger.info(`Reading static file ${fileName}`);
 
@@ -78,9 +78,11 @@ function readStaticFile(fileName, logger) {
  * Gets a random suggestion from text files for the given issue type
  * @param {string} issueType - The type of issue (lcp, cls, inp)
  * @param {object} logger - The logger object for error logging
- * @returns {string|null} The entire text file content or null if none available
+ * @param {object} env - The environment object
+ * @param {object} slackContext - The Slack context object
+ * @returns {Promise<string|null>} The entire text file content or null if none available
  */
-function getRandomSuggestion(issueType, logger) {
+async function getRandomSuggestion(issueType, logger, env, slackContext) {
   const files = METRIC_FILES[issueType];
   if (!isNonEmptyArray(files)) {
     return null;
@@ -88,13 +90,13 @@ function getRandomSuggestion(issueType, logger) {
 
   const randomIndex = Math.floor(Math.random() * files.length);
   const fileName = files[randomIndex];
-  const content = readStaticFile(fileName, logger);
-
+  const content = await readStaticFile(fileName, logger, env, slackContext);
+  await say(env, logger, slackContext, `Random suggestion for issue type: ${issueType} is ${content}`);
   if (!content) {
     return null;
   }
 
-  // Return the entire markdown file content as the suggestion
+  // Return the entire text file content as the suggestion
   return content;
 }
 
@@ -168,9 +170,16 @@ async function updateSuggestionWithGenericIssues(
       data.issues = [];
     }
 
-    for (const issueType of metricIssues) {
+    // Process all issue types in parallel to avoid await in loop
+    const suggestionPromises = metricIssues.map(async (issueType) => {
       logger.info(`Getting random suggestion for issue type: ${issueType}`);
-      const randomSuggestion = getRandomSuggestion(issueType, logger);
+      const randomSuggestion = await getRandomSuggestion(issueType, logger, env, slackContext);
+      return { issueType, randomSuggestion };
+    });
+
+    const suggestions = await Promise.all(suggestionPromises);
+
+    for (const { issueType, randomSuggestion } of suggestions) {
       if (randomSuggestion) {
         logger.info(`Random suggestion found for issue type: ${issueType}`);
         const genericIssue = {
