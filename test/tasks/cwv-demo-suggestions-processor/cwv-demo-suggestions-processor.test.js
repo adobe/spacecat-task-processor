@@ -149,7 +149,7 @@ describe('CWV Demo Suggestions Processor Task', () => {
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
 
-      expect(mockContext.log.info.calledWith('Opportunity test-opportunity-id already has suggestions with issues, skipping generic suggestions')).to.be.true;
+      expect(mockContext.log.info.calledWith('Opportunity test-opportunity-id already has CWV suggestions, skipping generic suggestions')).to.be.true;
       expect(result.message).to.include('CWV demo suggestions processor completed');
     });
 

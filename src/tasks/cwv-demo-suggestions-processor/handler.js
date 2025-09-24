@@ -111,16 +111,21 @@ function getMetricIssues(metrics) {
 }
 
 /**
- * Checks if any suggestion has existing issues (as per requirements)
+ * Checks if any suggestion has existing CWV issues (as per requirements)
  * @param {Array} suggestions - Array of suggestion objects
- * @returns {boolean} True if any suggestion has existing issues
+ * @returns {boolean} True if any suggestion has existing CWV issues
  */
-function hasExistingIssues(suggestions) {
+function hasExistingCwvIssues(suggestions) {
   if (!Array.isArray(suggestions)) return false;
 
   return suggestions.some((suggestion) => {
     const data = suggestion.getData() || {};
-    return Array.isArray(data.issues) && data.issues.length > 0;
+    if (!Array.isArray(data.issues)) return false;
+
+    // Check if any issue is CWV-related (lcp, cls, inp)
+    return data.issues.some((issue) => issue
+        && issue.type
+        && ['lcp', 'cls', 'inp'].includes(issue.type.toLowerCase()));
   });
 }
 
@@ -201,9 +206,9 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
 
     logger.info(`Processing opportunity ${opportunity.getId()} with ${suggestions.length} suggestions`);
 
-    // Requirement: Check if any suggestion has "data->issues", then exit
-    if (hasExistingIssues(suggestions)) {
-      logger.info(`Opportunity ${opportunity.getId()} already has suggestions with issues, skipping generic suggestions`);
+    // Requirement: Check if any suggestion has CWV issues, then exit
+    if (hasExistingCwvIssues(suggestions)) {
+      logger.info(`Opportunity ${opportunity.getId()} already has CWV suggestions, skipping generic suggestions`);
       await say(env, logger, slackContext, `ℹ️ CWV suggestions already exist for opportunity ${opportunity.getId()}, skipping demo suggestions`);
       return 0;
     }
