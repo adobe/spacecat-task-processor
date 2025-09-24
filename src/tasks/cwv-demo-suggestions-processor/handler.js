@@ -44,12 +44,11 @@ const METRIC_FILES = {
  * @returns {Promise<string|null>} The file content or null if file doesn't exist
  */
 async function readStaticFile(fileName, logger) {
-  // Always resolve relative to this file's folder
   const filePath = path.resolve(dirname, fileName);
 
   logger.info(`🔍 Trying to read static file: ${fileName}`);
   logger.info(`📂 Resolved path: ${filePath}`);
-  logger.info(`📂 __dirname at runtime: ${dirname}`);
+  logger.info(`📂 dirname at runtime: ${dirname}`);
   logger.info(`📂 process.cwd() at runtime: ${process.cwd()}`);
 
   try {
