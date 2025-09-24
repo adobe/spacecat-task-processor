@@ -38,47 +38,28 @@ const METRIC_FILES = {
 };
 
 /**
- * Reads content from a static text file
- * @param {string} fileName - The name of the file to read
- * @param {object} logger - The logger object for error logging
- * @returns {Promise<string|null>} The file content or null if file doesn't exist
+ * Loads content from a text file following the spacecat-api-service pattern
+ * @param {string} fileName - The name of the file to load
+ * @returns {string} The file content
+ * @throws {Error} If the file cannot be read
  */
-async function readStaticFile(fileName, logger) {
-  const filePath = path.resolve(dirname, fileName);
-
-  logger.info(`🔍 Trying to read static file: ${fileName}`);
-  logger.info(`📂 Resolved path: ${filePath}`);
-  logger.info(`📂 dirname at runtime: ${dirname}`);
-  logger.info(`📂 process.cwd() at runtime: ${process.cwd()}`);
-
+const loadSuggestionContent = (fileName) => {
   try {
-    if (!fs.existsSync(filePath)) {
-      logger.error(
-        `❌ File not found at ${filePath}. `
-        + 'This usually means the file was not included in the Lambda bundle.',
-      );
-      return null;
-    }
-
-    const content = fs.readFileSync(filePath, 'utf8');
-    logger.info(`✅ Successfully read ${fileName} (${content.length} chars)`);
-    logger.info(`📝 First 100 chars: ${content.substring(0, 100)}`);
-    return content;
-  } catch (err) {
-    logger.error(`💥 Error reading ${fileName} at ${filePath}: ${err.message}`);
-    return null;
+    const filePath = path.resolve(dirname, fileName);
+    const data = fs.readFileSync(filePath, 'utf-8');
+    return data;
+  } catch (error) {
+    throw new Error(`Failed to load suggestion content from "${fileName}": ${error.message}`);
   }
-}
+};
 
 /**
- * Gets a random suggestion from text files for the given issue type
+ * Gets a random suggestion for the given issue type using the spacecat-api-service pattern
  * @param {string} issueType - The type of issue (lcp, cls, inp)
  * @param {object} logger - The logger object for error logging
- * @param {object} env - The environment object
- * @param {object} slackContext - The Slack context object
- * @returns {Promise<string|null>} The entire text file content or null if none available
+ * @returns {string|null} A random suggestion or null if none available
  */
-async function getRandomSuggestion(issueType, logger, env, slackContext) {
+function getRandomSuggestion(issueType, logger) {
   const files = METRIC_FILES[issueType];
   if (!isNonEmptyArray(files)) {
     return null;
@@ -86,15 +67,16 @@ async function getRandomSuggestion(issueType, logger, env, slackContext) {
 
   const randomIndex = Math.floor(Math.random() * files.length);
   const fileName = files[randomIndex];
-  await say(env, logger, slackContext, `Reading static file: ${fileName}`);
-  const content = await readStaticFile(fileName, logger);
-  await say(env, logger, slackContext, `Random suggestion for issue type: ${issueType} is ${content}`);
-  if (!content) {
+
+  try {
+    logger.info(`Getting random suggestion for issue type: ${issueType} from file: ${fileName}`);
+    const content = loadSuggestionContent(fileName);
+    logger.info(`✅ Successfully loaded suggestion for ${issueType} (${content.length} chars)`);
+    return content;
+  } catch (error) {
+    logger.error(`Failed to get random suggestion for ${issueType}: ${error.message}`);
     return null;
   }
-
-  // Return the entire text file content as the suggestion
-  return content;
 }
 
 /**
@@ -167,16 +149,11 @@ async function updateSuggestionWithGenericIssues(
       data.issues = [];
     }
 
-    // Process all issue types in parallel to avoid await in loop
-    const suggestionPromises = metricIssues.map(async (issueType) => {
+    // Process each issue type to get random suggestions
+    for (const issueType of metricIssues) {
       logger.info(`Getting random suggestion for issue type: ${issueType}`);
-      const randomSuggestion = await getRandomSuggestion(issueType, logger, env, slackContext);
-      return { issueType, randomSuggestion };
-    });
+      const randomSuggestion = getRandomSuggestion(issueType, logger);
 
-    const suggestions = await Promise.all(suggestionPromises);
-
-    for (const { issueType, randomSuggestion } of suggestions) {
       if (randomSuggestion) {
         logger.info(`Random suggestion found for issue type: ${issueType}`);
         const genericIssue = {
