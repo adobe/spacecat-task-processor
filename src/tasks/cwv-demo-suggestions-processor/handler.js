@@ -111,13 +111,18 @@ function getMetricIssues(metrics) {
 }
 
 /**
- * Checks if a suggestion has existing issues
+ * Checks if a suggestion has existing non-generic CWV issues
  * @param {object} suggestion - The suggestion object
- * @returns {boolean} True if suggestion has existing issues
+ * @returns {boolean} True if suggestion has existing non-generic issues
  */
 function hasExistingIssues(suggestion) {
   const data = suggestion.getData();
-  return data.issues && isNonEmptyArray(data.issues);
+  if (!data.issues || !isNonEmptyArray(data.issues)) {
+    return false;
+  }
+
+  // Check if any issues are not generic (i.e., they are regular CWV suggestions)
+  return data.issues.some((issue) => !issue.generic);
 }
 
 /**
@@ -167,6 +172,7 @@ async function updateSuggestionWithGenericIssues(
         const genericIssue = {
           type: issueType,
           value: randomSuggestion,
+          generic: true,
         };
 
         logger.info(`Adding generic issue: ${JSON.stringify(genericIssue, null, 2)}`);
