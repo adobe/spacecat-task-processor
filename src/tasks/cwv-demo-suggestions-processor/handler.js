@@ -227,7 +227,7 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
     if (hasExistingCwvIssues(suggestions)) {
       logger.info(`Opportunity ${opportunity.getId()} already has CWV suggestions, skipping generic suggestions`);
       await say(env, logger, slackContext, `ℹ️ CWV suggestions already exist for opportunity ${opportunity.getId()}, skipping demo suggestions`);
-      return 0;
+      // return 0; // TODO: Remove this comment and return 0 when we are ready to remove this check
     }
 
     // Requirement: Sort suggestions by pageviews (descending)
