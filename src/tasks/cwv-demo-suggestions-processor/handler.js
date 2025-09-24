@@ -46,8 +46,7 @@ const METRIC_FILES = {
 function readStaticFile(fileName, logger) {
   try {
     logger.info(`Reading static file ${fileName}`);
-    // Go up 3 levels from handler to project root, then into src/static
-    const filePath = path.resolve(dirname, '../../../src/static', fileName);
+    const filePath = path.join(dirname, fileName);
     logger.info(`Static file path: ${filePath}`);
     return fs.readFileSync(filePath, 'utf8');
   } catch (error) {
