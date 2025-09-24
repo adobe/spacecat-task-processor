@@ -73,7 +73,7 @@ async function getRandomSuggestion(issueType, logger, env, slackContext) {
   try {
     logger.info(`Getting random suggestion for issue type: ${issueType} from file: ${fileName}`);
     const content = loadSuggestionContent(fileName);
-    await say(env, logger, slackContext, `Random suggestion for issue type: ${issueType} is ${content}`);
+    await say(env, logger, slackContext, `loadSuggestionContent: Random suggestion for issue type: ${issueType} is ${content}`);
     logger.info(`✅ Successfully loaded suggestion for ${issueType} (${content.length} chars)`);
     return content;
   } catch (error) {
@@ -156,6 +156,7 @@ async function updateSuggestionWithGenericIssues(
     const suggestionPromises = metricIssues.map(async (issueType) => {
       logger.info(`Getting random suggestion for issue type: ${issueType}`);
       const randomSuggestion = await getRandomSuggestion(issueType, logger, env, slackContext);
+      await say(env, logger, slackContext, `getRandomSuggestion: Random suggestion for issue type: ${issueType} is ${randomSuggestion}`);
       return { issueType, randomSuggestion };
     });
 
