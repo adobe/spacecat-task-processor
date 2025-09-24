@@ -35,15 +35,27 @@ const METRIC_FILES = {
 /**
  * Loads content from a text file following the spacecat-api-service pattern
  * @param {string} fileName - The name of the file to load
+ * @param {object} logger - The logger object
+ * @param {object} env - The environment object
+ * @param {object} slackContext - The Slack context object
  * @returns {string} The file content
  * @throws {Error} If the file cannot be read
  */
-const loadSuggestionContent = (fileName) => {
+const loadSuggestionContent = async (fileName, logger, env, slackContext) => {
   try {
     const filePath = path.resolve(process.cwd(), 'static', fileName);
+    logger.info(`Loading file: ${fileName} from path: ${filePath}`);
+    await say(env, logger, slackContext, `📁 Loading file: ${fileName} from path: ${filePath}`);
+
     const data = fs.readFileSync(filePath, 'utf-8');
+    logger.info(`Successfully loaded ${fileName}: ${data.length} characters`);
+    await say(env, logger, slackContext, `✅ Successfully loaded ${fileName}: ${data.length} characters`);
+    await say(env, logger, slackContext, `📄 Content preview (first 100 chars): ${data.substring(0, 100)}...`);
+
     return data;
   } catch (error) {
+    logger.error(`Failed to load suggestion content from "${fileName}": ${error.message}`);
+    await say(env, logger, slackContext, `❌ Failed to load suggestion content from "${fileName}": ${error.message}`);
     throw new Error(`Failed to load suggestion content from "${fileName}": ${error.message}`);
   }
 };
@@ -68,12 +80,15 @@ async function getRandomSuggestion(issueType, logger, env, slackContext) {
 
   try {
     logger.info(`Getting random suggestion for issue type: ${issueType} from file: ${fileName}`);
-    const content = loadSuggestionContent(fileName);
-    await say(env, logger, slackContext, `loadSuggestionContent: Random suggestion for issue type: ${issueType} is ${content}`);
+    await say(env, logger, slackContext, `🎲 Getting random suggestion for issue type: ${issueType} from file: ${fileName}`);
+
+    const content = await loadSuggestionContent(fileName, logger, env, slackContext);
+    await say(env, logger, slackContext, `✅ Successfully loaded suggestion for ${issueType} (${content.length} chars)`);
     logger.info(`✅ Successfully loaded suggestion for ${issueType} (${content.length} chars)`);
     return content;
   } catch (error) {
     logger.error(`Failed to get random suggestion for ${issueType}: ${error.message}`);
+    await say(env, logger, slackContext, `❌ Failed to get random suggestion for ${issueType}: ${error.message}`);
     return null;
   }
 }
@@ -205,6 +220,8 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
     const suggestions = await opportunity.getSuggestions();
 
     logger.info(`Processing opportunity ${opportunity.getId()} with ${suggestions.length} suggestions`);
+    await say(env, logger, slackContext, `🔍 Processing opportunity ${opportunity.getId()} with ${suggestions.length} suggestions`);
+    await say(env, logger, slackContext, `📋 Available CWV files: ${JSON.stringify(METRIC_FILES)}`);
 
     // Requirement: Check if any suggestion has CWV issues, then exit
     if (hasExistingCwvIssues(suggestions)) {
