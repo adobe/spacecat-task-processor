@@ -41,12 +41,12 @@
     "timeout": 900000,
     "nodeVersion": 22,
     "static": [
-      "static/cls1.txt",
-      "static/cls2.txt",
-      "static/inp1.txt",
-      "static/lcp1.txt",
-      "static/lcp2.txt",
-      "static/lcp3.txt"
+      "static/cls1.md",
+      "static/cls2.md",
+      "static/inp1.md",
+      "static/lcp1.md",
+      "static/lcp2.md",
+      "static/lcp3.md"
     ]
   },
   "repository": {

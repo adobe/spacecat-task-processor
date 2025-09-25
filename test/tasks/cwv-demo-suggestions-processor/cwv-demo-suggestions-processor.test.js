@@ -137,7 +137,12 @@ describe('CWV Demo Suggestions Processor Task', () => {
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
 
-      expect(mockContext.log.info.calledWith('No CWV opportunities found for site, skipping generic suggestions')).to.be.true;
+      expect(sayStub.calledWith(
+        mockContext.env,
+        mockContext.log,
+        mockContext.slackContext,
+        'No CWV opportunities found for site, skipping generic suggestions',
+      )).to.be.true;
       expect(result.message).to.equal('No CWV opportunities found');
     });
 
@@ -151,7 +156,12 @@ describe('CWV Demo Suggestions Processor Task', () => {
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
 
-      expect(mockContext.log.info.calledWith('Opportunity test-opportunity-id already has suggestions with issues, skipping generic suggestions')).to.be.true;
+      expect(sayStub.calledWith(
+        mockContext.env,
+        mockContext.log,
+        mockContext.slackContext,
+        'ℹ️ Opportunity test-opportunity-id already has suggestions with issues, skipping generic suggestions',
+      )).to.be.true;
       expect(result.message).to.include('CWV demo suggestions processor completed');
     });
 
@@ -178,8 +188,11 @@ describe('CWV Demo Suggestions Processor Task', () => {
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
 
-      expect(mockContext.log.info.calledWith(
-        'Processing opportunity test-opportunity-id with 2 new suggestions (filtered from 4 total)',
+      expect(sayStub.calledWith(
+        mockContext.env,
+        mockContext.log,
+        mockContext.slackContext,
+        '🔍 Processing opportunity test-opportunity-id with 2 new suggestions (filtered from 4 total)',
       )).to.be.true;
       expect(result.message).to.include('CWV demo suggestions processor completed');
     });
@@ -260,7 +273,6 @@ describe('CWV Demo Suggestions Processor Task', () => {
 
       const result = await runCwvDemoSuggestionsProcessor(nonDemoMessage, mockContext);
 
-      expect(mockContext.log.info.calledWith('Skipping CWV processing for non-demo profile. Profile: default')).to.be.true;
       expect(result.message).to.equal('CWV processing skipped - not a demo profile');
       expect(result.reason).to.equal('non-demo-profile');
       expect(result.profile).to.equal('default');
@@ -289,7 +301,6 @@ describe('CWV Demo Suggestions Processor Task', () => {
 
       const result = await runCwvDemoSuggestionsProcessor(messageWithoutTaskContext, mockContext);
 
-      expect(mockContext.log.info.calledWith('Skipping CWV processing for non-demo profile. Profile: undefined')).to.be.true;
       expect(result.message).to.equal('CWV processing skipped - not a demo profile');
       expect(result.reason).to.equal('non-demo-profile');
       expect(result.profile).to.be.undefined;
