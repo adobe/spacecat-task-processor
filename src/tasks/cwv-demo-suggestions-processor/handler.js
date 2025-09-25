@@ -353,6 +353,7 @@ export async function runCwvDemoSuggestionsProcessor(message, context) {
   try {
     if (!profile || profile !== DEMO) {
       log.info(`Skipping CWV processing for non-demo profile. Profile: ${profile}`);
+      await say(env, log, slackContext, `Skipping CWV processing for non-demo profile. Profile: ${profile}`);
       return {
         message: 'CWV processing skipped - not a demo profile',
         reason: 'non-demo-profile',
@@ -377,6 +378,7 @@ export async function runCwvDemoSuggestionsProcessor(message, context) {
 
     if (cwvOpportunities.length === 0) {
       log.info('No CWV opportunities found for site, skipping generic suggestions');
+      await say(env, log, slackContext, 'No CWV opportunities found for site, skipping generic suggestions');
       return {
         message: 'No CWV opportunities found',
         suggestionsAdded: 0,
@@ -391,6 +393,7 @@ export async function runCwvDemoSuggestionsProcessor(message, context) {
     );
 
     log.info(`Processed CWV opportunity for generic suggestions. Updated ${suggestionsUpdated} suggestions.`);
+    await say(env, log, slackContext, `Processed CWV opportunity for generic suggestions. Updated ${suggestionsUpdated} suggestions.`);
 
     return {
       message: 'CWV demo suggestions processor completed',
