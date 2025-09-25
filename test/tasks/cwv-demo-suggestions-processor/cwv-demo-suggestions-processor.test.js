@@ -177,8 +177,9 @@ describe('CWV Demo Suggestions Processor Task', () => {
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
 
-      expect(mockContext.log.info.calledWith('Processing opportunity test-opportunity-id with 2 new suggestions (filtered from 4 total)')).to.be.true;
-      expect(mockContext.log.info.calledWith('Filtered out 2 suggestions with statuses: outdated, resolved')).to.be.true;
+      expect(mockContext.log.info.calledWith(
+        'Processing opportunity test-opportunity-id with 2 new suggestions (filtered from 4 total)',
+      )).to.be.true;
       expect(result.message).to.include('CWV demo suggestions processor completed');
     });
 

@@ -210,15 +210,21 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
     });
 
     // Log filtering details
-    const filteredOut = allSuggestions.length - suggestions.length;
-    if (filteredOut > 0) {
-      const filteredStatuses = allSuggestions
-        .filter((s) => s.getData().status !== 'new')
-        .map((s) => s.getData().status || 'unknown');
-      const uniqueStatuses = [...new Set(filteredStatuses)];
-      logger.info(`Filtered out ${filteredOut} suggestions with statuses: ${uniqueStatuses.join(', ')}`);
-      await say(env, logger, slackContext, `🚫 Filtered out ${filteredOut} suggestions with statuses: ${uniqueStatuses.join(', ')}`);
-    }
+    // TODO: Uncomment this when we want to log the filtered out suggestions
+    // const filteredOut = allSuggestions.length - suggestions.length;
+    // if (filteredOut > 0) {
+    //   const filteredStatuses = allSuggestions
+    //     .filter((s) => s.getData().status !== 'new')
+    //     .map((s) => s.getData().status || 'unknown');
+    //   const uniqueStatuses = [...new Set(filteredStatuses)];
+    //   logger.info(`Filtered out ${filteredOut} suggestions with statuses: ${
+    //     uniqueStatuses.join(', ')
+    //   }`);
+    //   await say(env, logger, slackContext, `🚫 Filtered out ${filteredOut}
+    //     suggestions with statuses: ${
+    //     uniqueStatuses.join(', ')
+    //   }`);
+    // }
 
     logger.info(`Processing opportunity ${opportunity.getId()} with ${suggestions.length} new suggestions (filtered from ${allSuggestions.length} total)`);
     await say(env, logger, slackContext, `🔍 Processing opportunity ${opportunity.getId()} with ${suggestions.length} new suggestions (filtered from ${allSuggestions.length} total)`);
@@ -290,7 +296,8 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
     if (suggestionsToUpdate.length === 0) {
       logger.info(`No suggestions with CWV issues found for opportunity ${opportunity.getId()}`);
       await say(env, logger, slackContext, `ℹ️ No suggestions with CWV issues found for opportunity ${opportunity.getId()}`);
-      return 0;
+      // return 0; // TODO: Uncomment this when we want to skip processing
+      // if no suggestions with CWV issues are found
     }
 
     // Requirement: Add generic suggestions to selected suggestions
