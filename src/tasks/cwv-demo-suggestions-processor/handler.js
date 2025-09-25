@@ -296,8 +296,7 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
     if (suggestionsToUpdate.length === 0) {
       logger.info(`No suggestions with CWV issues found for opportunity ${opportunity.getId()}`);
       await say(env, logger, slackContext, `ℹ️ No suggestions with CWV issues found for opportunity ${opportunity.getId()}`);
-      // return 0; // TODO: Uncomment this when we want to skip processing
-      // if no suggestions with CWV issues are found
+      return 0;
     }
 
     // Requirement: Add generic suggestions to selected suggestions
