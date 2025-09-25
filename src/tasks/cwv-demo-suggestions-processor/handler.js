@@ -231,6 +231,18 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
     logger.info(`Sorted ${sortedSuggestions.length} suggestions by pageviews`);
     await say(env, logger, slackContext, `📊 Sorted ${sortedSuggestions.length} suggestions by pageviews`);
 
+    // Check for existing generic suggestions
+    const hasGenericSuggestions = suggestions.some((suggestion) => {
+      const data = suggestion.getData();
+      return data.genericSuggestions === true;
+    });
+
+    if (hasGenericSuggestions) {
+      logger.info(`Generic suggestions are already added to opportunity ${opportunity.getId()}, so skipping generic suggestions`);
+      await say(env, logger, slackContext, `ℹ️ Generic suggestions are already added to opportunity ${opportunity.getId()}, so skipping generic suggestions`);
+      return 0;
+    }
+
     // Requirement: Find first 2 suggestions with LCP/CLS/INP issues
     const suggestionsToUpdate = [];
     const sayPromises = [];
