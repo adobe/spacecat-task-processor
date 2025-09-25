@@ -20,11 +20,13 @@ import { imsClientWrapper } from '@adobe/spacecat-shared-ims-client';
 import { runOpportunityStatusProcessor as opportunityStatusProcessor } from './tasks/opportunity-status-processor/handler.js';
 import { runDisableImportAuditProcessor as disableImportAuditProcessor } from './tasks/disable-import-audit-processor/handler.js';
 import { runDemoUrlProcessor as demoUrlProcessor } from './tasks/demo-url-processor/handler.js';
+import { runCwvDemoSuggestionsProcessor as cwvDemoSuggestionsProcessor } from './tasks/cwv-demo-suggestions-processor/handler.js';
 
 const HANDLERS = {
   'opportunity-status-processor': opportunityStatusProcessor,
   'disable-import-audit-processor': disableImportAuditProcessor,
   'demo-url-processor': demoUrlProcessor,
+  'cwv-demo-suggestions-processor': cwvDemoSuggestionsProcessor,
   dummy: (message) => ok(message),
 };
 
