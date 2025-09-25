@@ -38,6 +38,7 @@ describe('CWV Demo Suggestions Processor Task', () => {
       status,
       ...(hasIssues && { issues: [{ type: 'lcp', value: 'existing issue' }] }),
     }),
+    getStatus: sandbox.stub().returns(status.toUpperCase()),
     setData: sandbox.stub(),
     setUpdatedBy: sandbox.stub(),
     save: sandbox.stub().resolves(),
