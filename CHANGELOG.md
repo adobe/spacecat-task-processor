@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/adobe/spacecat-task-processor/compare/v1.1.40...v1.2.0) (2025-09-29)
+
+
+### Features
+
+* cwv suggestions processor ([#48](https://github.com/adobe/spacecat-task-processor/issues/48)) ([f0dd833](https://github.com/adobe/spacecat-task-processor/commit/f0dd833ed48488cc30d3ad53aace3aa0289ed821))
+
 ## [1.1.40](https://github.com/adobe/spacecat-task-processor/compare/v1.1.39...v1.1.40) (2025-09-29)
 
 
