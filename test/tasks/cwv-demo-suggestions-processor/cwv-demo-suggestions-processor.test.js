@@ -160,7 +160,7 @@ describe('CWV Demo Suggestions Processor Task', () => {
         mockContext.env,
         mockContext.log,
         mockContext.slackContext,
-        'ℹ️ Opportunity test-opportunity-id already has suggestions with issues, skipping generic suggestions',
+        'ℹ️ Opportunity test-opportunity-id already has suggestions, skipping generic suggestions',
       )).to.be.true;
       expect(result.message).to.include('CWV demo suggestions processor completed');
     });
@@ -173,28 +173,6 @@ describe('CWV Demo Suggestions Processor Task', () => {
 
       expect(result.message).to.include('CWV demo suggestions processor completed');
       expect(result.opportunitiesProcessed).to.equal(1);
-    });
-
-    it('should filter out suggestions with non-new status', async () => {
-      const mixedStatusSuggestions = [
-        createMockSuggestion('suggestion-new', 10000, [], false, 'new'),
-        createMockSuggestion('suggestion-outdated', 5000, [], false, 'outdated'),
-        createMockSuggestion('suggestion-resolved', 3000, [], false, 'resolved'),
-        createMockSuggestion('suggestion-new-2', 2000, [], false, 'new'),
-      ];
-
-      setupCommonMocks();
-      mockOpportunity.getSuggestions.resolves(mixedStatusSuggestions);
-
-      const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
-
-      expect(sayStub.calledWith(
-        mockContext.env,
-        mockContext.log,
-        mockContext.slackContext,
-        '🔍 Processing opportunity test-opportunity-id with 2 new suggestions (filtered from 4 total)',
-      )).to.be.true;
-      expect(result.message).to.include('CWV demo suggestions processor completed');
     });
 
     it('should handle site not found gracefully', async () => {
