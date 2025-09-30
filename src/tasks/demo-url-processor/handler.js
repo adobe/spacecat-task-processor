@@ -39,7 +39,6 @@ async function getImsTenantId(imsOrgId, organization, context, slackContext) {
       return imsOrgDetails.tenantId;
     } catch (error) {
       log.error(`Error retrieving IMS Org details: ${error.message}`);
-      await say(env, log, slackContext, `Error retrieving IMS Org details: ${error.message}`);
     }
   }
   // As a fallback option, use name to generate tenant id (backward compatible for existing orgs)
