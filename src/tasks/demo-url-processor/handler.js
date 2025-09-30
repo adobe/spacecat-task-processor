@@ -36,7 +36,7 @@ async function getImsTenantId(imsOrgId, organization, context, slackContext) {
     try {
       imsOrgDetails = await imsClient.getImsOrganizationDetails(imsOrgId);
       log.info(`IMS Org Details: ${imsOrgDetails}`);
-      await say(env, log, slackContext, `IMS Org Details: ${imsOrgDetails}`);
+      await say(env, log, slackContext, `IMS Org Details: ${JSON.stringify(imsOrgDetails, null, 2)} and tenantId: ${imsOrgDetails.tenantId}`);
       return imsOrgDetails.tenantId;
     } catch (error) {
       log.error(`Error retrieving IMS Org details: ${error.message}`);
