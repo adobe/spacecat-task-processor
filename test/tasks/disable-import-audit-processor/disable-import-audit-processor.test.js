@@ -88,6 +88,7 @@ describe('Disable Import Audit Processor', () => {
         organizationId: 'test-org-id',
         importTypes: ['ahrefs', 'screaming-frog'],
         auditTypes: ['cwv', 'broken-links'],
+        scheduledRun: false,
       })).to.be.true;
 
       expect(context.dataAccess.Site.findByBaseURL.calledWith('https://example.com')).to.be.true;
@@ -133,6 +134,35 @@ describe('Disable Import Audit Processor', () => {
 
       // Should complete without error
       expect(context.log.info.calledWith('For site: https://example.com: Disabled imports and audits')).to.be.true;
+    });
+
+    it('should skip disable operations when scheduledRun is true', async () => {
+      message.taskContext.scheduledRun = true;
+
+      const result = await runDisableImportAuditProcessor(message, context);
+
+      // Should log scheduled run detection
+      expect(context.log.info.calledWith('Processing disable import and audit request:', {
+        taskType: 'disable-import-audit-processor',
+        siteId: 'test-site-id',
+        organizationId: 'test-org-id',
+        importTypes: ['ahrefs', 'screaming-frog'],
+        auditTypes: ['cwv', 'broken-links'],
+        scheduledRun: true,
+      })).to.be.true;
+
+      expect(context.log.info.calledWith('Scheduled run detected - skipping disable of imports and audits')).to.be.true;
+
+      // Should not perform any disable operations
+      expect(context.dataAccess.Site.findByBaseURL.called).to.be.false;
+      expect(mockSiteConfig.disableImport.called).to.be.false;
+      expect(mockConfiguration.disableHandlerForSite.called).to.be.false;
+      expect(mockSite.save.called).to.be.false;
+      expect(mockConfiguration.save.called).to.be.false;
+
+      // Should return success message indicating no operations performed
+      expect(result).to.be.an('object');
+      expect(result.message).to.equal('Scheduled run - no disable of imports and audits performed');
     });
   });
 });
