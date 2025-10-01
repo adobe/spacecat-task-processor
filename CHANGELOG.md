@@ -1,3 +1,10 @@
+## [1.2.2](https://github.com/adobe/spacecat-task-processor/compare/v1.2.1...v1.2.2) (2025-10-01)
+
+
+### Bug Fixes
+
+* update log message for tenant id ([#86](https://github.com/adobe/spacecat-task-processor/issues/86)) ([5bf1aae](https://github.com/adobe/spacecat-task-processor/commit/5bf1aaebeda16ccd1a59be676db5ebb57085df00))
+
 ## [1.2.1](https://github.com/adobe/spacecat-task-processor/compare/v1.2.0...v1.2.1) (2025-09-30)
 
 
