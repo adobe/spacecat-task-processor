@@ -39,9 +39,12 @@ export async function runDisableImportAuditProcessor(message, context) {
     scheduledRun,
   });
 
+  const importsText = importTypes.length > 0 ? importTypes.join(', ') : 'None';
+  const auditsText = auditTypes.length > 0 ? auditTypes.join(', ') : 'None';
+
   if (scheduledRun) {
     log.info('Scheduled run detected - skipping disable of imports and audits');
-    await say(env, log, slackContext, `:information_source: Scheduled run detected for site ${siteUrl} - skipping disable of imports and audits`);
+    await say(env, log, slackContext, `:information_source: Scheduled run detected for site ${siteUrl} - skipping disable of imports: ${importsText} and audits: ${auditsText}`);
     return { message: 'Scheduled run - no disable of imports and audits performed' };
   }
 
@@ -63,9 +66,10 @@ export async function runDisableImportAuditProcessor(message, context) {
     await site.save();
     await configuration.save();
     log.info(`For site: ${siteUrl}: Disabled imports and audits`);
-    let slackMessage = `:broom: *For site: ${siteUrl}: Disabled imports*: ${importTypes.join(', ')} *and audits*: ${auditTypes.join(', ')}`;
+
+    let slackMessage = `:broom: *For site: ${siteUrl}: Disabled imports*: ${importsText} *and audits*: ${auditsText}`;
     await say(env, log, slackContext, slackMessage);
-    slackMessage = ':information_source: The list of enabled imports and audits may differ from the disabled ones because items that are already enabled are not automatically disabled.';
+    slackMessage = ':information_source: The list of enabled imports and audits may differ from the disabled ones because items that are already enabled are not automatically disabled. When schedule run flag is true then no imports and audits are disabled.';
     await say(env, log, slackContext, slackMessage);
   } catch (error) {
     log.error('Error in disable import and audit processor:', error);
