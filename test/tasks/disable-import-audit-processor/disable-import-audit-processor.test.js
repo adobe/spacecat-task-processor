@@ -235,7 +235,7 @@ describe('Disable Import Audit Processor', () => {
           context.env,
           context.log,
           'test-slack-context',
-          ':information_source: Scheduled run detected for site https://example.com - skipping disable of imports: ahrefs, screaming-frog and audits: cwv, broken-links',
+          ':information_source: Scheduled run detected for site https://example.com - skipping disable of imports and audits',
         );
 
         // Should return success message indicating no operations performed
@@ -255,7 +255,7 @@ describe('Disable Import Audit Processor', () => {
           context.env,
           context.log,
           'test-slack-context',
-          ':information_source: Scheduled run detected for site https://example.com - skipping disable of imports: None and audits: None',
+          ':information_source: Scheduled run detected for site https://example.com - skipping disable of imports and audits',
         );
 
         expect(result).to.deep.equal({

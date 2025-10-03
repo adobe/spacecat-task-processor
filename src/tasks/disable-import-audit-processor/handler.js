@@ -39,12 +39,9 @@ export async function runDisableImportAuditProcessor(message, context) {
     scheduledRun,
   });
 
-  const importsText = importTypes.length > 0 ? importTypes.join(', ') : 'None';
-  const auditsText = auditTypes.length > 0 ? auditTypes.join(', ') : 'None';
-
   if (scheduledRun) {
     log.info('Scheduled run detected - skipping disable of imports and audits');
-    await say(env, log, slackContext, `:information_source: Scheduled run detected for site ${siteUrl} - skipping disable of imports: ${importsText} and audits: ${auditsText}`);
+    await say(env, log, slackContext, `:information_source: Scheduled run detected for site ${siteUrl} - skipping disable of imports and audits`);
     return { message: 'Scheduled run - no disable of imports and audits performed' };
   }
 
@@ -66,6 +63,9 @@ export async function runDisableImportAuditProcessor(message, context) {
     await site.save();
     await configuration.save();
     log.info(`For site: ${siteUrl}: Disabled imports and audits`);
+
+    const importsText = importTypes.length > 0 ? importTypes.join(', ') : 'None';
+    const auditsText = auditTypes.length > 0 ? auditTypes.join(', ') : 'None';
 
     let slackMessage = `:broom: *For site: ${siteUrl}: Disabled imports*: ${importsText} *and audits*: ${auditsText}`;
     await say(env, log, slackContext, slackMessage);
