@@ -402,29 +402,31 @@ export async function runOpportunityStatusProcessor(message, context) {
     }
 
     if (slackContext && statusMessages.length > 0) {
-      const slackMessage = `:white_check_mark: *Data Sources & Opportunities status for site ${siteUrl}*:`;
-      const combinedMessage = statusMessages.join('\n');
-      await say(env, log, slackContext, slackMessage);
-      await say(env, log, slackContext, combinedMessage);
+      // Section 1: Data Sources for site
+      await say(env, log, slackContext, `:gear: *Data Sources for site ${siteUrl}*`);
 
-      // Add summary of data source issues
-      const issues = [];
-      if (!rumAvailable) issues.push('RUM not available');
-      if (!ahrefsAvailable) issues.push('AHREFS data not found');
-      if (!gscConfigured) issues.push('GSC not configured');
+      const dataSourceMessages = [];
+      dataSourceMessages.push(`RUM: ${rumAvailable ? ':white_check_mark: Available' : ':cross-x: Not available'}`);
+      dataSourceMessages.push(`AHREFS: ${ahrefsAvailable ? ':white_check_mark: Data found' : ':cross-x: No data found'}`);
+      dataSourceMessages.push(`GSC: ${gscConfigured ? ':white_check_mark: Configured' : ':cross-x: Not configured'}`);
 
-      if (issues.length > 0) {
-        await say(env, log, slackContext, `:warning: *Data Source Issues:* ${issues.join(', ')}`);
+      await say(env, log, slackContext, dataSourceMessages.join('\n'));
+
+      // Section 2: Opportunity Statuses for site
+      await say(env, log, slackContext, `:clipboard: *Opportunity Statuses for site ${siteUrl}*`);
+      const opportunityMessages = statusMessages.filter((msg) => !msg.includes('RUM') && !msg.includes('AHREFS') && !msg.includes('GSC'));
+      if (opportunityMessages.length > 0) {
+        await say(env, log, slackContext, opportunityMessages.join('\n'));
+      } else {
+        await say(env, log, slackContext, 'No opportunities found for this site');
       }
 
-      // Add failure analysis if failures were found
+      // Section 3: Failure Analysis for site
       if (failures.length > 0) {
-        await say(env, log, slackContext, `:mag: *Failure Analysis Report for ${siteUrl}*`);
+        await say(env, log, slackContext, `:mag: *Failure Analysis for site ${siteUrl}*`);
         await say(env, log, slackContext, `:warning: *Found ${failures.length} failure types in CloudWatch logs*`);
 
         if (rootCauses.length > 0) {
-          await say(env, log, slackContext, '*Failure Analysis:*');
-
           const slackMessages = [];
           for (const cause of rootCauses) {
             slackMessages.push(`*${cause.failureType}:* ${cause.totalErrors} errors found`);
@@ -453,7 +455,7 @@ export async function runOpportunityStatusProcessor(message, context) {
         await say(env, log, slackContext, '2. Check CloudWatch logs for more details');
         await say(env, log, slackContext, '3. Consider implementing retry logic or alternative approaches');
       } else {
-        await say(env, log, slackContext, ':tada: *No failures detected in the last 7 days*');
+        await say(env, log, slackContext, `:white_check_mark: *No failures detected in CloudWatch logs for site ${siteUrl}*`);
         await say(env, log, slackContext, 'All systems appear to be functioning normally');
       }
     }
