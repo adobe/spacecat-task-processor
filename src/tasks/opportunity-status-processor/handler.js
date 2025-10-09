@@ -12,6 +12,7 @@
 
 import { ok } from '@adobe/spacecat-shared-http-utils';
 import RUMAPIClient from '@adobe/spacecat-shared-rum-api-client';
+import GoogleClient from '@adobe/spacecat-shared-google-client';
 import { resolveCanonicalUrl } from '@adobe/spacecat-shared-utils';
 import { say } from '../../utils/slack-utils.js';
 
@@ -36,6 +37,56 @@ async function isRUMAvailable(domain, context) {
     return true;
   } catch (error) {
     log.info(`RUM is not available for domain: ${domain}. Reason: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * Checks if AHREFS data is available by checking if top pages exist for the site
+ * @param {string} siteId - The site ID to check
+ * @param {object} dataAccess - The data access object
+ * @param {object} context - The context object with log
+ * @returns {Promise<boolean>} True if AHREFS data is available, false otherwise
+ */
+async function isAHREFSDataAvailable(siteId, dataAccess, context) {
+  const { log } = context;
+  const { SiteTopPage } = dataAccess;
+
+  try {
+    // Check if top pages exist from AHREFS source
+    const topPages = await SiteTopPage.allBySiteIdAndSourceAndGeo(siteId, 'ahrefs', 'global');
+
+    const hasData = topPages && topPages.length > 0;
+    log.info(`AHREFS data availability for site ${siteId}: ${hasData ? 'Available' : 'Not available'} (${topPages?.length || 0} top pages)`);
+
+    return hasData;
+  } catch (error) {
+    log.error(`Error checking AHREFS data availability for site ${siteId}: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * Checks if Google Search Console is configured and connected for the site
+ * @param {string} siteUrl - The site URL to check
+ * @param {object} context - The context object with env and log
+ * @returns {Promise<boolean>} True if GSC is configured, false otherwise
+ */
+async function isGSCConfigured(siteUrl, context) {
+  const { log } = context;
+
+  try {
+    // Attempt to create Google client - if this succeeds, GSC is configured
+    const googleClient = await GoogleClient.createFrom(context, siteUrl);
+
+    // Try to list sites to verify connection
+    const sites = await googleClient.listSites();
+    const isConnected = sites?.data?.siteEntry?.length > 0;
+
+    log.info(`GSC configuration for site ${siteUrl}: ${isConnected ? 'Configured and connected' : 'Not configured or not connected'}`);
+    return isConnected;
+  } catch (error) {
+    log.info(`GSC is not configured for site ${siteUrl}. Reason: ${error.message}`);
     return false;
   }
 }
@@ -98,24 +149,40 @@ export async function runOpportunityStatusProcessor(message, context) {
       return ok({ message: 'Site not found' });
     }
 
+    // Check data source availability
     let rumAvailable = false;
+    let ahrefsAvailable = false;
+    let gscConfigured = false;
+
     if (siteUrl) {
       try {
         const resolvedUrl = await resolveCanonicalUrl(siteUrl);
         log.info(`Resolved URL: ${resolvedUrl}`);
         const domain = new URL(resolvedUrl).hostname;
+
         rumAvailable = await isRUMAvailable(domain, context);
+
+        gscConfigured = await isGSCConfigured(resolvedUrl, context);
       } catch (error) {
-        log.warn(`Could not resolve canonical URL or parse siteUrl for RUM check: ${siteUrl}`, error);
+        log.warn(`Could not resolve canonical URL or parse siteUrl for data source checks: ${siteUrl}`, error);
       }
     }
 
+    ahrefsAvailable = await isAHREFSDataAvailable(siteId, dataAccess, context);
+
     const opportunities = await site.getOpportunities();
-    log.info(`Found ${opportunities.length} opportunities for site ${siteId}. RUM available: ${rumAvailable}`);
+    log.info(`Found ${opportunities.length} opportunities for site ${siteId}. Data sources - RUM: ${rumAvailable}, AHREFS: ${ahrefsAvailable}, GSC: ${gscConfigured}`);
 
     const statusMessages = [];
+
+    // Data source status
     const rumStatus = rumAvailable ? ':white_check_mark:' : ':cross-x:';
+    const ahrefsStatus = ahrefsAvailable ? ':white_check_mark:' : ':cross-x:';
+    const gscStatus = gscConfigured ? ':white_check_mark:' : ':cross-x:';
+
     statusMessages.push(`RUM ${rumStatus}`);
+    statusMessages.push(`AHREFS ${ahrefsStatus}`);
+    statusMessages.push(`GSC ${gscStatus}`);
 
     // Process opportunities by type to avoid duplicates
     const processedTypes = new Set();
@@ -138,10 +205,20 @@ export async function runOpportunityStatusProcessor(message, context) {
     }
 
     if (slackContext && statusMessages.length > 0) {
-      const slackMessage = `:white_check_mark: *Opportunities status for site ${siteUrl}*:`;
+      const slackMessage = `:white_check_mark: *Data Sources & Opportunities status for site ${siteUrl}*:`;
       const combinedMessage = statusMessages.join('\n');
       await say(env, log, slackContext, slackMessage);
       await say(env, log, slackContext, combinedMessage);
+
+      // Add summary of data source issues
+      const issues = [];
+      if (!rumAvailable) issues.push('RUM not available');
+      if (!ahrefsAvailable) issues.push('AHREFS data not found');
+      if (!gscConfigured) issues.push('GSC not configured');
+
+      if (issues.length > 0) {
+        await say(env, log, slackContext, `:warning: *Data Source Issues:* ${issues.join(', ')}`);
+      }
     }
 
     log.info(`Processed ${opportunities.length} opportunities for site ${siteId}`);
@@ -149,7 +226,11 @@ export async function runOpportunityStatusProcessor(message, context) {
     return ok({
       message: `Opportunity status processor completed for ${opportunities.length} opportunities`,
       opportunitiesProcessed: opportunities.length,
-      rumAvailable,
+      dataSources: {
+        rum: rumAvailable,
+        ahrefs: ahrefsAvailable,
+        gsc: gscConfigured,
+      },
     });
   } catch (error) {
     log.error('Error in opportunity status processor:', error);

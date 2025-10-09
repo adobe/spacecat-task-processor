@@ -21,12 +21,14 @@ import { runOpportunityStatusProcessor as opportunityStatusProcessor } from './t
 import { runDisableImportAuditProcessor as disableImportAuditProcessor } from './tasks/disable-import-audit-processor/handler.js';
 import { runDemoUrlProcessor as demoUrlProcessor } from './tasks/demo-url-processor/handler.js';
 import { runCwvDemoSuggestionsProcessor as cwvDemoSuggestionsProcessor } from './tasks/cwv-demo-suggestions-processor/handler.js';
+import { runAuditTroubleshootingProcessor as auditTroubleshootingProcessor } from './tasks/audit-troubleshooting-processor/handler.js';
 
 const HANDLERS = {
   'opportunity-status-processor': opportunityStatusProcessor,
   'disable-import-audit-processor': disableImportAuditProcessor,
   'demo-url-processor': demoUrlProcessor,
   'cwv-demo-suggestions-processor': cwvDemoSuggestionsProcessor,
+  'audit-troubleshooting-processor': auditTroubleshootingProcessor,
   dummy: (message) => ok(message),
 };
 
