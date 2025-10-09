@@ -421,6 +421,22 @@ export async function runOpportunityStatusProcessor(message, context) {
         await say(env, log, slackContext, 'No opportunities found for this site');
       }
 
+      // Add failure analysis context to opportunity statuses
+      if (failures.length > 0) {
+        await say(env, log, slackContext, ':mag: *Failure Analysis - Why opportunities may not be available:*');
+        await say(env, log, slackContext, `:warning: *Found ${failures.length} failure types that may impact opportunities*`);
+
+        if (rootCauses.length > 0) {
+          const failureSummary = [];
+          for (const cause of rootCauses) {
+            failureSummary.push(`• *${cause.failureType}:* ${cause.totalErrors} errors (Primary: ${cause.primaryCause})`);
+          }
+          await say(env, log, slackContext, failureSummary.join('\n'));
+        }
+      } else {
+        await say(env, log, slackContext, ':white_check_mark: *No failures detected that would impact opportunities*');
+      }
+
       // Section 3: Failure Analysis for site
       if (failures.length > 0) {
         await say(env, log, slackContext, `:mag: *Failure Analysis for site ${siteUrl}*`);
@@ -455,7 +471,7 @@ export async function runOpportunityStatusProcessor(message, context) {
         await say(env, log, slackContext, '2. Check CloudWatch logs for more details');
         await say(env, log, slackContext, '3. Consider implementing retry logic or alternative approaches');
       } else {
-        await say(env, log, slackContext, `:white_check_mark: *No failures detected in CloudWatch logs for site ${siteUrl}*`);
+        await say(env, log, slackContext, `:white_check_mark: *No failures detected in logs for site ${siteUrl}*`);
         await say(env, log, slackContext, 'All systems appear to be functioning normally');
       }
     }
