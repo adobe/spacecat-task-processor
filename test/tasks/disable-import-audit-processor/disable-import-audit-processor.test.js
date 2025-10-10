@@ -239,7 +239,9 @@ describe('Disable Import Audit Processor', () => {
         );
 
         // Should return success message indicating no operations performed
-        expect(result).to.deep.equal({
+        expect(result.status).to.equal(200);
+        const resultBody = await result.json();
+        expect(resultBody).to.deep.equal({
           message: 'Scheduled run - no disable of imports and audits performed',
         });
       });
@@ -258,7 +260,9 @@ describe('Disable Import Audit Processor', () => {
           ':information_source: Scheduled run detected for site https://example.com - skipping disable of imports and audits',
         );
 
-        expect(result).to.deep.equal({
+        expect(result.status).to.equal(200);
+        const resultBody = await result.json();
+        expect(resultBody).to.deep.equal({
           message: 'Scheduled run - no disable of imports and audits performed',
         });
       });
