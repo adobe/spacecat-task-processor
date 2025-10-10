@@ -221,7 +221,7 @@ describe('Disable Import Audit Processor', () => {
           scheduledRun: true,
         });
 
-        expect(context.log.info).to.have.been.calledWith('Scheduled run detected - skipping disable of imports and audits');
+        expect(context.log.info).to.have.been.calledWith('Scheduled run detected - skipping disable of imports and audits for site: https://example.com');
 
         // Should not perform any disable operations
         expect(context.dataAccess.Site.findByBaseURL).to.not.have.been.called;
