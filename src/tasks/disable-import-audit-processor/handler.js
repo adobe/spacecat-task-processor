@@ -27,7 +27,7 @@ export async function runDisableImportAuditProcessor(message, context) {
   } = message;
   const { Site, Configuration } = dataAccess;
   const {
-    importTypes = [], auditTypes = [], slackContext,
+    importTypes = [], auditTypes = [], slackContext, scheduledRun = false,
   } = taskContext;
 
   log.info('Processing disable import and audit request:', {
@@ -36,7 +36,15 @@ export async function runDisableImportAuditProcessor(message, context) {
     organizationId,
     importTypes,
     auditTypes,
+    scheduledRun,
   });
+
+  if (scheduledRun) {
+    log.info(`Scheduled run detected - skipping disable of imports and audits for site: ${siteUrl}`);
+    await say(env, log, slackContext, `:information_source: Scheduled run detected for site ${siteUrl} - skipping disable of imports and audits`);
+    return ok({ message: 'Scheduled run - no disable of imports and audits performed' });
+  }
+
   try {
     const site = await Site.findByBaseURL(siteUrl);
     if (!site) {
@@ -55,9 +63,13 @@ export async function runDisableImportAuditProcessor(message, context) {
     await site.save();
     await configuration.save();
     log.info(`For site: ${siteUrl}: Disabled imports and audits`);
-    let slackMessage = `:broom: *For site: ${siteUrl}: Disabled imports*: ${importTypes.join(', ')} *and audits*: ${auditTypes.join(', ')}`;
+
+    const importsText = importTypes.length > 0 ? importTypes.join(', ') : 'None';
+    const auditsText = auditTypes.length > 0 ? auditTypes.join(', ') : 'None';
+
+    let slackMessage = `:broom: *For site: ${siteUrl}: Disabled imports*: ${importsText} *and audits*: ${auditsText}`;
     await say(env, log, slackContext, slackMessage);
-    slackMessage = ':information_source: The list of enabled imports and audits may differ from the disabled ones because items that are already enabled are not automatically disabled.';
+    slackMessage = ':information_source: The list of enabled imports and audits may differ from the disabled ones because items that are already enabled are not automatically disabled. When schedule run flag is true then no imports and audits are disabled.';
     await say(env, log, slackContext, slackMessage);
   } catch (error) {
     log.error('Error in disable import and audit processor:', error);
