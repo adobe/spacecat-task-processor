@@ -1,3 +1,15 @@
+# [1.3.0](https://github.com/adobe/spacecat-task-processor/compare/v1.2.8...v1.3.0) (2025-10-10)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#96](https://github.com/adobe/spacecat-task-processor/issues/96)) ([5d89683](https://github.com/adobe/spacecat-task-processor/commit/5d896835575d3e250d382c6863974aa100c618c3))
+
+
+### Features
+
+* When secheduleRun is true do not disable imports and audits ([#88](https://github.com/adobe/spacecat-task-processor/issues/88)) ([ee15b45](https://github.com/adobe/spacecat-task-processor/commit/ee15b45b89820540d3e92756dc64ae88af9ad055))
+
 ## [1.2.8](https://github.com/adobe/spacecat-task-processor/compare/v1.2.7...v1.2.8) (2025-10-09)
 
 
