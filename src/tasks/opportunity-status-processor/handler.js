@@ -406,9 +406,9 @@ export async function runOpportunityStatusProcessor(message, context) {
       await say(env, log, slackContext, `:gear: *Data Sources for site ${siteUrl}*`);
 
       const dataSourceMessages = [];
-      dataSourceMessages.push(`RUM: ${rumAvailable ? ':white_check_mark: Available' : ':cross-x: Not available'}`);
-      dataSourceMessages.push(`AHREFS: ${ahrefsAvailable ? ':white_check_mark: Data found' : ':cross-x: No data found'}`);
-      dataSourceMessages.push(`GSC: ${gscConfigured ? ':white_check_mark: Configured' : ':cross-x: Not configured'}`);
+      dataSourceMessages.push(`RUM: ${rumAvailable ? ':white_check_mark:' : ':x:'}`);
+      dataSourceMessages.push(`AHREFS: ${ahrefsAvailable ? ':white_check_mark:' : ':x:'}`);
+      dataSourceMessages.push(`GSC: ${gscConfigured ? ':white_check_mark:' : ':x:'}`);
 
       await say(env, log, slackContext, dataSourceMessages.join('\n'));
 
@@ -421,23 +421,41 @@ export async function runOpportunityStatusProcessor(message, context) {
         await say(env, log, slackContext, 'No opportunities found for this site');
       }
 
-      // Add failure analysis context to opportunity statuses
-      if (failures.length > 0) {
-        await say(env, log, slackContext, ':mag: *Failure Analysis - Why opportunities may not be available:*');
-        await say(env, log, slackContext, `:warning: *Found ${failures.length} failure types that may impact opportunities*`);
+      // Section 3: Audit Processing Errors
+      await say(env, log, slackContext, `:warning: *Audit Processing Errors for site ${siteUrl}*`);
 
-        if (rootCauses.length > 0) {
-          const failureSummary = [];
-          for (const cause of rootCauses) {
-            failureSummary.push(`• *${cause.failureType}:* ${cause.totalErrors} errors (Primary: ${cause.primaryCause})`);
-          }
-          await say(env, log, slackContext, failureSummary.join('\n'));
-        }
-      } else {
-        await say(env, log, slackContext, ':white_check_mark: *No failures detected that would impact opportunities*');
+      const auditErrors = [];
+
+      // Check RUM configuration
+      if (!rumAvailable) {
+        auditErrors.push('• *RUM:* Not configured - RUM data collection is not enabled for this site');
       }
 
-      // Section 3: Failure Analysis for site
+      // Check AHREFS data
+      if (!ahrefsAvailable) {
+        auditErrors.push('• *AHREFS:* No data found - Top pages data from AHREFS is not available');
+      }
+
+      // Check GSC configuration
+      if (!gscConfigured) {
+        auditErrors.push('• *GSC:* Not configured - Google Search Console integration is not set up');
+      }
+
+      // Add audit-specific failures from CloudWatch logs
+      if (failures.length > 0 && rootCauses.length > 0) {
+        for (const cause of rootCauses) {
+          const errorMessage = `Failed due to ${cause.primaryCause} (${cause.primaryCauseCount} occurrences)`;
+          auditErrors.push(`• *${cause.failureType}:* ${errorMessage}`);
+        }
+      }
+
+      if (auditErrors.length > 0) {
+        await say(env, log, slackContext, auditErrors.join('\n'));
+      } else {
+        await say(env, log, slackContext, ':white_check_mark: No failures detected in logs for site');
+      }
+
+      // Section 4: Detailed Failure Analysis for site
       if (failures.length > 0) {
         await say(env, log, slackContext, `:mag: *Failure Analysis for site ${siteUrl}*`);
         await say(env, log, slackContext, `:warning: *Found ${failures.length} failure types in CloudWatch logs*`);
