@@ -403,56 +403,64 @@ export async function runOpportunityStatusProcessor(message, context) {
 
     if (slackContext && statusMessages.length > 0) {
       // Section 1: Data Sources for site
-      await say(env, log, slackContext, `:gear: *Data Sources for site ${siteUrl}*`);
+      await say(env, log, slackContext, `*Data Sources for site ${siteUrl}*`);
 
       const dataSourceMessages = [];
-      dataSourceMessages.push(`RUM: ${rumAvailable ? ':white_check_mark:' : ':x:'}`);
-      dataSourceMessages.push(`AHREFS: ${ahrefsAvailable ? ':white_check_mark:' : ':x:'}`);
-      dataSourceMessages.push(`GSC: ${gscConfigured ? ':white_check_mark:' : ':x:'}`);
+      dataSourceMessages.push(`   RUM ${rumAvailable ? ':white_check_mark:' : ':x:'}`);
+      dataSourceMessages.push(`   AHREFS ${ahrefsAvailable ? ':white_check_mark:' : ':x:'}`);
+      dataSourceMessages.push(`   GSC ${gscConfigured ? ':white_check_mark:' : ':x:'}`);
 
       await say(env, log, slackContext, dataSourceMessages.join('\n'));
 
       // Section 2: Opportunity Statuses for site
-      await say(env, log, slackContext, `:clipboard: *Opportunity Statuses for site ${siteUrl}*`);
+      await say(env, log, slackContext, `*Opportunity Statuses for site ${siteUrl}*`);
       const opportunityMessages = statusMessages.filter((msg) => !msg.includes('RUM') && !msg.includes('AHREFS') && !msg.includes('GSC'));
       if (opportunityMessages.length > 0) {
-        await say(env, log, slackContext, opportunityMessages.join('\n'));
+        // Format opportunity messages with indentation
+        const formattedOpportunities = opportunityMessages.map((msg) => {
+          // Extract title and status, then reformat
+          const parts = msg.split(' ');
+          const status = parts.pop(); // Get the last part (status emoji)
+          const title = parts.join(' '); // Join the rest as title
+          return `   ${title} ${status}`;
+        });
+        await say(env, log, slackContext, formattedOpportunities.join('\n'));
       } else {
-        await say(env, log, slackContext, 'No opportunities found for this site');
+        await say(env, log, slackContext, '   No opportunities found for this site');
       }
 
       // Section 3: Audit Processing Errors
-      await say(env, log, slackContext, `:warning: *Audit Processing Errors for site ${siteUrl}*`);
+      await say(env, log, slackContext, `*Audit Processing Errors for site ${siteUrl}*`);
 
       const auditErrors = [];
 
       // Check RUM configuration
       if (!rumAvailable) {
-        auditErrors.push('• *RUM:* Not configured - RUM data collection is not enabled for this site');
+        auditErrors.push('   • RUM: Not configured');
       }
 
       // Check AHREFS data
       if (!ahrefsAvailable) {
-        auditErrors.push('• *AHREFS:* No data found - Top pages data from AHREFS is not available');
+        auditErrors.push('   • AHREFS: No data found');
       }
 
       // Check GSC configuration
       if (!gscConfigured) {
-        auditErrors.push('• *GSC:* Not configured - Google Search Console integration is not set up');
+        auditErrors.push('   • GSC: Not configured');
       }
 
       // Add audit-specific failures from CloudWatch logs
       if (failures.length > 0 && rootCauses.length > 0) {
         for (const cause of rootCauses) {
-          const errorMessage = `Failed due to ${cause.primaryCause} (${cause.primaryCauseCount} occurrences)`;
-          auditErrors.push(`• *${cause.failureType}:* ${errorMessage}`);
+          const errorMessage = `Failed due to ${cause.primaryCause}`;
+          auditErrors.push(`   • ${cause.failureType}: ${errorMessage}`);
         }
       }
 
       if (auditErrors.length > 0) {
         await say(env, log, slackContext, auditErrors.join('\n'));
       } else {
-        await say(env, log, slackContext, ':white_check_mark: No failures detected in logs for site');
+        await say(env, log, slackContext, '   No failures detected in logs for site');
       }
 
       // Section 4: Detailed Failure Analysis for site
@@ -482,15 +490,8 @@ export async function runOpportunityStatusProcessor(message, context) {
           // Send all messages in parallel
           await Promise.all(slackMessages.map((msg) => say(env, log, slackContext, msg)));
         }
-
-        // Overall recommendations
-        await say(env, log, slackContext, '*Next Steps:*');
-        await say(env, log, slackContext, '1. Review the specific error patterns above');
-        await say(env, log, slackContext, '2. Check CloudWatch logs for more details');
-        await say(env, log, slackContext, '3. Consider implementing retry logic or alternative approaches');
       } else {
         await say(env, log, slackContext, `:white_check_mark: *No failures detected in logs for site ${siteUrl}*`);
-        await say(env, log, slackContext, 'All systems appear to be functioning normally');
       }
     }
 
