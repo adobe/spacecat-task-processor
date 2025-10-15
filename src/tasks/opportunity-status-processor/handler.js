@@ -416,15 +416,7 @@ export async function runOpportunityStatusProcessor(message, context) {
       await say(env, log, slackContext, `*Opportunity Statuses for site ${siteUrl}*`);
       const opportunityMessages = statusMessages.filter((msg) => !msg.includes('RUM') && !msg.includes('AHREFS') && !msg.includes('GSC'));
       if (opportunityMessages.length > 0) {
-        // Format opportunity messages with indentation
-        const formattedOpportunities = opportunityMessages.map((msg) => {
-          // Extract title and status, then reformat
-          const parts = msg.split(' ');
-          const status = parts.pop(); // Get the last part (status emoji)
-          const title = parts.join(' '); // Join the rest as title
-          return `   ${title} ${status}`;
-        });
-        await say(env, log, slackContext, formattedOpportunities.join('\n'));
+        await say(env, log, slackContext, opportunityMessages.join('\n'));
       } else {
         await say(env, log, slackContext, 'No opportunities found for this site');
       }
