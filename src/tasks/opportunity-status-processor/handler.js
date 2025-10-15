@@ -436,31 +436,31 @@ export async function runOpportunityStatusProcessor(message, context) {
 
       // Check RUM configuration
       if (!rumAvailable) {
-        auditErrors.push('• RUM: Not configured');
+        auditErrors.push('RUM: Not configured :x:');
       }
 
       // Check AHREFS data
       if (!ahrefsAvailable) {
-        auditErrors.push('• AHREFS: No data found');
+        auditErrors.push('AHREFS: No data found :x:');
       }
 
       // Check GSC configuration
       if (!gscConfigured) {
-        auditErrors.push('• GSC: Not configured');
+        auditErrors.push('GSC: Not configured :x:');
       }
 
       // Add audit-specific failures from CloudWatch logs
       if (failures.length > 0 && rootCauses.length > 0) {
         for (const cause of rootCauses) {
           const errorMessage = `Failed due to ${cause.primaryCause}`;
-          auditErrors.push(`• ${cause.failureType}: ${errorMessage}`);
+          auditErrors.push(`${cause.failureType}: ${errorMessage} :x:`);
         }
       }
 
       if (auditErrors.length > 0) {
         await say(env, log, slackContext, auditErrors.join('\n'));
       } else {
-        await say(env, log, slackContext, `:white_check_mark: No failures detected in logs for site ${siteUrl}`);
+        await say(env, log, slackContext, `No failures detected in logs for site ${siteUrl} :white_check_mark:`);
       }
 
       // Section 4: Detailed Failure Analysis for site
@@ -491,7 +491,7 @@ export async function runOpportunityStatusProcessor(message, context) {
           await Promise.all(slackMessages.map((msg) => say(env, log, slackContext, msg)));
         }
       } else {
-        await say(env, log, slackContext, `:white_check_mark: *No failures detected in logs for site ${siteUrl}*`);
+        await say(env, log, slackContext, `No failures detected in logs for site ${siteUrl} :white_check_mark:`);
       }
     }
 
