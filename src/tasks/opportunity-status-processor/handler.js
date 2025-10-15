@@ -383,6 +383,7 @@ export async function runOpportunityStatusProcessor(message, context) {
 
     // Process opportunities by type to avoid duplicates
     const processedTypes = new Set();
+    const failedOpportunities = [];
 
     for (const opportunity of opportunities) {
       const opportunityType = opportunity.getType();
@@ -399,6 +400,37 @@ export async function runOpportunityStatusProcessor(message, context) {
       const hasSuggestions = suggestions && suggestions.length > 0;
       const status = hasSuggestions ? ':white_check_mark:' : ':cross-x:';
       statusMessages.push(`${opportunityTitle} ${status}`);
+
+      // Track failed opportunities (no suggestions)
+      if (!hasSuggestions) {
+        const opportunityData = opportunity.getData ? opportunity.getData() : {};
+        const runbook = opportunityData.runbook
+          || (opportunity.getRunbook ? opportunity.getRunbook() : null);
+
+        // Determine detailed failure reason
+        let failureReason = 'No suggestions generated';
+        let specificReason = null;
+
+        if (runbook) {
+          if (runbook.includes('RUM') || runbook.includes('rum')) {
+            specificReason = 'RUM data not available';
+          } else if (runbook.includes('AHREFS') || runbook.includes('ahrefs')) {
+            specificReason = 'AHREFS data not available';
+          } else if (runbook.includes('GSC') || runbook.includes('Google Search Console')) {
+            specificReason = 'GSC not configured';
+          }
+        }
+
+        // Combine reasons for detailed message
+        if (specificReason) {
+          failureReason = `No suggestions generated, ${specificReason}`;
+        }
+
+        failedOpportunities.push({
+          title: opportunityTitle,
+          reason: failureReason,
+        });
+      }
     }
 
     if (slackContext && statusMessages.length > 0) {
@@ -439,6 +471,13 @@ export async function runOpportunityStatusProcessor(message, context) {
       // Check GSC configuration
       if (!gscConfigured) {
         auditErrors.push('GSC: Not configured :x:');
+      }
+
+      // Add failed opportunities with their reasons
+      if (failedOpportunities.length > 0) {
+        for (const failed of failedOpportunities) {
+          auditErrors.push(`${failed.title}: ${failed.reason} :x:`);
+        }
       }
 
       // Add audit-specific failures from CloudWatch logs
