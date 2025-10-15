@@ -406,9 +406,9 @@ export async function runOpportunityStatusProcessor(message, context) {
       await say(env, log, slackContext, `*Data Sources for site ${siteUrl}*`);
 
       const dataSourceMessages = [];
-      dataSourceMessages.push(`   RUM ${rumAvailable ? ':white_check_mark:' : ':x:'}`);
-      dataSourceMessages.push(`   AHREFS ${ahrefsAvailable ? ':white_check_mark:' : ':x:'}`);
-      dataSourceMessages.push(`   GSC ${gscConfigured ? ':white_check_mark:' : ':x:'}`);
+      dataSourceMessages.push(`RUM ${rumAvailable ? ':white_check_mark:' : ':x:'}`);
+      dataSourceMessages.push(`AHREFS ${ahrefsAvailable ? ':white_check_mark:' : ':x:'}`);
+      dataSourceMessages.push(`GSC ${gscConfigured ? ':white_check_mark:' : ':x:'}`);
 
       await say(env, log, slackContext, dataSourceMessages.join('\n'));
 
@@ -426,7 +426,7 @@ export async function runOpportunityStatusProcessor(message, context) {
         });
         await say(env, log, slackContext, formattedOpportunities.join('\n'));
       } else {
-        await say(env, log, slackContext, '   No opportunities found for this site');
+        await say(env, log, slackContext, 'No opportunities found for this site');
       }
 
       // Section 3: Audit Processing Errors
@@ -436,31 +436,31 @@ export async function runOpportunityStatusProcessor(message, context) {
 
       // Check RUM configuration
       if (!rumAvailable) {
-        auditErrors.push('   • RUM: Not configured');
+        auditErrors.push('• RUM: Not configured');
       }
 
       // Check AHREFS data
       if (!ahrefsAvailable) {
-        auditErrors.push('   • AHREFS: No data found');
+        auditErrors.push('• AHREFS: No data found');
       }
 
       // Check GSC configuration
       if (!gscConfigured) {
-        auditErrors.push('   • GSC: Not configured');
+        auditErrors.push('• GSC: Not configured');
       }
 
       // Add audit-specific failures from CloudWatch logs
       if (failures.length > 0 && rootCauses.length > 0) {
         for (const cause of rootCauses) {
           const errorMessage = `Failed due to ${cause.primaryCause}`;
-          auditErrors.push(`   • ${cause.failureType}: ${errorMessage}`);
+          auditErrors.push(`• ${cause.failureType}: ${errorMessage}`);
         }
       }
 
       if (auditErrors.length > 0) {
         await say(env, log, slackContext, auditErrors.join('\n'));
       } else {
-        await say(env, log, slackContext, '   No failures detected in logs for site');
+        await say(env, log, slackContext, `:white_check_mark: No failures detected in logs for site ${siteUrl}`);
       }
 
       // Section 4: Detailed Failure Analysis for site
