@@ -452,7 +452,7 @@ export async function runOpportunityStatusProcessor(message, context) {
       if (auditErrors.length > 0) {
         await say(env, log, slackContext, auditErrors.join('\n'));
       } else {
-        await say(env, log, slackContext, `No failures detected in logs for site ${siteUrl} :white_check_mark:`);
+        await say(env, log, slackContext, 'No failures detected in logs :white_check_mark:');
       }
 
       // Section 4: Detailed Failure Analysis for site
@@ -483,7 +483,7 @@ export async function runOpportunityStatusProcessor(message, context) {
           await Promise.all(slackMessages.map((msg) => say(env, log, slackContext, msg)));
         }
       } else {
-        await say(env, log, slackContext, `No failures detected in logs for site ${siteUrl} :white_check_mark:`);
+        await say(env, log, slackContext, 'No failures detected in logs :white_check_mark:');
       }
     }
 
