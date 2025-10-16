@@ -181,9 +181,10 @@ export function generateFailureRecommendations(rootCause) {
  * Search CloudWatch logs for specific failure patterns
  * @param {string} siteId - The site ID to search for
  * @param {object} context - The context object
+ * @param {number} startTime - The timestamp (in ms) to start searching from
  * @returns {Promise<Array>} Array of failure patterns found
  */
-async function searchFailurePatterns(siteId, context) {
+async function searchFailurePatterns(siteId, context, startTime) {
   const cloudWatchClient = new CloudWatchLogsClient({
     region: context.env.AWS_REGION || 'us-east-1',
   });
@@ -213,7 +214,7 @@ async function searchFailurePatterns(siteId, context) {
       const command = new FilterLogEventsCommand({
         logGroupName: pattern.logGroup,
         filterPattern: pattern.pattern,
-        startTime: Date.now() - (7 * 24 * 60 * 60 * 1000), // Last 7 days
+        startTime, // Use the provided start time instead of hardcoded 7 days
         limit: 30,
       });
 
@@ -319,7 +320,7 @@ export async function runOpportunityStatusProcessor(message, context) {
     siteId, siteUrl, organizationId, taskContext,
   } = message;
   const {
-    auditTypes = [], slackContext,
+    auditTypes = [], slackContext, onboardStartTime,
   } = taskContext;
 
   log.info('Processing opportunities for site:', {
@@ -327,6 +328,7 @@ export async function runOpportunityStatusProcessor(message, context) {
     siteId,
     organizationId,
     auditTypes,
+    onboardStartTime: onboardStartTime ? new Date(onboardStartTime).toISOString() : undefined,
   });
 
   try {
@@ -363,8 +365,13 @@ export async function runOpportunityStatusProcessor(message, context) {
     log.info(`Found ${opportunities.length} opportunities for site ${siteId}. Data sources - RUM: ${rumAvailable}, AHREFS: ${ahrefsAvailable}, GSC: ${gscConfigured}`);
 
     // Search for failure patterns in CloudWatch logs
-    log.info('Searching CloudWatch logs for failure patterns...');
-    const failures = await searchFailurePatterns(siteId, context);
+    // Use onboardStartTime if defined, otherwise default to last 60 minutes
+    const defaultLookbackMs = 60 * 60 * 1000; // 60 minutes in milliseconds
+    const logSearchStartTime = onboardStartTime !== undefined
+      ? onboardStartTime
+      : (Date.now() - defaultLookbackMs);
+    log.info(`Searching CloudWatch logs for failure patterns since ${new Date(logSearchStartTime).toISOString()} (using ${onboardStartTime !== undefined ? 'onboardStartTime' : 'default 60-minute lookback'})...`);
+    const failures = await searchFailurePatterns(siteId, context, logSearchStartTime);
 
     // Analyze root causes
     log.info('Analyzing failure root causes...');

@@ -93,6 +93,7 @@ describe('Opportunity Status Processor', () => {
         siteId: 'test-site-id',
         organizationId: 'test-org-id',
         auditTypes: ['cwv', 'broken-links'],
+        onboardStartTime: undefined,
       })).to.be.true;
 
       expect(context.dataAccess.Site.findById.calledWith('test-site-id')).to.be.true;
@@ -989,6 +990,164 @@ describe('Opportunity Status Processor', () => {
       const resultBody = await result.json();
       expect(resultBody).to.exist;
       expect(resultBody).to.have.property('message');
+    });
+  });
+
+  describe('Runbook Detection and Failure Reasons', () => {
+    it('should detect RUM failure from runbook', async () => {
+      const mockOpportunities = [
+        {
+          getType: () => 'cwv',
+          getSuggestions: sinon.stub().resolves([]),
+          getData: () => ({ runbook: 'RUM data is required for this audit' }),
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+      message.siteUrl = 'https://example.com';
+      message.taskContext.slackContext = {
+        channelId: 'test-channel',
+        threadTs: 'test-thread',
+      };
+
+      await runOpportunityStatusProcessor(message, context);
+
+      // Verify the RUM-specific failure message was logged
+      expect(context.log.info.calledWithMatch('Processing opportunities')).to.be.true;
+    });
+
+    it('should detect AHREFS failure from runbook', async () => {
+      const mockOpportunities = [
+        {
+          getType: () => 'seo',
+          getSuggestions: sinon.stub().resolves([]),
+          getData: () => ({ runbook: 'AHREFS data is required for this analysis' }),
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+      message.siteUrl = 'https://example.com';
+      message.taskContext.slackContext = {
+        channelId: 'test-channel',
+        threadTs: 'test-thread',
+      };
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.log.info.calledWithMatch('Processing opportunities')).to.be.true;
+    });
+
+    it('should detect GSC failure from runbook', async () => {
+      const mockOpportunities = [
+        {
+          getType: () => 'seo',
+          getSuggestions: sinon.stub().resolves([]),
+          getData: () => ({ runbook: 'Google Search Console data is required' }),
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+      message.siteUrl = 'https://example.com';
+      message.taskContext.slackContext = {
+        channelId: 'test-channel',
+        threadTs: 'test-thread',
+      };
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.log.info.calledWithMatch('Processing opportunities')).to.be.true;
+    });
+
+    it('should handle opportunity with runbook using getRunbook method', async () => {
+      const mockOpportunities = [
+        {
+          getType: () => 'cwv',
+          getSuggestions: sinon.stub().resolves([]),
+          getData: () => ({}),
+          getRunbook: () => 'rum data not available',
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+      message.siteUrl = 'https://example.com';
+      message.taskContext.slackContext = {
+        channelId: 'test-channel',
+        threadTs: 'test-thread',
+      };
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.log.info.calledWithMatch('Processing opportunities')).to.be.true;
+    });
+
+    it('should show "No failures detected" message when no failures and no failed opportunities', async () => {
+      const sandbox = sinon.createSandbox();
+      const sayStub = sandbox.stub();
+
+      const mockOpportunities = [
+        {
+          getType: () => 'cwv',
+          getSuggestions: sinon.stub().resolves(['suggestion1', 'suggestion2']),
+        },
+      ];
+
+      const testSite = {
+        getId: () => 'test-site-id',
+        getBaseURL: () => 'https://example.com',
+        getOpportunities: sinon.stub().resolves(mockOpportunities),
+      };
+
+      // Mock CloudWatch to return no failures
+      const mockCloudWatchClient = {
+        send: sandbox.stub().resolves({ events: [] }),
+      };
+
+      const CloudWatchLogsClientStub = sandbox.stub().returns(mockCloudWatchClient);
+      const { runOpportunityStatusProcessor: testProcessor } = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
+        '@aws-sdk/client-cloudwatch-logs': {
+          CloudWatchLogsClient: CloudWatchLogsClientStub,
+          FilterLogEventsCommand: sandbox.stub(),
+        },
+        '../../utils/slack-utils.js': {
+          say: sayStub,
+        },
+      });
+
+      const testContext = new MockContextBuilder()
+        .withSandbox(sandbox)
+        .withDataAccess({
+          Site: {
+            findById: sandbox.stub().resolves(testSite),
+          },
+          SiteTopPage: {
+            allBySiteIdAndSourceAndGeo: sandbox.stub().resolves([]),
+          },
+        })
+        .withOverrides({
+          env: { AWS_REGION: 'us-east-1' },
+        })
+        .build();
+
+      const testMessage = {
+        siteId: 'test-site-id',
+        siteUrl: 'https://example.com',
+        organizationId: 'test-org-id',
+        taskContext: {
+          auditTypes: ['cwv'],
+          slackContext: {
+            channelId: 'test-channel',
+            threadTs: 'test-thread',
+          },
+        },
+      };
+
+      await testProcessor(testMessage, testContext);
+
+      // Verify "No failures detected" message was sent
+      expect(sayStub.calledWith(
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match.any,
+        'No failures detected in logs :white_check_mark:',
+      )).to.be.true;
+
+      sandbox.restore();
     });
   });
 });
