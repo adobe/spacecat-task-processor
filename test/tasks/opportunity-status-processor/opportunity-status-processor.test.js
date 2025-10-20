@@ -1104,7 +1104,7 @@ describe('Opportunity Status Processor', () => {
           CloudWatchLogsClient: CloudWatchLogsClientStub,
           FilterLogEventsCommand: sandbox.stub(),
         },
-        '../../utils/slack-utils.js': {
+        '../../../src/utils/slack-utils.js': {
           say: sayStub,
         },
       });
