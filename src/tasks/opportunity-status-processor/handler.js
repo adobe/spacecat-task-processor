@@ -347,7 +347,7 @@ export async function runOpportunityStatusProcessor(message, context) {
 
     if (siteUrl) {
       try {
-        const resolvedUrl = await resolveCanonicalUrl(siteUrl);
+        const resolvedUrl = await resolveCanonicalUrl(siteUrl, 'HEAD', log);
         log.info(`Resolved URL: ${resolvedUrl}`);
         const domain = new URL(resolvedUrl).hostname;
 
