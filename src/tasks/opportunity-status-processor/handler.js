@@ -16,6 +16,10 @@ import GoogleClient from '@adobe/spacecat-shared-google-client';
 import { resolveCanonicalUrl } from '@adobe/spacecat-shared-utils';
 import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
 import { say } from '../../utils/slack-utils.js';
+import {
+  getRecommendations,
+  categorizeLogMessage,
+} from './error-patterns.js';
 
 const TASK_TYPE = 'opportunity-status-processor';
 
@@ -120,120 +124,97 @@ function getOpportunityTitle(opportunityType) {
 }
 
 /**
- * Generate failure recommendations based on root cause
- * @param {string} rootCause - The identified root cause
+ * Generate failure recommendations based on error category and subcategory
+ * @param {string} category - The error category
+ * @param {string} subCategory - The error subcategory
  * @returns {Array<string>} Array of recommendations
  */
-export function generateFailureRecommendations(rootCause) {
-  const recommendations = [];
-
-  switch (rootCause) {
-    case 'timeout':
-      recommendations.push('Check network connectivity and server response times');
-      recommendations.push('Consider increasing timeout values in configuration');
-      recommendations.push('Verify server is not overloaded');
-      break;
-    case 'ad-blocker':
-      recommendations.push('Disable ad blockers or browser extensions');
-      recommendations.push('Use incognito/private browsing mode');
-      recommendations.push('Check if site is whitelisted in ad blocker');
-      break;
-    case 'forbidden':
-      recommendations.push('Check if site requires authentication');
-      recommendations.push('Verify robots.txt allows crawling');
-      recommendations.push('Check for IP-based restrictions');
-      break;
-    case 'cloudflare':
-      recommendations.push('Check Cloudflare security settings');
-      recommendations.push('Verify CAPTCHA or challenge requirements');
-      recommendations.push('Consider using different user agent');
-      break;
-    case 'rate-limit':
-      recommendations.push('Implement exponential backoff retry strategy');
-      recommendations.push('Reduce request frequency');
-      recommendations.push('Check API rate limits');
-      break;
-    case 'auth':
-      recommendations.push('Verify authentication credentials');
-      recommendations.push('Check token expiration');
-      recommendations.push('Update API keys if needed');
-      break;
-    case 'no-data':
-      recommendations.push('Verify data source is properly configured');
-      recommendations.push('Check if data collection is enabled');
-      recommendations.push('Review data retention policies');
-      break;
-    case 'connection-refused':
-      recommendations.push('Check if service is running');
-      recommendations.push('Verify network connectivity');
-      recommendations.push('Check firewall settings');
-      break;
-    default:
-      recommendations.push('Review CloudWatch logs for more details');
-      recommendations.push('Check service health and configuration');
-      recommendations.push('Consider contacting support if issue persists');
-  }
-
-  return recommendations;
+export function generateFailureRecommendations(category, subCategory) {
+  return getRecommendations(category, subCategory);
 }
 
 /**
- * Search CloudWatch logs for specific failure patterns
+ * Search CloudWatch logs for specific failure patterns using error categories
  * @param {string} siteId - The site ID to search for
  * @param {object} context - The context object
  * @param {number} startTime - The timestamp (in ms) to start searching from
- * @returns {Promise<Array>} Array of failure patterns found
+ * @returns {Promise<Array>} Array of failure patterns found with categorization
  */
 async function searchFailurePatterns(siteId, context, startTime) {
   const cloudWatchClient = new CloudWatchLogsClient({
     region: context.env.AWS_REGION || 'us-east-1',
   });
 
-  const failurePatterns = [
+  // Define log groups and main types to search
+  const searchConfigs = [
     {
-      name: 'Audit Failures',
+      mainType: 'Audit',
       logGroup: '/aws/lambda/spacecat-services--audit-worker',
-      pattern: `"audit failed for site ${siteId}" OR "${siteId} audit failed"`,
+      // Search for general audit failures and specific site failures
+      patterns: [
+        `"audit failed" "${siteId}"`,
+        `"ERROR" "${siteId}"`,
+        '"failed for site"',
+        '"audit for" "failed"',
+      ],
     },
     {
-      name: 'Import Failures',
+      mainType: 'Import',
       logGroup: '/aws/lambda/spacecat-services--import-worker',
-      pattern: `"Import failed" OR "importing.*failed" OR "Error importing" OR "siteId.*${siteId}.*failed"`,
+      patterns: [
+        `"ERROR Import" "${siteId}"`,
+        `"Import" "failed" "${siteId}"`,
+        '"ERROR Import type"',
+      ],
     },
     {
-      name: 'Scraping Failures',
+      mainType: 'Scraper',
       logGroup: '/aws/lambda/spacecat-services--content-scraper',
-      pattern: '"Error scraping URL" OR "scraping failed" OR "net::ERR_BLOCKED_BY_CLIENT" OR "403" OR "timeout"',
+      patterns: [
+        '"Error scraping"',
+        '"Failed to scrape"',
+        '"net::ERR"',
+        '"timeout"',
+        '"Protocol error"',
+      ],
     },
   ];
 
   const failures = [];
 
-  const searchPromises = failurePatterns.map(async (pattern) => {
+  const searchPromises = searchConfigs.map(async (config) => {
     try {
-      const command = new FilterLogEventsCommand({
-        logGroupName: pattern.logGroup,
-        filterPattern: pattern.pattern,
-        startTime, // Use the provided start time instead of hardcoded 7 days
-        limit: 30,
-      });
+      // Try each pattern until we get results
+      for (const pattern of config.patterns) {
+        try {
+          const command = new FilterLogEventsCommand({
+            logGroupName: config.logGroup,
+            filterPattern: pattern,
+            startTime,
+            limit: 50, // Increased limit to capture more errors
+          });
 
-      const response = await cloudWatchClient.send(command);
+          // eslint-disable-next-line no-await-in-loop
+          const response = await cloudWatchClient.send(command);
 
-      if (response.events && response.events.length > 0) {
-        return {
-          type: pattern.name,
-          logGroup: pattern.logGroup,
-          events: response.events.map((event) => ({
-            message: event.message,
-            timestamp: new Date(event.timestamp).toISOString(),
-            logStreamName: event.logStreamName,
-          })),
-        };
+          if (response.events && response.events.length > 0) {
+            return {
+              mainType: config.mainType,
+              logGroup: config.logGroup,
+              events: response.events.map((event) => ({
+                message: event.message,
+                timestamp: new Date(event.timestamp).toISOString(),
+                logStreamName: event.logStreamName,
+              })),
+            };
+          }
+        } catch (patternError) {
+          context.log.debug(`Pattern "${pattern}" failed for ${config.mainType}: ${patternError.message}`);
+        }
       }
       return null;
     } catch (error) {
-      context.log.warn(`Failed to search ${pattern.name} logs: ${error.message}`);
+      context.log.warn(`Failed to search ${config.mainType} logs: ${error.message}`);
       return null;
     }
   });
@@ -245,63 +226,84 @@ async function searchFailurePatterns(siteId, context, startTime) {
 }
 
 /**
- * Analyze failure patterns to identify root causes
+ * Analyze failure patterns to identify root causes using error categorization
  * @param {Array} failures - Array of failure patterns
- * @returns {Array} Array of root causes with analysis
+ * @returns {Array} Array of root causes with detailed analysis
  */
 export function analyzeFailureRootCauses(failures) {
   const rootCauses = [];
 
   failures.forEach((failureGroup) => {
-    const errorTypes = new Map();
+    const categorizedErrors = new Map(); // Map of category -> count
+    const subCategoryDetails = new Map(); // Map of category -> Map of subCategory -> count
     let mostRecentError = null;
 
+    // Categorize each error message
     failureGroup.events.forEach((event) => {
-      const message = event.message.toLowerCase();
-      let errorType = 'unknown';
+      const categorization = categorizeLogMessage(event.message, failureGroup.mainType);
 
-      if (message.includes('timeout') || message.includes('timed out')) {
-        errorType = 'timeout';
-      } else if (message.includes('ad blocker') || message.includes('blocked by client')) {
-        errorType = 'ad-blocker';
-      } else if (message.includes('403') || message.includes('forbidden')) {
-        errorType = 'forbidden';
-      } else if (message.includes('cloudflare') || message.includes('challenge')) {
-        errorType = 'cloudflare';
-      } else if (message.includes('rate limit') || message.includes('too many requests')) {
-        errorType = 'rate-limit';
-      } else if (message.includes('auth') || message.includes('unauthorized')) {
-        errorType = 'auth';
-      } else if (message.includes('no data') || message.includes('empty')) {
-        errorType = 'no-data';
-      } else if (message.includes('connection refused') || message.includes('econnrefused')) {
-        errorType = 'connection-refused';
+      // Count by category
+      const { category } = categorization;
+      categorizedErrors.set(category, (categorizedErrors.get(category) || 0) + 1);
+
+      // Track subcategory details
+      if (!subCategoryDetails.has(category)) {
+        subCategoryDetails.set(category, new Map());
       }
+      const subCatMap = subCategoryDetails.get(category);
+      const { subCategory } = categorization;
+      subCatMap.set(subCategory, (subCatMap.get(subCategory) || 0) + 1);
 
-      errorTypes.set(errorType, (errorTypes.get(errorType) || 0) + 1);
-
+      // Track most recent error
       if (!mostRecentError || new Date(event.timestamp) > new Date(mostRecentError.timestamp)) {
-        mostRecentError = event;
+        mostRecentError = {
+          ...event,
+          category: categorization.category,
+          subCategory: categorization.subCategory,
+        };
       }
     });
 
-    // Find the most common error type
-    let primaryCause = 'unknown';
-    let primaryCauseCount = 0;
-    for (const [errorType, count] of errorTypes) {
-      if (count > primaryCauseCount) {
-        primaryCause = errorType;
-        primaryCauseCount = count;
+    // Find the most common category
+    let primaryCategory = 'Unknown';
+    let primaryCategoryCount = 0;
+    for (const [category, count] of categorizedErrors) {
+      if (count > primaryCategoryCount) {
+        primaryCategory = category;
+        primaryCategoryCount = count;
       }
     }
 
+    // Find the most common subcategory for the primary category
+    let primarySubCategory = 'Uncategorized';
+    let primarySubCategoryCount = 0;
+    if (subCategoryDetails.has(primaryCategory)) {
+      const subCatMap = subCategoryDetails.get(primaryCategory);
+      for (const [subCat, count] of subCatMap) {
+        if (count > primarySubCategoryCount) {
+          primarySubCategory = subCat;
+          primarySubCategoryCount = count;
+        }
+      }
+    }
+
+    // Generate recommendations based on the categorization
+    const recommendations = generateFailureRecommendations(primaryCategory, primarySubCategory);
+
     rootCauses.push({
-      failureType: failureGroup.type,
+      failureType: `${failureGroup.mainType} Failures`,
+      mainType: failureGroup.mainType,
       totalErrors: failureGroup.events.length,
-      primaryCause,
-      primaryCauseCount,
+      primaryCategory,
+      primaryCategoryCount,
+      primarySubCategory,
+      primarySubCategoryCount,
+      allCategories: Array.from(categorizedErrors.entries()).map(([cat, count]) => ({
+        category: cat,
+        count,
+      })),
       mostRecentError,
-      recommendations: generateFailureRecommendations(primaryCause),
+      recommendations,
     });
   });
 
@@ -347,7 +349,7 @@ export async function runOpportunityStatusProcessor(message, context) {
 
     if (siteUrl) {
       try {
-        const resolvedUrl = await resolveCanonicalUrl(siteUrl, 'HEAD', log);
+        const resolvedUrl = await resolveCanonicalUrl(siteUrl);
         log.info(`Resolved URL: ${resolvedUrl}`);
         const domain = new URL(resolvedUrl).hostname;
 
@@ -490,7 +492,7 @@ export async function runOpportunityStatusProcessor(message, context) {
       // Add audit-specific failures from CloudWatch logs
       if (failures.length > 0 && rootCauses.length > 0) {
         for (const cause of rootCauses) {
-          const errorMessage = `Failed due to ${cause.primaryCause}`;
+          const errorMessage = `${cause.primaryCategory} - ${cause.primarySubCategory} (${cause.primaryCategoryCount} occurrences)`;
           auditErrors.push(`${cause.failureType}: ${errorMessage} :x:`);
         }
       }
@@ -510,15 +512,26 @@ export async function runOpportunityStatusProcessor(message, context) {
           const slackMessages = [];
           for (const cause of rootCauses) {
             slackMessages.push(`*${cause.failureType}:* ${cause.totalErrors} errors found`);
-            slackMessages.push(`Primary cause: ${cause.primaryCause} (${cause.primaryCauseCount} occurrences)`);
+            slackMessages.push(`Primary Category: ${cause.primaryCategory}`);
+            slackMessages.push(`Primary Issue: ${cause.primarySubCategory} (${cause.primarySubCategoryCount} occurrences)`);
+
+            // Show all categories if there are multiple
+            if (cause.allCategories && cause.allCategories.length > 1) {
+              slackMessages.push('\nAll categories:');
+              cause.allCategories.forEach((cat) => {
+                slackMessages.push(`  • ${cat.category}: ${cat.count} errors`);
+              });
+            }
 
             if (cause.mostRecentError) {
               const timestamp = new Date(cause.mostRecentError.timestamp).toLocaleString();
-              slackMessages.push(`Most recent: ${timestamp}`);
-              slackMessages.push(`\`${cause.mostRecentError.message.substring(0, 120)}...\``);
+              slackMessages.push(`\nMost recent error: ${timestamp}`);
+              slackMessages.push(`Category: ${cause.mostRecentError.category}`);
+              slackMessages.push(`Issue: ${cause.mostRecentError.subCategory}`);
+              slackMessages.push(`\`${cause.mostRecentError.message.substring(0, 150)}...\``);
             }
 
-            slackMessages.push('*Recommendations:*');
+            slackMessages.push('\n*Recommendations:*');
             for (const rec of cause.recommendations) {
               slackMessages.push(`• ${rec}`);
             }

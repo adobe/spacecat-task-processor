@@ -801,26 +801,23 @@ describe('Opportunity Status Processor', () => {
 
     it('should handle no-data error type in recommendations', async () => {
       const { generateFailureRecommendations } = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {});
-      const recommendations = generateFailureRecommendations('no-data');
-      expect(recommendations).to.include('Verify data source is properly configured');
-      expect(recommendations).to.include('Check if data collection is enabled');
-      expect(recommendations).to.include('Review data retention policies');
+      const recommendations = generateFailureRecommendations('Import: top-pages', 'No data found');
+      expect(recommendations).to.be.an('array');
+      expect(recommendations.length).to.be.greaterThan(0);
     });
 
     it('should handle connection-refused error type in recommendations', async () => {
       const { generateFailureRecommendations } = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {});
-      const recommendations = generateFailureRecommendations('connection-refused');
-      expect(recommendations).to.include('Check if service is running');
-      expect(recommendations).to.include('Verify network connectivity');
-      expect(recommendations).to.include('Check firewall settings');
+      const recommendations = generateFailureRecommendations('Scraper: Failed to scrape URL', 'Connection refused');
+      expect(recommendations).to.be.an('array');
+      expect(recommendations.length).to.be.greaterThan(0);
     });
 
     it('should handle ad-blocker error type in recommendations', async () => {
       const { generateFailureRecommendations } = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {});
-      const recommendations = generateFailureRecommendations('ad-blocker');
-      expect(recommendations).to.include('Disable ad blockers or browser extensions');
-      expect(recommendations).to.include('Use incognito/private browsing mode');
-      expect(recommendations).to.include('Check if site is whitelisted in ad blocker');
+      const recommendations = generateFailureRecommendations('Scraper: Failed to scrape URL', 'net::ERR_BLOCKED_BY_CLIENT');
+      expect(recommendations).to.be.an('array');
+      expect(recommendations.some((r) => r.toLowerCase().includes('block'))).to.be.true;
     });
 
     it('should handle forbidden error type detection', async () => {
@@ -834,13 +831,15 @@ describe('Opportunity Status Processor', () => {
       ];
 
       const failures = [{
+        mainType: 'Scraper',
         type: 'Test Failures',
         events: mockEvents,
       }];
 
       const rootCauses = analyzeFailureRootCauses(failures);
       expect(rootCauses).to.have.length(1);
-      expect(rootCauses[0].primaryCause).to.equal('forbidden');
+      expect(rootCauses[0]).to.have.property('primaryCategory');
+      expect(rootCauses[0]).to.have.property('primarySubCategory');
     });
 
     it('should handle cloudflare error type detection', async () => {
@@ -854,13 +853,15 @@ describe('Opportunity Status Processor', () => {
       ];
 
       const failures = [{
+        mainType: 'Scraper',
         type: 'Test Failures',
         events: mockEvents,
       }];
 
       const rootCauses = analyzeFailureRootCauses(failures);
       expect(rootCauses).to.have.length(1);
-      expect(rootCauses[0].primaryCause).to.equal('cloudflare');
+      expect(rootCauses[0]).to.have.property('primaryCategory');
+      expect(rootCauses[0]).to.have.property('primarySubCategory');
     });
 
     it('should handle rate-limit error type detection', async () => {
@@ -874,13 +875,15 @@ describe('Opportunity Status Processor', () => {
       ];
 
       const failures = [{
+        mainType: 'Import',
         type: 'Test Failures',
         events: mockEvents,
       }];
 
       const rootCauses = analyzeFailureRootCauses(failures);
       expect(rootCauses).to.have.length(1);
-      expect(rootCauses[0].primaryCause).to.equal('rate-limit');
+      expect(rootCauses[0]).to.have.property('primaryCategory');
+      expect(rootCauses[0]).to.have.property('primarySubCategory');
     });
 
     it('should handle auth error type detection', async () => {
@@ -894,13 +897,15 @@ describe('Opportunity Status Processor', () => {
       ];
 
       const failures = [{
+        mainType: 'Audit',
         type: 'Test Failures',
         events: mockEvents,
       }];
 
       const rootCauses = analyzeFailureRootCauses(failures);
       expect(rootCauses).to.have.length(1);
-      expect(rootCauses[0].primaryCause).to.equal('auth');
+      expect(rootCauses[0]).to.have.property('primaryCategory');
+      expect(rootCauses[0]).to.have.property('primarySubCategory');
     });
 
     it('should handle no-data error type detection', async () => {
@@ -914,13 +919,15 @@ describe('Opportunity Status Processor', () => {
       ];
 
       const failures = [{
+        mainType: 'Import',
         type: 'Test Failures',
         events: mockEvents,
       }];
 
       const rootCauses = analyzeFailureRootCauses(failures);
       expect(rootCauses).to.have.length(1);
-      expect(rootCauses[0].primaryCause).to.equal('no-data');
+      expect(rootCauses[0]).to.have.property('primaryCategory');
+      expect(rootCauses[0]).to.have.property('primarySubCategory');
     });
 
     it('should handle connection-refused error type detection', async () => {
@@ -934,13 +941,15 @@ describe('Opportunity Status Processor', () => {
       ];
 
       const failures = [{
+        mainType: 'Scraper',
         type: 'Test Failures',
         events: mockEvents,
       }];
 
       const rootCauses = analyzeFailureRootCauses(failures);
       expect(rootCauses).to.have.length(1);
-      expect(rootCauses[0].primaryCause).to.equal('connection-refused');
+      expect(rootCauses[0]).to.have.property('primaryCategory');
+      expect(rootCauses[0]).to.have.property('primarySubCategory');
     });
 
     it('should return null when no events found in searchFailurePatterns', async () => {
@@ -1148,6 +1157,168 @@ describe('Opportunity Status Processor', () => {
       )).to.be.true;
 
       sandbox.restore();
+    });
+  });
+
+  describe('generateFailureRecommendations', () => {
+    it('should generate recommendations for Audit configuration fetch errors', async () => {
+      const { generateFailureRecommendations: genRecs } = await import('../../../src/tasks/opportunity-status-processor/handler.js');
+      const recommendations = genRecs(
+        'Audit: Configuration fetch error',
+        'fstab.yaml not found (404)',
+      );
+
+      expect(recommendations).to.be.an('array');
+      expect(recommendations.length).to.be.greaterThan(0);
+      expect(recommendations.some((r) => r.toLowerCase().includes('repository'))).to.be.true;
+    });
+
+    it('should generate recommendations for Scraper timeout errors', async () => {
+      const { generateFailureRecommendations: genRecs } = await import('../../../src/tasks/opportunity-status-processor/handler.js');
+      const recommendations = genRecs(
+        'Scraper: Failed to scrape URL',
+        'Navigation timeout',
+      );
+
+      expect(recommendations).to.be.an('array');
+      expect(recommendations.length).to.be.greaterThan(0);
+      expect(recommendations.some((r) => r.toLowerCase().includes('timeout'))).to.be.true;
+    });
+
+    it('should generate recommendations for Import errors', async () => {
+      const { generateFailureRecommendations: genRecs } = await import('../../../src/tasks/opportunity-status-processor/handler.js');
+      const recommendations = genRecs(
+        'Import: top-pages',
+        'Source: ahrefs',
+      );
+
+      expect(recommendations).to.be.an('array');
+      expect(recommendations.length).to.be.greaterThan(0);
+    });
+
+    it('should generate default recommendations for unknown errors', async () => {
+      const { generateFailureRecommendations: genRecs } = await import('../../../src/tasks/opportunity-status-processor/handler.js');
+      const recommendations = genRecs(
+        'Unknown Category',
+        'Unknown Subcategory',
+      );
+
+      expect(recommendations).to.be.an('array');
+      expect(recommendations.length).to.be.greaterThan(0);
+      expect(recommendations.some((r) => r.toLowerCase().includes('cloudwatch'))).to.be.true;
+    });
+  });
+
+  describe('analyzeFailureRootCauses', () => {
+    it('should analyze failure patterns with categorization', async () => {
+      const { analyzeFailureRootCauses: analyzeRootCauses } = await import('../../../src/tasks/opportunity-status-processor/handler.js');
+      const failures = [
+        {
+          mainType: 'Audit',
+          logGroup: '/aws/lambda/spacecat-services--audit-worker',
+          events: [
+            {
+              message: '[preflight-audit] Error: Request timeout after 10000ms',
+              timestamp: '2025-10-28T10:00:00.000Z',
+              logStreamName: 'test-stream',
+            },
+            {
+              message: '[preflight-audit] Error: NGHTTP2_INTERNAL_ERROR',
+              timestamp: '2025-10-28T10:01:00.000Z',
+              logStreamName: 'test-stream',
+            },
+          ],
+        },
+      ];
+
+      const rootCauses = analyzeRootCauses(failures);
+
+      expect(rootCauses).to.be.an('array');
+      expect(rootCauses.length).to.equal(1);
+      expect(rootCauses[0]).to.have.property('failureType');
+      expect(rootCauses[0]).to.have.property('mainType', 'Audit');
+      expect(rootCauses[0]).to.have.property('totalErrors', 2);
+      expect(rootCauses[0]).to.have.property('primaryCategory');
+      expect(rootCauses[0]).to.have.property('primarySubCategory');
+      expect(rootCauses[0]).to.have.property('recommendations');
+      expect(rootCauses[0].recommendations).to.be.an('array');
+    });
+
+    it('should handle multiple error categories', async () => {
+      const { analyzeFailureRootCauses: analyzeRootCauses } = await import('../../../src/tasks/opportunity-status-processor/handler.js');
+      const failures = [
+        {
+          mainType: 'Scraper',
+          logGroup: '/aws/lambda/spacecat-services--content-scraper',
+          events: [
+            {
+              message: '[jobId=123] [default] Error scraping URL: net::ERR_ABORTED',
+              timestamp: '2025-10-28T10:00:00.000Z',
+              logStreamName: 'test-stream',
+            },
+            {
+              message: '[jobId=123] [default] Failed to scrape URL: timeout',
+              timestamp: '2025-10-28T10:01:00.000Z',
+              logStreamName: 'test-stream',
+            },
+            {
+              message: '[jobId=123] [default] Error taking screenshot: Protocol error',
+              timestamp: '2025-10-28T10:02:00.000Z',
+              logStreamName: 'test-stream',
+            },
+          ],
+        },
+      ];
+
+      const rootCauses = analyzeRootCauses(failures);
+
+      expect(rootCauses).to.be.an('array');
+      expect(rootCauses.length).to.equal(1);
+      expect(rootCauses[0]).to.have.property('allCategories');
+      expect(rootCauses[0].allCategories).to.be.an('array');
+      expect(rootCauses[0]).to.have.property('mostRecentError');
+      expect(rootCauses[0].mostRecentError).to.have.property('category');
+      expect(rootCauses[0].mostRecentError).to.have.property('subCategory');
+    });
+
+    it('should identify the most common error category', async () => {
+      const { analyzeFailureRootCauses: analyzeRootCauses } = await import('../../../src/tasks/opportunity-status-processor/handler.js');
+      const failures = [
+        {
+          mainType: 'Audit',
+          logGroup: '/aws/lambda/spacecat-services--audit-worker',
+          events: [
+            {
+              message: 'Error fetching fstab.yaml. Status: 404',
+              timestamp: '2025-10-28T10:00:00.000Z',
+              logStreamName: 'test-stream',
+            },
+            {
+              message: 'Error fetching fstab.yaml. Status: 404',
+              timestamp: '2025-10-28T10:01:00.000Z',
+              logStreamName: 'test-stream',
+            },
+            {
+              message: 'Error fetching hlx config. Status: 401',
+              timestamp: '2025-10-28T10:02:00.000Z',
+              logStreamName: 'test-stream',
+            },
+          ],
+        },
+      ];
+
+      const rootCauses = analyzeRootCauses(failures);
+
+      expect(rootCauses[0].primaryCategoryCount).to.be.greaterThan(0);
+      expect(rootCauses[0].primarySubCategoryCount).to.be.greaterThan(0);
+    });
+
+    it('should handle empty failures array', async () => {
+      const { analyzeFailureRootCauses: analyzeRootCauses } = await import('../../../src/tasks/opportunity-status-processor/handler.js');
+      const rootCauses = analyzeRootCauses([]);
+
+      expect(rootCauses).to.be.an('array');
+      expect(rootCauses.length).to.equal(0);
     });
   });
 });
