@@ -11,17 +11,40 @@
  */
 
 import { ok } from '@adobe/spacecat-shared-http-utils';
+import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
 import RUMAPIClient from '@adobe/spacecat-shared-rum-api-client';
 import GoogleClient from '@adobe/spacecat-shared-google-client';
 import { resolveCanonicalUrl } from '@adobe/spacecat-shared-utils';
-import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
 import { say } from '../../utils/slack-utils.js';
+import { getOpportunitiesForAudit } from './audit-opportunity-map.js';
 import {
-  getRecommendations,
-  categorizeLogMessage,
-} from './error-patterns.js';
+  OPPORTUNITY_DEPENDENCY_MAP,
+  getOpportunitiesWithUnmetDependencies,
+} from './opportunity-dependency-map.js';
 
 const TASK_TYPE = 'opportunity-status-processor';
+
+/**
+ * Map of service preconditions to determine if log analysis is needed
+ * Key: service name, Value: whether to check logs when this service fails
+ */
+const SERVICE_LOG_CHECK_MAP = {
+  rum: true, // Check logs if RUM is unavailable
+  ahrefs: false, // Don't check logs if AHREFS is unavailable (data source issue)
+  gsc: false, // Don't check logs if GSC is not configured (configuration issue)
+  import: true, // Check logs if imports are failing
+  scraping: true, // Check logs if scraping is failing
+};
+
+/**
+ * Map of service types to their corresponding CloudWatch log groups
+ * Used to target specific log groups when a service is failing
+ */
+const SERVICE_LOG_GROUP_MAP = {
+  rum: '/aws/lambda/spacecat-services--audit-worker',
+  import: '/aws/lambda/spacecat-services--import-worker',
+  scraping: '/aws/lambda/spacecat-services--content-scraper',
+};
 
 /**
  * Checks if RUM is available for a domain by attempting to get a domainkey
@@ -125,189 +148,405 @@ function getOpportunityTitle(opportunityType) {
 
 /**
  * Generate failure recommendations based on error category and subcategory
- * @param {string} category - The error category
- * @param {string} subCategory - The error subcategory
  * @returns {Array<string>} Array of recommendations
+ * @deprecated This function is deprecated. Use error-mapping-loader instead.
  */
-export function generateFailureRecommendations(category, subCategory) {
-  return getRecommendations(category, subCategory);
+export function generateFailureRecommendations() {
+  // Deprecated: This function is no longer used with the new error mapping system
+  return [];
 }
 
 /**
- * Search CloudWatch logs for specific failure patterns using error categories
- * @param {string} siteId - The site ID to search for
+ * Checks if import functionality is available for a site
+ * @param {string} siteId - The site ID to check
+ * @param {object} dataAccess - The data access object
+ * @param {object} context - The context object with env and log
+ * @returns {Promise<boolean>} True if imports are available, false otherwise
+ */
+async function isImportAvailable(siteId, dataAccess, context) {
+  const { log } = context;
+  const { SiteTopPage } = dataAccess;
+
+  try {
+    // Check if there are any imported top pages for this site
+    const topPages = await SiteTopPage.allBySiteIdAndSourceAndGeo(siteId);
+
+    if (topPages && topPages.length > 0) {
+      log.info(`Import check: Found ${topPages.length} imported top pages for site ${siteId}`);
+      return true;
+    }
+
+    log.warn(`Import check: No imported top pages found for site ${siteId}`);
+    return false;
+  } catch (error) {
+    log.warn(`Import check failed for site ${siteId}:`, error);
+    return false;
+  }
+}
+
+/**
+ * Checks if scraping functionality is available for a site
+ * @param {string} siteUrl - The site URL to check
+ * @param {object} context - The context object with env and log
+ * @returns {Promise<boolean>} True if scraping is available, false otherwise
+ */
+async function isScrapingAvailable(siteUrl, context) {
+  const { log } = context;
+
+  try {
+    if (!siteUrl) {
+      log.warn('Scraping check: No siteUrl provided');
+      return false;
+    }
+
+    // Basic check: validate URL is accessible
+    const resolvedUrl = await resolveCanonicalUrl(siteUrl, log);
+    if (!resolvedUrl) {
+      log.warn(`Scraping check: Could not resolve URL ${siteUrl}`);
+      return false;
+    }
+
+    // TODO: Could add more sophisticated checks here:
+    // - Check if site has robots.txt that blocks scraping
+    // - Check if site is reachable with a HEAD request
+    // - Check recent scraping success rate from logs
+
+    log.info(`Scraping check: Site ${siteUrl} appears scrapable`);
+    return true;
+  } catch (error) {
+    log.warn(`Scraping check failed for ${siteUrl}:`, error);
+    return false;
+  }
+}
+
+/**
+ * Determines which services need log analysis based on precondition check results
+ * @param {object} serviceStatus - Object containing status of all services
+ * @returns {Array<{service: string, logGroup: string}>} Array of services that need log analysis
+ */
+function getServicesNeedingLogAnalysis(serviceStatus) {
+  const servicesToCheck = [];
+
+  Object.entries(serviceStatus).forEach(([serviceName, isAvailable]) => {
+    // Check if this service should have logs analyzed when it fails
+    if (!isAvailable && SERVICE_LOG_CHECK_MAP[serviceName]) {
+      const logGroup = SERVICE_LOG_GROUP_MAP[serviceName];
+      if (logGroup) {
+        servicesToCheck.push({
+          service: serviceName,
+          logGroup,
+        });
+      }
+    }
+  });
+
+  return servicesToCheck;
+}
+
+/**
+ * Searches CloudWatch logs for audit execution
+ * @param {string} auditType - The audit type to search for
+ * @param {string} siteId - The site ID
+ * @param {number} onboardStartTime - The onboarding start timestamp
  * @param {object} context - The context object
- * @param {number} startTime - The timestamp (in ms) to start searching from
- * @returns {Promise<Array>} Array of failure patterns found with categorization
+ * @returns {Promise<boolean>} Whether the audit was executed
  */
-async function searchFailurePatterns(siteId, context, startTime) {
-  const cloudWatchClient = new CloudWatchLogsClient({
-    region: context.env.AWS_REGION || 'us-east-1',
-  });
+async function checkAuditExecution(auditType, siteId, onboardStartTime, context) {
+  const { log, env } = context;
+  const logGroupName = '/aws/lambda/spacecat-services--audit-worker';
 
-  // Define log groups and main types to search
-  const searchConfigs = [
-    {
-      mainType: 'Audit',
-      logGroup: '/aws/lambda/spacecat-services--audit-worker',
-      // Search for general audit failures and specific site failures
-      patterns: [
-        `"audit failed" "${siteId}"`,
-        `"ERROR" "${siteId}"`,
-        '"failed for site"',
-        '"audit for" "failed"',
-      ],
-    },
-    {
-      mainType: 'Import',
-      logGroup: '/aws/lambda/spacecat-services--import-worker',
-      patterns: [
-        `"ERROR Import" "${siteId}"`,
-        `"Import" "failed" "${siteId}"`,
-        '"ERROR Import type"',
-      ],
-    },
-    {
-      mainType: 'Scraper',
-      logGroup: '/aws/lambda/spacecat-services--content-scraper',
-      patterns: [
-        '"Error scraping"',
-        '"Failed to scrape"',
-        '"net::ERR"',
-        '"timeout"',
-        '"Protocol error"',
-      ],
-    },
-  ];
+  try {
+    const cloudWatchClient = new CloudWatchLogsClient({ region: env.AWS_REGION || 'us-east-1' });
+    const filterPattern = `"Received ${auditType} audit request for: ${siteId}"`;
 
-  const failures = [];
+    const command = new FilterLogEventsCommand({
+      logGroupName,
+      filterPattern,
+      startTime: onboardStartTime,
+      endTime: Date.now(),
+    });
 
-  const searchPromises = searchConfigs.map(async (config) => {
-    try {
-      // Try each pattern until we get results
-      for (const pattern of config.patterns) {
-        try {
-          const command = new FilterLogEventsCommand({
-            logGroupName: config.logGroup,
-            filterPattern: pattern,
-            startTime,
-            limit: 50, // Increased limit to capture more errors
-          });
-
-          // eslint-disable-next-line no-await-in-loop
-          const response = await cloudWatchClient.send(command);
-
-          if (response.events && response.events.length > 0) {
-            return {
-              mainType: config.mainType,
-              logGroup: config.logGroup,
-              events: response.events.map((event) => ({
-                message: event.message,
-                timestamp: new Date(event.timestamp).toISOString(),
-                logStreamName: event.logStreamName,
-              })),
-            };
-          }
-        } catch (patternError) {
-          context.log.debug(`Pattern "${pattern}" failed for ${config.mainType}: ${patternError.message}`);
-        }
-      }
-      return null;
-    } catch (error) {
-      context.log.warn(`Failed to search ${config.mainType} logs: ${error.message}`);
-      return null;
-    }
-  });
-
-  const results = await Promise.all(searchPromises);
-  failures.push(...results.filter(Boolean));
-
-  return failures;
+    const response = await cloudWatchClient.send(command);
+    return response.events && response.events.length > 0;
+  } catch (error) {
+    log.error(`Error checking audit execution for ${auditType}:`, error);
+    return false;
+  }
 }
 
 /**
- * Analyze failure patterns to identify root causes using error categorization
- * @param {Array} failures - Array of failure patterns
- * @returns {Array} Array of root causes with detailed analysis
+ * Searches CloudWatch logs for audit failure reason
+ * @param {string} auditType - The audit type to search for
+ * @param {string} siteId - The site ID
+ * @param {number} onboardStartTime - The onboarding start timestamp
+ * @param {object} context - The context object
+ * @returns {Promise<string|null>} The failure reason or null if not found
  */
-export function analyzeFailureRootCauses(failures) {
-  const rootCauses = [];
+async function getAuditFailureReason(auditType, siteId, onboardStartTime, context) {
+  const { log, env } = context;
+  const logGroupName = '/aws/lambda/spacecat-services--audit-worker';
 
-  failures.forEach((failureGroup) => {
-    const categorizedErrors = new Map(); // Map of category -> count
-    const subCategoryDetails = new Map(); // Map of category -> Map of subCategory -> count
-    let mostRecentError = null;
+  try {
+    const cloudWatchClient = new CloudWatchLogsClient({ region: env.AWS_REGION || 'us-east-1' });
+    const filterPattern = `"${auditType} audit for ${siteId} failed"`;
 
-    // Categorize each error message
-    failureGroup.events.forEach((event) => {
-      const categorization = categorizeLogMessage(event.message, failureGroup.mainType);
-
-      // Count by category
-      const { category } = categorization;
-      categorizedErrors.set(category, (categorizedErrors.get(category) || 0) + 1);
-
-      // Track subcategory details
-      if (!subCategoryDetails.has(category)) {
-        subCategoryDetails.set(category, new Map());
-      }
-      const subCatMap = subCategoryDetails.get(category);
-      const { subCategory } = categorization;
-      subCatMap.set(subCategory, (subCatMap.get(subCategory) || 0) + 1);
-
-      // Track most recent error
-      if (!mostRecentError || new Date(event.timestamp) > new Date(mostRecentError.timestamp)) {
-        mostRecentError = {
-          ...event,
-          category: categorization.category,
-          subCategory: categorization.subCategory,
-        };
-      }
+    const command = new FilterLogEventsCommand({
+      logGroupName,
+      filterPattern,
+      startTime: onboardStartTime,
+      endTime: Date.now(),
     });
 
-    // Find the most common category
-    let primaryCategory = 'Unknown';
-    let primaryCategoryCount = 0;
-    for (const [category, count] of categorizedErrors) {
-      if (count > primaryCategoryCount) {
-        primaryCategory = category;
-        primaryCategoryCount = count;
+    const response = await cloudWatchClient.send(command);
+
+    if (response.events && response.events.length > 0) {
+      // Extract reason from the message
+      const { message } = response.events[0];
+      const reasonMatch = message.match(/Reason:\s*([^]+?)(?:\s+at\s|$)/);
+      if (reasonMatch && reasonMatch[1]) {
+        return reasonMatch[1].trim();
       }
     }
 
-    // Find the most common subcategory for the primary category
-    let primarySubCategory = 'Uncategorized';
-    let primarySubCategoryCount = 0;
-    if (subCategoryDetails.has(primaryCategory)) {
-      const subCatMap = subCategoryDetails.get(primaryCategory);
-      for (const [subCat, count] of subCatMap) {
-        if (count > primarySubCategoryCount) {
-          primarySubCategory = subCat;
-          primarySubCategoryCount = count;
+    return null;
+  } catch (error) {
+    log.error(`Error checking audit failure for ${auditType}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Searches CloudWatch logs for scraping failure reason
+ * @param {string} siteId - The site ID
+ * @param {number} onboardStartTime - The onboarding start timestamp
+ * @param {object} context - The context object
+ * @returns {Promise<string|null>} The failure reason or null if not found
+ */
+async function getScrapingFailureReason(siteId, onboardStartTime, context) {
+  const { log, env } = context;
+  const logGroupName = '/aws/lambda/spacecat-services--content-scraper';
+
+  try {
+    const cloudWatchClient = new CloudWatchLogsClient({ region: env.AWS_REGION || 'us-east-1' });
+    const filterPattern = '"failed to scrape URL"';
+
+    const command = new FilterLogEventsCommand({
+      logGroupName,
+      filterPattern,
+      startTime: onboardStartTime,
+      endTime: Date.now(),
+    });
+
+    const response = await cloudWatchClient.send(command);
+
+    if (response.events && response.events.length > 0) {
+      // Return the first scraping failure message
+      const { message } = response.events[0];
+      // Extract the relevant error details
+      const errorMatch = message.match(/failed to scrape URL[^:]*:\s*(.+?)(?:\s+at\s|$)/i);
+      if (errorMatch && errorMatch[1]) {
+        return errorMatch[1].trim();
+      }
+      return 'Scraping failed - see logs for details';
+    }
+
+    return null;
+  } catch (error) {
+    log.error('Error checking scraping failure:', error);
+    return null;
+  }
+}
+
+/**
+ * Analyzes missing opportunities and determines the root cause
+ * @param {Array<string>} missingOpportunities - Array of missing opportunity types
+ * @param {Array<string>} auditTypes - Array of audit types from profile
+ * @param {string} siteId - The site ID
+ * @param {number} onboardStartTime - The onboarding start timestamp
+ * @param {object} serviceStatus - Object containing status of all services
+ * @param {object} context - The context object
+ * @returns {Promise<Array<{opportunity: string, reason: string, audit: string}>>} Analysis results
+ */
+async function analyzeMissingOpportunities(
+  missingOpportunities,
+  auditTypes,
+  siteId,
+  onboardStartTime,
+  serviceStatus,
+  context,
+) {
+  const results = [];
+
+  /* eslint-disable no-await-in-loop */
+  for (const opportunityType of missingOpportunities) {
+    // Find which audit(s) should generate this opportunity
+    const relatedAudits = auditTypes.filter((auditType) => {
+      const opportunities = getOpportunitiesForAudit(auditType);
+      return opportunities.includes(opportunityType);
+    });
+
+    if (relatedAudits.length === 0) {
+      // No related audits found, skip this opportunity
+      // eslint-disable-next-line no-continue
+      continue;
+    }
+
+    // Check each related audit
+    for (const auditType of relatedAudits) {
+      // Check if audit was executed
+      const auditExecuted = await checkAuditExecution(
+        auditType,
+        siteId,
+        onboardStartTime,
+        context,
+      );
+
+      if (!auditExecuted) {
+        results.push({
+          opportunity: opportunityType,
+          audit: auditType,
+          reason: `${auditType} audit has not been executed`,
+        });
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+
+      // Audit was executed, check if dependencies are met
+      const dependencies = OPPORTUNITY_DEPENDENCY_MAP[opportunityType] || [];
+      const unmetDeps = [];
+
+      for (const dep of dependencies) {
+        const depKey = dep.toLowerCase();
+        if (depKey === 'rum' && !serviceStatus.rum) {
+          unmetDeps.push('RUM');
+        } else if (depKey === 'top-pages' && !serviceStatus.import) {
+          unmetDeps.push('Import (top-pages)');
+        } else if (depKey === 'scraping' && !serviceStatus.scraping) {
+          unmetDeps.push('Scraping');
+        }
+      }
+
+      if (unmetDeps.length > 0) {
+        results.push({
+          opportunity: opportunityType,
+          audit: auditType,
+          reason: `Missing dependencies: ${unmetDeps.join(', ')}`,
+        });
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+
+      // All dependencies met, check for audit failure
+      const failureReason = await getAuditFailureReason(
+        auditType,
+        siteId,
+        onboardStartTime,
+        context,
+      );
+
+      if (failureReason) {
+        results.push({
+          opportunity: opportunityType,
+          audit: auditType,
+          reason: `Audit failed: ${failureReason}`,
+        });
+      } else {
+        // Check for scraping failures if audit requires scraping
+        const scrapingFailureReason = await getScrapingFailureReason(
+          siteId,
+          onboardStartTime,
+          context,
+        );
+
+        if (scrapingFailureReason) {
+          results.push({
+            opportunity: opportunityType,
+            audit: auditType,
+            reason: `Scraping failed: ${scrapingFailureReason}`,
+          });
+        } else {
+          results.push({
+            opportunity: opportunityType,
+            audit: auditType,
+            reason: 'Reason unknown - audit executed but opportunity not created',
+          });
         }
       }
     }
+  }
+  /* eslint-enable no-await-in-loop */
 
-    // Generate recommendations based on the categorization
-    const recommendations = generateFailureRecommendations(primaryCategory, primarySubCategory);
+  return results;
+}
 
-    rootCauses.push({
-      failureType: `${failureGroup.mainType} Failures`,
-      mainType: failureGroup.mainType,
-      totalErrors: failureGroup.events.length,
-      primaryCategory,
-      primaryCategoryCount,
-      primarySubCategory,
-      primarySubCategoryCount,
-      allCategories: Array.from(categorizedErrors.entries()).map(([cat, count]) => ({
-        category: cat,
-        count,
-      })),
-      mostRecentError,
-      recommendations,
-    });
-  });
+/**
+ * Finds and analyzes opportunities for a given site
+ * Returns list of opportunities with their dependency status
+ *
+ * @param {object} site - The site object
+ * @param {object} serviceStatus - Object containing status of all services
+ *   (rum, ahrefs, gsc, import, scraping)
+ * @param {object} context - The context object with log
+ * @returns {Promise<{
+ *   allOpportunities: Array<object>,
+ *   opportunitiesWithMetDependencies: Array<object>,
+ *   opportunitiesWithUnmetDependencies: Array<object>
+ * }>} Opportunity analysis results
+ */
+// eslint-disable-next-line no-unused-vars
+async function findOpportunitiesForSite(site, serviceStatus, context) {
+  const { log } = context;
 
-  return rootCauses;
+  try {
+    // Get all opportunities for the site
+    const allOpportunities = await site.getOpportunities();
+
+    if (!allOpportunities || allOpportunities.length === 0) {
+      log.info('No opportunities found for site');
+      return {
+        allOpportunities: [],
+        opportunitiesWithMetDependencies: [],
+        opportunitiesWithUnmetDependencies: [],
+      };
+    }
+
+    // Extract opportunity types
+    const opportunityTypes = allOpportunities.map((opp) => opp.getType());
+
+    // Check which opportunities have unmet dependencies
+    const unmetDependencies = getOpportunitiesWithUnmetDependencies(
+      opportunityTypes,
+      serviceStatus,
+    );
+
+    // Separate opportunities into those with met vs unmet dependencies
+    const opportunitiesWithUnmetDependencies = allOpportunities.filter(
+      (opp) => unmetDependencies.some((unmet) => unmet.opportunity === opp.getType()),
+    );
+
+    const opportunitiesWithMetDependencies = allOpportunities.filter(
+      (opp) => !unmetDependencies.some((unmet) => unmet.opportunity === opp.getType()),
+    );
+
+    log.info(`Found ${allOpportunities.length} total opportunities: `
+      + `${opportunitiesWithMetDependencies.length} with met dependencies, `
+      + `${opportunitiesWithUnmetDependencies.length} with unmet dependencies`);
+
+    return {
+      allOpportunities,
+      opportunitiesWithMetDependencies,
+      opportunitiesWithUnmetDependencies,
+      unmetDependencyDetails: unmetDependencies,
+    };
+  } catch (error) {
+    log.error('Error finding opportunities for site:', error);
+    return {
+      allOpportunities: [],
+      opportunitiesWithMetDependencies: [],
+      opportunitiesWithUnmetDependencies: [],
+      unmetDependencyDetails: [],
+    };
+  }
 }
 
 /**
@@ -342,10 +581,12 @@ export async function runOpportunityStatusProcessor(message, context) {
       return ok({ message: 'Site not found' });
     }
 
-    // Check data source availability
+    // Check data source availability and service preconditions
     let rumAvailable = false;
     let ahrefsAvailable = false;
     let gscConfigured = false;
+    let importAvailable = false;
+    let scrapingAvailable = false;
 
     if (siteUrl) {
       try {
@@ -354,41 +595,108 @@ export async function runOpportunityStatusProcessor(message, context) {
         const domain = new URL(resolvedUrl).hostname;
 
         rumAvailable = await isRUMAvailable(domain, context);
-
         gscConfigured = await isGSCConfigured(resolvedUrl, context);
+        scrapingAvailable = await isScrapingAvailable(siteUrl, context);
       } catch (error) {
         log.warn(`Could not resolve canonical URL or parse siteUrl for data source checks: ${siteUrl}`, error);
       }
     }
 
     ahrefsAvailable = await isAHREFSDataAvailable(siteId, dataAccess, context);
+    importAvailable = await isImportAvailable(siteId, dataAccess, context);
 
     const opportunities = await site.getOpportunities();
-    log.info(`Found ${opportunities.length} opportunities for site ${siteId}. Data sources - RUM: ${rumAvailable}, AHREFS: ${ahrefsAvailable}, GSC: ${gscConfigured}`);
 
-    // Search for failure patterns in CloudWatch logs
-    // Use onboardStartTime if defined, otherwise default to last 60 minutes
-    const defaultLookbackMs = 60 * 60 * 1000; // 60 minutes in milliseconds
-    const logSearchStartTime = onboardStartTime !== undefined
-      ? onboardStartTime
-      : (Date.now() - defaultLookbackMs);
-    log.info(`Searching CloudWatch logs for failure patterns since ${new Date(logSearchStartTime).toISOString()} (using ${onboardStartTime !== undefined ? 'onboardStartTime' : 'default 60-minute lookback'})...`);
-    const failures = await searchFailurePatterns(siteId, context, logSearchStartTime);
+    // Get expected opportunities based on audits from profile
+    let expectedOpportunityTypes = [];
+    if (auditTypes && auditTypes.length > 0) {
+      auditTypes.forEach((auditType) => {
+        const opportunitiesForAudit = getOpportunitiesForAudit(auditType);
+        expectedOpportunityTypes = [...expectedOpportunityTypes, ...opportunitiesForAudit];
+      });
+      // Remove duplicates
+      expectedOpportunityTypes = [...new Set(expectedOpportunityTypes)];
+      log.info(`Expected opportunity types based on audits [${auditTypes.join(', ')}]: ${expectedOpportunityTypes.join(', ')}`);
+    }
 
-    // Analyze root causes
-    log.info('Analyzing failure root causes...');
-    const rootCauses = analyzeFailureRootCauses(failures);
+    // Determine service status for dependency checking
+    const serviceStatus = {
+      rum: rumAvailable,
+      ahrefs: ahrefsAvailable,
+      gsc: gscConfigured,
+      import: importAvailable,
+      scraping: scrapingAvailable,
+    };
+
+    // Get actual opportunity types from site
+    const actualOpportunityTypes = opportunities.map((opp) => opp.getType());
+    const uniqueActualOpportunityTypes = [...new Set(actualOpportunityTypes)];
+
+    // Find missing opportunities (expected but not found)
+    const missingOpportunities = expectedOpportunityTypes.filter(
+      (expectedType) => !uniqueActualOpportunityTypes.includes(expectedType),
+    );
+
+    if (missingOpportunities.length > 0) {
+      log.warn(`Missing opportunities for site ${siteId}: ${missingOpportunities.join(', ')}`);
+
+      // Analyze missing opportunities to determine root cause
+      if (onboardStartTime) {
+        const missingOpportunitiesAnalysis = await analyzeMissingOpportunities(
+          missingOpportunities,
+          auditTypes,
+          siteId,
+          onboardStartTime,
+          serviceStatus,
+          context,
+        );
+
+        // Send Slack messages for each missing opportunity
+        /* eslint-disable no-await-in-loop */
+        for (const analysis of missingOpportunitiesAnalysis) {
+          const slackMessage = `:x: *Missing Opportunity: ${analysis.opportunity}*\n`
+            + `Audit: \`${analysis.audit}\`\n`
+            + `Reason: ${analysis.reason}`;
+          await say(env, log, slackContext, slackMessage);
+        }
+        /* eslint-enable no-await-in-loop */
+      }
+    } else if (expectedOpportunityTypes.length > 0) {
+      log.info(`All expected opportunities are present for site ${siteId}`);
+    }
+
+    const opportunityWord = opportunities.length === 1 ? 'opportunity' : 'opportunities';
+    log.info(`Found ${opportunities.length} ${opportunityWord} for site ${siteId}. `
+      + `Data sources - RUM: ${rumAvailable}, AHREFS: ${ahrefsAvailable}, `
+      + `GSC: ${gscConfigured}, Import: ${importAvailable}, Scraping: ${scrapingAvailable}`);
+
+    const servicesToAnalyze = getServicesNeedingLogAnalysis(serviceStatus);
+
+    if (servicesToAnalyze.length > 0) {
+      log.info(`Services requiring log analysis: ${servicesToAnalyze.map((s) => s.service).join(', ')}`);
+      // TODO: Implement CloudWatch log reading and analysis for these services
+      // servicesToAnalyze.forEach(({ service, logGroup }) => {
+      //   // Read logs from logGroup
+      //   // Derive Slack message from log content
+      // });
+    } else {
+      log.info('All service preconditions passed - no log analysis needed');
+    }
 
     const statusMessages = [];
 
-    // Data source status
-    const rumStatus = rumAvailable ? ':white_check_mark:' : ':cross-x:';
-    const ahrefsStatus = ahrefsAvailable ? ':white_check_mark:' : ':cross-x:';
-    const gscStatus = gscConfigured ? ':white_check_mark:' : ':cross-x:';
+    // Data source and service precondition status
+    const rumStatus = rumAvailable ? ':white_check_mark:' : ':x:';
+    const ahrefsStatus = ahrefsAvailable ? ':white_check_mark:' : ':x:';
+    const gscStatus = gscConfigured ? ':white_check_mark:' : ':x:';
+    const importStatus = importAvailable ? ':white_check_mark:' : ':x:';
+    const scrapingStatus = scrapingAvailable ? ':white_check_mark:' : ':x:';
 
     statusMessages.push(`RUM ${rumStatus}`);
     statusMessages.push(`AHREFS ${ahrefsStatus}`);
     statusMessages.push(`GSC ${gscStatus}`);
+    statusMessages.push(`Import ${importStatus}`);
+    statusMessages.push(`Scraping ${scrapingStatus}`);
 
     // Process opportunities by type to avoid duplicates
     const processedTypes = new Set();
@@ -489,61 +797,12 @@ export async function runOpportunityStatusProcessor(message, context) {
         }
       }
 
-      // Add audit-specific failures from CloudWatch logs
-      if (failures.length > 0 && rootCauses.length > 0) {
-        for (const cause of rootCauses) {
-          const errorMessage = `${cause.primaryCategory} - ${cause.primarySubCategory} (${cause.primaryCategoryCount} occurrences)`;
-          auditErrors.push(`${cause.failureType}: ${errorMessage} :x:`);
-        }
-      }
-
       if (auditErrors.length > 0) {
         await say(env, log, slackContext, auditErrors.join('\n'));
-      } else {
-        await say(env, log, slackContext, 'No failures detected in logs :white_check_mark:');
       }
 
-      // Section 4: Detailed Failure Analysis for site
-      if (failures.length > 0) {
-        await say(env, log, slackContext, `:mag: *Failure Analysis for site ${siteUrl}*`);
-        await say(env, log, slackContext, `:warning: *Found ${failures.length} failure types in CloudWatch logs*`);
-
-        if (rootCauses.length > 0) {
-          const slackMessages = [];
-          for (const cause of rootCauses) {
-            slackMessages.push(`*${cause.failureType}:* ${cause.totalErrors} errors found`);
-            slackMessages.push(`Primary Category: ${cause.primaryCategory}`);
-            slackMessages.push(`Primary Issue: ${cause.primarySubCategory} (${cause.primarySubCategoryCount} occurrences)`);
-
-            // Show all categories if there are multiple
-            if (cause.allCategories && cause.allCategories.length > 1) {
-              slackMessages.push('\nAll categories:');
-              cause.allCategories.forEach((cat) => {
-                slackMessages.push(`  • ${cat.category}: ${cat.count} errors`);
-              });
-            }
-
-            if (cause.mostRecentError) {
-              const timestamp = new Date(cause.mostRecentError.timestamp).toLocaleString();
-              slackMessages.push(`\nMost recent error: ${timestamp}`);
-              slackMessages.push(`Category: ${cause.mostRecentError.category}`);
-              slackMessages.push(`Issue: ${cause.mostRecentError.subCategory}`);
-              slackMessages.push(`\`${cause.mostRecentError.message.substring(0, 150)}...\``);
-            }
-
-            slackMessages.push('\n*Recommendations:*');
-            for (const rec of cause.recommendations) {
-              slackMessages.push(`• ${rec}`);
-            }
-            slackMessages.push('');
-          }
-
-          // Send all messages in parallel
-          await Promise.all(slackMessages.map((msg) => say(env, log, slackContext, msg)));
-        }
-      } else {
-        await say(env, log, slackContext, 'No failures detected in logs :white_check_mark:');
-      }
+      // TODO: Add CloudWatch log analysis here
+      // Will check logs after preconditions and derive Slack messages directly
     }
 
     log.info(`Processed ${opportunities.length} opportunities for site ${siteId}`);
@@ -556,13 +815,9 @@ export async function runOpportunityStatusProcessor(message, context) {
         ahrefs: ahrefsAvailable,
         gsc: gscConfigured,
       },
-      failureAnalysis: {
-        failureTypes: failures.length,
-        rootCauses: rootCauses.length,
-        details: {
-          failures,
-          rootCauses,
-        },
+      servicePreconditions: {
+        import: importAvailable,
+        scraping: scrapingAvailable,
       },
     });
   } catch (error) {

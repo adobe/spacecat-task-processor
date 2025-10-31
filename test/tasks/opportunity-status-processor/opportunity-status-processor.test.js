@@ -15,7 +15,6 @@
 import { expect, use } from 'chai';
 import sinon from 'sinon';
 import sinonChai from 'sinon-chai';
-import esmock from 'esmock';
 import { MockContextBuilder } from '../../shared.js';
 
 use(sinonChai);
@@ -98,7 +97,7 @@ describe('Opportunity Status Processor', () => {
 
       expect(context.dataAccess.Site.findById.calledWith('test-site-id')).to.be.true;
       expect(mockSite.getOpportunities.called).to.be.true;
-      expect(context.log.info.calledWith('Found 2 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 2 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
     });
 
     it('should handle site not found error', async () => {
@@ -136,7 +135,7 @@ describe('Opportunity Status Processor', () => {
       await runOpportunityStatusProcessor(message, context);
 
       // Should complete without error
-      expect(context.log.info.calledWith('Found 2 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 2 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
     });
 
     it('should handle opportunities with different statuses', async () => {
@@ -159,7 +158,7 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.log.info.calledWith('Found 3 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 3 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
     });
 
     it('should handle empty opportunities array', async () => {
@@ -167,7 +166,7 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
     });
 
     it('should handle getSuggestions errors', async () => {
@@ -195,7 +194,7 @@ describe('Opportunity Status Processor', () => {
       mockSite.getOpportunities.resolves(mockOpportunities);
 
       await runOpportunityStatusProcessor(message, context);
-      expect(context.log.info.calledWith('Found 1 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 1 opportunity for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
     });
 
     it('should process opportunities by type avoiding duplicates', async () => {
@@ -223,7 +222,7 @@ describe('Opportunity Status Processor', () => {
       await runOpportunityStatusProcessor(message, context);
 
       // Should process all opportunities (4 total opportunities)
-      expect(context.log.info.calledWith('Found 4 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 4 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
 
       // With the new logic, getSuggestions should only be called for unique opportunity types
       // First occurrence of 'cwv' should be processed
@@ -247,7 +246,7 @@ describe('Opportunity Status Processor', () => {
       mockSite.getOpportunities.resolves(mockOpportunities);
 
       await runOpportunityStatusProcessor(message, context);
-      expect(context.log.info.calledWith('Found 1 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 1 opportunity for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
     });
 
     it('should handle invalid siteUrl gracefully', async () => {
@@ -264,7 +263,7 @@ describe('Opportunity Status Processor', () => {
       // The actual resolveCanonicalUrl function will throw an error for invalid URLs
       await runOpportunityStatusProcessor(message, context);
       expect(context.log.warn.calledWith('Could not resolve canonical URL or parse siteUrl for data source checks: invalid-url', sinon.match.any)).to.be.true;
-      expect(context.log.info.calledWith('Found 1 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 1 opportunity for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
     });
 
     it('should check AHREFS data availability', async () => {
@@ -286,7 +285,7 @@ describe('Opportunity Status Processor', () => {
 
       expect(context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.calledWith('test-site-id', 'ahrefs', 'global')).to.be.true;
       expect(context.log.info.calledWith('AHREFS data availability for site test-site-id: Available (2 top pages)')).to.be.true;
-      expect(context.log.info.calledWith('Found 1 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: true, GSC: false')).to.be.true;
+      expect(context.log.info.calledWithMatch(/Found 1 opportunity for site test-site-id.*AHREFS: true/)).to.be.true;
     });
 
     it('should handle AHREFS data not available', async () => {
@@ -304,7 +303,7 @@ describe('Opportunity Status Processor', () => {
       await runOpportunityStatusProcessor(message, context);
 
       expect(context.log.info.calledWith('AHREFS data availability for site test-site-id: Not available (0 top pages)')).to.be.true;
-      expect(context.log.info.calledWith('Found 1 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 1 opportunity for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
     });
 
     it('should handle AHREFS check errors', async () => {
@@ -322,7 +321,7 @@ describe('Opportunity Status Processor', () => {
       await runOpportunityStatusProcessor(message, context);
 
       expect(context.log.error.calledWith('Error checking AHREFS data availability for site test-site-id: Database error')).to.be.true;
-      expect(context.log.info.calledWith('Found 1 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 1 opportunity for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
     });
   });
 
@@ -391,7 +390,7 @@ describe('Opportunity Status Processor', () => {
 
         // Verify error handling for localhost URLs
         expect(testContext.log.warn.calledWith(`Could not resolve canonical URL or parse siteUrl for data source checks: ${testCase.url}`, sinon.match.any)).to.be.true;
-        expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false')).to.be.true;
+        expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
       }));
     });
 
@@ -431,7 +430,7 @@ describe('Opportunity Status Processor', () => {
       expect(createFromStub.calledWith(testContext)).to.be.true;
       expect(mockRUMClient.retrieveDomainkey.calledWith('example.com')).to.be.true;
       expect(testContext.log.info.calledWith('RUM is available for domain: example.com')).to.be.true;
-      expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: true, AHREFS: false, GSC: false')).to.be.true;
+      expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: true, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
 
       createFromStub.restore();
     });
@@ -485,7 +484,8 @@ describe('Opportunity Status Processor', () => {
 
         // Verify error handling for localhost URLs
         expect(testContext.log.warn.calledWith('Could not resolve canonical URL or parse siteUrl for data source checks: http://localhost:3001', sinon.match.any)).to.be.true;
-        expect(testContext.log.info.calledWith(`Found ${testCase.expectedCount} opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false`)).to.be.true;
+        const opportunityWord = testCase.expectedCount === 1 ? 'opportunity' : 'opportunities';
+        expect(testContext.log.info.calledWith(`Found ${testCase.expectedCount} ${opportunityWord} for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false`)).to.be.true;
       }));
     });
   });
@@ -562,7 +562,7 @@ describe('Opportunity Status Processor', () => {
       expect(createFromStub.firstCall.args[1]).to.equal('https://example.com/');
       expect(mockGoogleClient.listSites.called).to.be.true;
       expect(testContext.log.info.calledWith('GSC configuration for site https://example.com/: Configured and connected')).to.be.true;
-      expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: true')).to.be.true;
+      expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: true, Import: false, Scraping: false')).to.be.true;
 
       createFromStub.restore();
     });
@@ -605,400 +605,9 @@ describe('Opportunity Status Processor', () => {
 
       // Check that the error was logged
       expect(testContext.log.info.calledWith('GSC is not configured for site https://example.com/. Reason: GSC not configured')).to.be.true;
-      expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false')).to.be.true;
+      expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
 
       createFromStub.restore();
-    });
-  });
-
-  describe('CloudWatch Log Analysis', () => {
-    let mockCloudWatchClient;
-    let sendStub;
-    let sandbox;
-
-    beforeEach(() => {
-      sandbox = sinon.createSandbox();
-      mockCloudWatchClient = {
-        send: sandbox.stub(),
-      };
-      sendStub = mockCloudWatchClient.send;
-    });
-
-    afterEach(() => {
-      sandbox.restore();
-    });
-
-    it('should search CloudWatch logs for failure patterns', async () => {
-      const mockEvents = [
-        {
-          message: 'audit failed for site test-site-id',
-          timestamp: Date.now(),
-          logStreamName: 'test-stream',
-        },
-      ];
-
-      sendStub.resolves({
-        events: mockEvents,
-      });
-
-      // Mock the CloudWatchLogsClient constructor
-      const CloudWatchLogsClientStub = sandbox.stub().returns(mockCloudWatchClient);
-      const { runOpportunityStatusProcessor: cloudWatchProcessor } = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
-        '@aws-sdk/client-cloudwatch-logs': {
-          CloudWatchLogsClient: CloudWatchLogsClientStub,
-          FilterLogEventsCommand: sandbox.stub(),
-        },
-      });
-
-      const testContext = new MockContextBuilder()
-        .withSandbox(sandbox)
-        .withDataAccess({
-          Site: {
-            findById: sandbox.stub().resolves({
-              getId: () => 'test-site-id',
-              getBaseURL: () => 'https://example.com',
-              getOpportunities: sandbox.stub().resolves([]),
-            }),
-          },
-        })
-        .withOverrides({
-          env: { AWS_REGION: 'us-east-1' },
-        })
-        .build();
-
-      const testMessage = {
-        siteId: 'test-site-id',
-        siteUrl: 'https://example.com',
-        organizationId: 'test-org-id',
-        taskContext: {
-          slackContext: {
-            channelId: 'test-channel',
-            threadTs: 'test-thread',
-          },
-        },
-      };
-
-      const result = await cloudWatchProcessor(testMessage, testContext);
-
-      expect(result.status).to.equal(200);
-      expect(sendStub.calledThrice).to.be.true; // Called for audit, import, and scraping patterns
-
-      // The function should complete successfully even if CloudWatch mocking doesn't work perfectly
-      // We'll verify the basic structure exists
-      const resultBody = await result.json();
-      expect(resultBody).to.exist;
-      expect(resultBody).to.have.property('message');
-    });
-
-    it('should handle CloudWatch search errors gracefully', async () => {
-      sendStub.rejects(new Error('CloudWatch error'));
-
-      const CloudWatchLogsClientStub = sandbox.stub().returns(mockCloudWatchClient);
-      const { runOpportunityStatusProcessor: cloudWatchProcessor } = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
-        '@aws-sdk/client-cloudwatch-logs': {
-          CloudWatchLogsClient: CloudWatchLogsClientStub,
-          FilterLogEventsCommand: sandbox.stub(),
-        },
-      });
-
-      const testContext = new MockContextBuilder()
-        .withSandbox(sandbox)
-        .withDataAccess({
-          Site: {
-            findById: sandbox.stub().resolves({
-              getId: () => 'test-site-id',
-              getBaseURL: () => 'https://example.com',
-              getOpportunities: sandbox.stub().resolves([]),
-            }),
-          },
-        })
-        .withOverrides({
-          env: { AWS_REGION: 'us-east-1' },
-        })
-        .build();
-
-      const testMessage = {
-        siteId: 'test-site-id',
-        siteUrl: 'https://example.com',
-        organizationId: 'test-org-id',
-        taskContext: {
-          slackContext: {
-            channelId: 'test-channel',
-            threadTs: 'test-thread',
-          },
-        },
-      };
-
-      const result = await cloudWatchProcessor(testMessage, testContext);
-
-      expect(result.status).to.equal(200);
-      const resultBody = await result.json();
-      expect(resultBody).to.exist;
-      expect(resultBody).to.have.property('message');
-    });
-
-    it('should analyze failure root causes correctly', async () => {
-      const mockEvents = [
-        {
-          message: 'timeout error occurred',
-          timestamp: Date.now(),
-          logStreamName: 'test-stream',
-        },
-        {
-          message: 'ad blocker detected',
-          timestamp: Date.now() - 1000,
-          logStreamName: 'test-stream',
-        },
-      ];
-
-      sendStub.resolves({
-        events: mockEvents,
-      });
-
-      const CloudWatchLogsClientStub = sandbox.stub().returns(mockCloudWatchClient);
-      const { runOpportunityStatusProcessor: cloudWatchProcessor } = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
-        '@aws-sdk/client-cloudwatch-logs': {
-          CloudWatchLogsClient: CloudWatchLogsClientStub,
-          FilterLogEventsCommand: sandbox.stub(),
-        },
-      });
-
-      const testContext = new MockContextBuilder()
-        .withSandbox(sandbox)
-        .withDataAccess({
-          Site: {
-            findById: sandbox.stub().resolves({
-              getId: () => 'test-site-id',
-              getBaseURL: () => 'https://example.com',
-              getOpportunities: sandbox.stub().resolves([]),
-            }),
-          },
-        })
-        .withOverrides({
-          env: { AWS_REGION: 'us-east-1' },
-        })
-        .build();
-
-      const testMessage = {
-        siteId: 'test-site-id',
-        siteUrl: 'https://example.com',
-        organizationId: 'test-org-id',
-        taskContext: {
-          slackContext: {
-            channelId: 'test-channel',
-            threadTs: 'test-thread',
-          },
-        },
-      };
-
-      const result = await cloudWatchProcessor(testMessage, testContext);
-
-      expect(result.status).to.equal(200);
-      const resultBody = await result.json();
-      expect(resultBody).to.exist;
-      expect(resultBody).to.have.property('message');
-    });
-
-    it('should handle no-data error type in recommendations', async () => {
-      const { generateFailureRecommendations } = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {});
-      const recommendations = generateFailureRecommendations('Import: top-pages', 'No data found');
-      expect(recommendations).to.be.an('array');
-      expect(recommendations.length).to.be.greaterThan(0);
-    });
-
-    it('should handle connection-refused error type in recommendations', async () => {
-      const { generateFailureRecommendations } = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {});
-      const recommendations = generateFailureRecommendations('Scraper: Failed to scrape URL', 'Connection refused');
-      expect(recommendations).to.be.an('array');
-      expect(recommendations.length).to.be.greaterThan(0);
-    });
-
-    it('should handle ad-blocker error type in recommendations', async () => {
-      const { generateFailureRecommendations } = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {});
-      const recommendations = generateFailureRecommendations('Scraper: Failed to scrape URL', 'net::ERR_BLOCKED_BY_CLIENT');
-      expect(recommendations).to.be.an('array');
-      expect(recommendations.some((r) => r.toLowerCase().includes('block'))).to.be.true;
-    });
-
-    it('should handle forbidden error type detection', async () => {
-      const { analyzeFailureRootCauses } = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {});
-      const mockEvents = [
-        {
-          message: '403 forbidden access denied',
-          timestamp: Date.now(),
-          logStreamName: 'test-stream',
-        },
-      ];
-
-      const failures = [{
-        mainType: 'Scraper',
-        type: 'Test Failures',
-        events: mockEvents,
-      }];
-
-      const rootCauses = analyzeFailureRootCauses(failures);
-      expect(rootCauses).to.have.length(1);
-      expect(rootCauses[0]).to.have.property('primaryCategory');
-      expect(rootCauses[0]).to.have.property('primarySubCategory');
-    });
-
-    it('should handle cloudflare error type detection', async () => {
-      const { analyzeFailureRootCauses } = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {});
-      const mockEvents = [
-        {
-          message: 'cloudflare challenge required',
-          timestamp: Date.now(),
-          logStreamName: 'test-stream',
-        },
-      ];
-
-      const failures = [{
-        mainType: 'Scraper',
-        type: 'Test Failures',
-        events: mockEvents,
-      }];
-
-      const rootCauses = analyzeFailureRootCauses(failures);
-      expect(rootCauses).to.have.length(1);
-      expect(rootCauses[0]).to.have.property('primaryCategory');
-      expect(rootCauses[0]).to.have.property('primarySubCategory');
-    });
-
-    it('should handle rate-limit error type detection', async () => {
-      const { analyzeFailureRootCauses } = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {});
-      const mockEvents = [
-        {
-          message: 'rate limit exceeded too many requests',
-          timestamp: Date.now(),
-          logStreamName: 'test-stream',
-        },
-      ];
-
-      const failures = [{
-        mainType: 'Import',
-        type: 'Test Failures',
-        events: mockEvents,
-      }];
-
-      const rootCauses = analyzeFailureRootCauses(failures);
-      expect(rootCauses).to.have.length(1);
-      expect(rootCauses[0]).to.have.property('primaryCategory');
-      expect(rootCauses[0]).to.have.property('primarySubCategory');
-    });
-
-    it('should handle auth error type detection', async () => {
-      const { analyzeFailureRootCauses } = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {});
-      const mockEvents = [
-        {
-          message: 'auth failed unauthorized access',
-          timestamp: Date.now(),
-          logStreamName: 'test-stream',
-        },
-      ];
-
-      const failures = [{
-        mainType: 'Audit',
-        type: 'Test Failures',
-        events: mockEvents,
-      }];
-
-      const rootCauses = analyzeFailureRootCauses(failures);
-      expect(rootCauses).to.have.length(1);
-      expect(rootCauses[0]).to.have.property('primaryCategory');
-      expect(rootCauses[0]).to.have.property('primarySubCategory');
-    });
-
-    it('should handle no-data error type detection', async () => {
-      const { analyzeFailureRootCauses } = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {});
-      const mockEvents = [
-        {
-          message: 'no data available empty response',
-          timestamp: Date.now(),
-          logStreamName: 'test-stream',
-        },
-      ];
-
-      const failures = [{
-        mainType: 'Import',
-        type: 'Test Failures',
-        events: mockEvents,
-      }];
-
-      const rootCauses = analyzeFailureRootCauses(failures);
-      expect(rootCauses).to.have.length(1);
-      expect(rootCauses[0]).to.have.property('primaryCategory');
-      expect(rootCauses[0]).to.have.property('primarySubCategory');
-    });
-
-    it('should handle connection-refused error type detection', async () => {
-      const { analyzeFailureRootCauses } = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {});
-      const mockEvents = [
-        {
-          message: 'connection refused econnrefused',
-          timestamp: Date.now(),
-          logStreamName: 'test-stream',
-        },
-      ];
-
-      const failures = [{
-        mainType: 'Scraper',
-        type: 'Test Failures',
-        events: mockEvents,
-      }];
-
-      const rootCauses = analyzeFailureRootCauses(failures);
-      expect(rootCauses).to.have.length(1);
-      expect(rootCauses[0]).to.have.property('primaryCategory');
-      expect(rootCauses[0]).to.have.property('primarySubCategory');
-    });
-
-    it('should return null when no events found in searchFailurePatterns', async () => {
-      sendStub.resolves({
-        events: [], // Empty events array
-      });
-
-      const CloudWatchLogsClientStub = sandbox.stub().returns(mockCloudWatchClient);
-      const { runOpportunityStatusProcessor: cloudWatchProcessor } = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
-        '@aws-sdk/client-cloudwatch-logs': {
-          CloudWatchLogsClient: CloudWatchLogsClientStub,
-          FilterLogEventsCommand: sandbox.stub(),
-        },
-      });
-
-      const testContext = new MockContextBuilder()
-        .withSandbox(sandbox)
-        .withDataAccess({
-          Site: {
-            findById: sandbox.stub().resolves({
-              getId: () => 'test-site-id',
-              getBaseURL: () => 'https://example.com',
-              getOpportunities: sandbox.stub().resolves([]),
-            }),
-          },
-        })
-        .withOverrides({
-          env: { AWS_REGION: 'us-east-1' },
-        })
-        .build();
-
-      const testMessage = {
-        siteId: 'test-site-id',
-        siteUrl: 'https://example.com',
-        organizationId: 'test-org-id',
-        taskContext: {
-          slackContext: {
-            channelId: 'test-channel',
-            threadTs: 'test-thread',
-          },
-        },
-      };
-
-      const result = await cloudWatchProcessor(testMessage, testContext);
-
-      expect(result.status).to.equal(200);
-      const resultBody = await result.json();
-      expect(resultBody).to.exist;
-      expect(resultBody).to.have.property('message');
     });
   });
 
@@ -1085,240 +694,155 @@ describe('Opportunity Status Processor', () => {
       expect(context.log.info.calledWithMatch('Processing opportunities')).to.be.true;
     });
 
-    it('should show "No failures detected" message when no failures and no failed opportunities', async () => {
-      const sandbox = sinon.createSandbox();
-      const sayStub = sandbox.stub();
+    it('should detect missing opportunities when expected opportunities are not found', async () => {
+      // Set up audit types and expected opportunities
+      // (don't set onboardStartTime to avoid CloudWatch calls)
+      message.taskContext.auditTypes = ['cwv', 'broken-backlinks'];
+
+      // Mock site with no opportunities (all are missing)
+      mockSite.getOpportunities.resolves([]);
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.log.warn.calledWith('Missing opportunities for site test-site-id: cwv, broken-backlinks')).to.be.true;
+    });
+
+    it('should analyze missing opportunities without onboard start time', async () => {
+      // Set up audit types but no onboardStartTime
+      message.taskContext.auditTypes = ['cwv'];
+      message.taskContext.onboardStartTime = undefined;
+
+      // Mock site with no opportunities
+      mockSite.getOpportunities.resolves([]);
+
+      await runOpportunityStatusProcessor(message, context);
+
+      // Should warn about missing but not analyze
+      expect(context.log.warn.calledWith('Missing opportunities for site test-site-id: cwv')).to.be.true;
+    });
+
+    it('should check import availability', async () => {
+      // Mock top pages data
+      context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.resolves([
+        { url: 'https://example.com/page1' },
+        { url: 'https://example.com/page2' },
+      ]);
+
+      const mockOpportunities = [
+        {
+          getType: () => 'meta-tags',
+          getSuggestions: sinon.stub().resolves([]),
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.calledWith('test-site-id')).to.be.true;
+      expect(context.log.info.calledWith('Import check: Found 2 imported top pages for site test-site-id')).to.be.true;
+    });
+
+    it('should detect when import is not available', async () => {
+      // Mock no top pages data
+      context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.resolves([]);
+
+      const mockOpportunities = [
+        {
+          getType: () => 'meta-tags',
+          getSuggestions: sinon.stub().resolves([]),
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.log.warn.calledWith('Import check: No imported top pages found for site test-site-id')).to.be.true;
+    });
+
+    it('should handle missing opportunities with unmet dependencies', async () => {
+      // Set up audit types
+      message.taskContext.auditTypes = ['cwv'];
+      message.taskContext.onboardStartTime = Date.now() - 3600000;
+
+      // Mock site with no opportunities
+      mockSite.getOpportunities.resolves([]);
+
+      await runOpportunityStatusProcessor(message, context);
+
+      // Should detect missing cwv opportunity
+      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
+    });
+
+    it('should log all expected opportunities when present', async () => {
+      // Set up audit types
+      message.taskContext.auditTypes = ['cwv', 'broken-backlinks'];
+
+      // Mock site with all expected opportunities
+      const mockOpportunities = [
+        {
+          getType: () => 'cwv',
+          getSuggestions: sinon.stub().resolves([]),
+        },
+        {
+          getType: () => 'broken-backlinks',
+          getSuggestions: sinon.stub().resolves([]),
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.log.info.calledWith('All expected opportunities are present for site test-site-id')).to.be.true;
+    });
+
+    it('should check scraping for site with URL', async () => {
+      message.siteUrl = 'https://www.example.com';
+
+      const mockOpportunities = [
+        {
+          getType: () => 'alt-text',
+          getSuggestions: sinon.stub().resolves([]),
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+
+      await runOpportunityStatusProcessor(message, context);
+
+      // Scraping check should be performed
+      expect(mockSite.getOpportunities.called).to.be.true;
+    });
+
+    it('should handle when auditTypes is empty array', async () => {
+      message.taskContext.auditTypes = [];
 
       const mockOpportunities = [
         {
           getType: () => 'cwv',
-          getSuggestions: sinon.stub().resolves(['suggestion1', 'suggestion2']),
+          getSuggestions: sinon.stub().resolves([]),
         },
       ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
 
-      const testSite = {
-        getId: () => 'test-site-id',
-        getBaseURL: () => 'https://example.com',
-        getOpportunities: sinon.stub().resolves(mockOpportunities),
-      };
+      await runOpportunityStatusProcessor(message, context);
 
-      // Mock CloudWatch to return no failures
-      const mockCloudWatchClient = {
-        send: sandbox.stub().resolves({ events: [] }),
-      };
-
-      const CloudWatchLogsClientStub = sandbox.stub().returns(mockCloudWatchClient);
-      const { runOpportunityStatusProcessor: testProcessor } = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
-        '@aws-sdk/client-cloudwatch-logs': {
-          CloudWatchLogsClient: CloudWatchLogsClientStub,
-          FilterLogEventsCommand: sandbox.stub(),
-        },
-        '../../../src/utils/slack-utils.js': {
-          say: sayStub,
-        },
-      });
-
-      const testContext = new MockContextBuilder()
-        .withSandbox(sandbox)
-        .withDataAccess({
-          Site: {
-            findById: sandbox.stub().resolves(testSite),
-          },
-          SiteTopPage: {
-            allBySiteIdAndSourceAndGeo: sandbox.stub().resolves([]),
-          },
-        })
-        .withOverrides({
-          env: { AWS_REGION: 'us-east-1' },
-        })
-        .build();
-
-      const testMessage = {
-        siteId: 'test-site-id',
-        siteUrl: 'https://example.com',
-        organizationId: 'test-org-id',
-        taskContext: {
-          auditTypes: ['cwv'],
-          slackContext: {
-            channelId: 'test-channel',
-            threadTs: 'test-thread',
-          },
-        },
-      };
-
-      await testProcessor(testMessage, testContext);
-
-      // Verify "No failures detected" message was sent
-      expect(sayStub.calledWith(
-        sinon.match.any,
-        sinon.match.any,
-        sinon.match.any,
-        'No failures detected in logs :white_check_mark:',
-      )).to.be.true;
-
-      sandbox.restore();
-    });
-  });
-
-  describe('generateFailureRecommendations', () => {
-    it('should generate recommendations for Audit configuration fetch errors', async () => {
-      const { generateFailureRecommendations: genRecs } = await import('../../../src/tasks/opportunity-status-processor/handler.js');
-      const recommendations = genRecs(
-        'Audit: Configuration fetch error',
-        'fstab.yaml not found (404)',
-      );
-
-      expect(recommendations).to.be.an('array');
-      expect(recommendations.length).to.be.greaterThan(0);
-      expect(recommendations.some((r) => r.toLowerCase().includes('repository'))).to.be.true;
+      // Should still process opportunities
+      expect(mockSite.getOpportunities.called).to.be.true;
     });
 
-    it('should generate recommendations for Scraper timeout errors', async () => {
-      const { generateFailureRecommendations: genRecs } = await import('../../../src/tasks/opportunity-status-processor/handler.js');
-      const recommendations = genRecs(
-        'Scraper: Failed to scrape URL',
-        'Navigation timeout',
-      );
+    it('should handle opportunities with no audit types mapping', async () => {
+      message.taskContext.auditTypes = ['unknown-audit'];
 
-      expect(recommendations).to.be.an('array');
-      expect(recommendations.length).to.be.greaterThan(0);
-      expect(recommendations.some((r) => r.toLowerCase().includes('timeout'))).to.be.true;
-    });
-
-    it('should generate recommendations for Import errors', async () => {
-      const { generateFailureRecommendations: genRecs } = await import('../../../src/tasks/opportunity-status-processor/handler.js');
-      const recommendations = genRecs(
-        'Import: top-pages',
-        'Source: ahrefs',
-      );
-
-      expect(recommendations).to.be.an('array');
-      expect(recommendations.length).to.be.greaterThan(0);
-    });
-
-    it('should generate default recommendations for unknown errors', async () => {
-      const { generateFailureRecommendations: genRecs } = await import('../../../src/tasks/opportunity-status-processor/handler.js');
-      const recommendations = genRecs(
-        'Unknown Category',
-        'Unknown Subcategory',
-      );
-
-      expect(recommendations).to.be.an('array');
-      expect(recommendations.length).to.be.greaterThan(0);
-      expect(recommendations.some((r) => r.toLowerCase().includes('cloudwatch'))).to.be.true;
-    });
-  });
-
-  describe('analyzeFailureRootCauses', () => {
-    it('should analyze failure patterns with categorization', async () => {
-      const { analyzeFailureRootCauses: analyzeRootCauses } = await import('../../../src/tasks/opportunity-status-processor/handler.js');
-      const failures = [
+      const mockOpportunities = [
         {
-          mainType: 'Audit',
-          logGroup: '/aws/lambda/spacecat-services--audit-worker',
-          events: [
-            {
-              message: '[preflight-audit] Error: Request timeout after 10000ms',
-              timestamp: '2025-10-28T10:00:00.000Z',
-              logStreamName: 'test-stream',
-            },
-            {
-              message: '[preflight-audit] Error: NGHTTP2_INTERNAL_ERROR',
-              timestamp: '2025-10-28T10:01:00.000Z',
-              logStreamName: 'test-stream',
-            },
-          ],
+          getType: () => 'some-opportunity',
+          getSuggestions: sinon.stub().resolves([]),
         },
       ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
 
-      const rootCauses = analyzeRootCauses(failures);
+      await runOpportunityStatusProcessor(message, context);
 
-      expect(rootCauses).to.be.an('array');
-      expect(rootCauses.length).to.equal(1);
-      expect(rootCauses[0]).to.have.property('failureType');
-      expect(rootCauses[0]).to.have.property('mainType', 'Audit');
-      expect(rootCauses[0]).to.have.property('totalErrors', 2);
-      expect(rootCauses[0]).to.have.property('primaryCategory');
-      expect(rootCauses[0]).to.have.property('primarySubCategory');
-      expect(rootCauses[0]).to.have.property('recommendations');
-      expect(rootCauses[0].recommendations).to.be.an('array');
-    });
-
-    it('should handle multiple error categories', async () => {
-      const { analyzeFailureRootCauses: analyzeRootCauses } = await import('../../../src/tasks/opportunity-status-processor/handler.js');
-      const failures = [
-        {
-          mainType: 'Scraper',
-          logGroup: '/aws/lambda/spacecat-services--content-scraper',
-          events: [
-            {
-              message: '[jobId=123] [default] Error scraping URL: net::ERR_ABORTED',
-              timestamp: '2025-10-28T10:00:00.000Z',
-              logStreamName: 'test-stream',
-            },
-            {
-              message: '[jobId=123] [default] Failed to scrape URL: timeout',
-              timestamp: '2025-10-28T10:01:00.000Z',
-              logStreamName: 'test-stream',
-            },
-            {
-              message: '[jobId=123] [default] Error taking screenshot: Protocol error',
-              timestamp: '2025-10-28T10:02:00.000Z',
-              logStreamName: 'test-stream',
-            },
-          ],
-        },
-      ];
-
-      const rootCauses = analyzeRootCauses(failures);
-
-      expect(rootCauses).to.be.an('array');
-      expect(rootCauses.length).to.equal(1);
-      expect(rootCauses[0]).to.have.property('allCategories');
-      expect(rootCauses[0].allCategories).to.be.an('array');
-      expect(rootCauses[0]).to.have.property('mostRecentError');
-      expect(rootCauses[0].mostRecentError).to.have.property('category');
-      expect(rootCauses[0].mostRecentError).to.have.property('subCategory');
-    });
-
-    it('should identify the most common error category', async () => {
-      const { analyzeFailureRootCauses: analyzeRootCauses } = await import('../../../src/tasks/opportunity-status-processor/handler.js');
-      const failures = [
-        {
-          mainType: 'Audit',
-          logGroup: '/aws/lambda/spacecat-services--audit-worker',
-          events: [
-            {
-              message: 'Error fetching fstab.yaml. Status: 404',
-              timestamp: '2025-10-28T10:00:00.000Z',
-              logStreamName: 'test-stream',
-            },
-            {
-              message: 'Error fetching fstab.yaml. Status: 404',
-              timestamp: '2025-10-28T10:01:00.000Z',
-              logStreamName: 'test-stream',
-            },
-            {
-              message: 'Error fetching hlx config. Status: 401',
-              timestamp: '2025-10-28T10:02:00.000Z',
-              logStreamName: 'test-stream',
-            },
-          ],
-        },
-      ];
-
-      const rootCauses = analyzeRootCauses(failures);
-
-      expect(rootCauses[0].primaryCategoryCount).to.be.greaterThan(0);
-      expect(rootCauses[0].primarySubCategoryCount).to.be.greaterThan(0);
-    });
-
-    it('should handle empty failures array', async () => {
-      const { analyzeFailureRootCauses: analyzeRootCauses } = await import('../../../src/tasks/opportunity-status-processor/handler.js');
-      const rootCauses = analyzeRootCauses([]);
-
-      expect(rootCauses).to.be.an('array');
-      expect(rootCauses.length).to.equal(0);
+      expect(mockSite.getOpportunities.called).to.be.true;
     });
   });
 });
