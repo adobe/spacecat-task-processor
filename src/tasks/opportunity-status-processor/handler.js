@@ -249,9 +249,11 @@ function getServicesNeedingLogAnalysis(serviceStatus) {
  * @param {string} siteId - The site ID
  * @param {number} onboardStartTime - The onboarding start timestamp
  * @param {object} context - The context object
+ * @param {number} testLookbackDays - Optional: For testing, look back N days
+ *   instead of onboardStartTime
  * @returns {Promise<boolean>} Whether the audit was executed
  */
-async function checkAuditExecution(auditType, siteId, onboardStartTime, context) {
+async function checkAuditExecution(auditType, siteId, onboardStartTime, context, testLookbackDays) {
   const { log, env } = context;
   const logGroupName = '/aws/lambda/spacecat-services--audit-worker';
 
@@ -259,10 +261,18 @@ async function checkAuditExecution(auditType, siteId, onboardStartTime, context)
     const cloudWatchClient = new CloudWatchLogsClient({ region: env.AWS_REGION || 'us-east-1' });
     const filterPattern = `"Received ${auditType} audit request for: ${siteId}"`;
 
+    // TEMPORARY: For testing, allow override to look back N days
+    let startTime = onboardStartTime;
+    if (testLookbackDays) {
+      const daysInMs = testLookbackDays * 24 * 60 * 60 * 1000;
+      startTime = Date.now() - daysInMs;
+      log.info(`[TEST MODE] Searching logs for last ${testLookbackDays} days instead of onboard start time`);
+    }
+
     const command = new FilterLogEventsCommand({
       logGroupName,
       filterPattern,
-      startTime: onboardStartTime,
+      startTime,
       endTime: Date.now(),
     });
 
@@ -280,9 +290,17 @@ async function checkAuditExecution(auditType, siteId, onboardStartTime, context)
  * @param {string} siteId - The site ID
  * @param {number} onboardStartTime - The onboarding start timestamp
  * @param {object} context - The context object
+ * @param {number} testLookbackDays - Optional: For testing, look back N days
+ *   instead of onboardStartTime
  * @returns {Promise<string|null>} The failure reason or null if not found
  */
-async function getAuditFailureReason(auditType, siteId, onboardStartTime, context) {
+async function getAuditFailureReason(
+  auditType,
+  siteId,
+  onboardStartTime,
+  context,
+  testLookbackDays,
+) {
   const { log, env } = context;
   const logGroupName = '/aws/lambda/spacecat-services--audit-worker';
 
@@ -290,10 +308,17 @@ async function getAuditFailureReason(auditType, siteId, onboardStartTime, contex
     const cloudWatchClient = new CloudWatchLogsClient({ region: env.AWS_REGION || 'us-east-1' });
     const filterPattern = `"${auditType} audit for ${siteId} failed"`;
 
+    // TEMPORARY: For testing, allow override to look back N days
+    let startTime = onboardStartTime;
+    if (testLookbackDays) {
+      const daysInMs = testLookbackDays * 24 * 60 * 60 * 1000;
+      startTime = Date.now() - daysInMs;
+    }
+
     const command = new FilterLogEventsCommand({
       logGroupName,
       filterPattern,
-      startTime: onboardStartTime,
+      startTime,
       endTime: Date.now(),
     });
 
@@ -320,9 +345,16 @@ async function getAuditFailureReason(auditType, siteId, onboardStartTime, contex
  * @param {string} siteId - The site ID
  * @param {number} onboardStartTime - The onboarding start timestamp
  * @param {object} context - The context object
+ * @param {number} testLookbackDays - Optional: For testing, look back N days
+ *   instead of onboardStartTime
  * @returns {Promise<string|null>} The failure reason or null if not found
  */
-async function getScrapingFailureReason(siteId, onboardStartTime, context) {
+async function getScrapingFailureReason(
+  siteId,
+  onboardStartTime,
+  context,
+  testLookbackDays,
+) {
   const { log, env } = context;
   const logGroupName = '/aws/lambda/spacecat-services--content-scraper';
 
@@ -330,10 +362,17 @@ async function getScrapingFailureReason(siteId, onboardStartTime, context) {
     const cloudWatchClient = new CloudWatchLogsClient({ region: env.AWS_REGION || 'us-east-1' });
     const filterPattern = '"failed to scrape URL"';
 
+    // TEMPORARY: For testing, allow override to look back N days
+    let startTime = onboardStartTime;
+    if (testLookbackDays) {
+      const daysInMs = testLookbackDays * 24 * 60 * 60 * 1000;
+      startTime = Date.now() - daysInMs;
+    }
+
     const command = new FilterLogEventsCommand({
       logGroupName,
       filterPattern,
-      startTime: onboardStartTime,
+      startTime,
       endTime: Date.now(),
     });
 
@@ -365,6 +404,7 @@ async function getScrapingFailureReason(siteId, onboardStartTime, context) {
  * @param {number} onboardStartTime - The onboarding start timestamp
  * @param {object} serviceStatus - Object containing status of all services
  * @param {object} context - The context object
+ * @param {number} testLookbackDays - Optional: For testing, look back N days
  * @returns {Promise<Array<{opportunity: string, reason: string, audit: string}>>} Analysis results
  */
 async function analyzeMissingOpportunities(
@@ -374,6 +414,7 @@ async function analyzeMissingOpportunities(
   onboardStartTime,
   serviceStatus,
   context,
+  testLookbackDays,
 ) {
   const results = [];
 
@@ -399,6 +440,7 @@ async function analyzeMissingOpportunities(
         siteId,
         onboardStartTime,
         context,
+        testLookbackDays,
       );
 
       if (!auditExecuted) {
@@ -442,6 +484,7 @@ async function analyzeMissingOpportunities(
         siteId,
         onboardStartTime,
         context,
+        testLookbackDays,
       );
 
       if (failureReason) {
@@ -456,6 +499,7 @@ async function analyzeMissingOpportunities(
           siteId,
           onboardStartTime,
           context,
+          testLookbackDays,
         );
 
         if (scrapingFailureReason) {
@@ -641,7 +685,12 @@ export async function runOpportunityStatusProcessor(message, context) {
       log.warn(`Missing opportunities for site ${siteId}: ${missingOpportunities.join(', ')}`);
 
       // Analyze missing opportunities to determine root cause
-      if (onboardStartTime) {
+      // TEMPORARY: Support testLookbackDays for testing (reads logs from last N days)
+      const testLookbackDays = taskContext?.testLookbackDays;
+      if (onboardStartTime || testLookbackDays) {
+        if (testLookbackDays) {
+          log.warn(`[TEST MODE] Using testLookbackDays=${testLookbackDays} to search last ${testLookbackDays} days of logs`);
+        }
         const missingOpportunitiesAnalysis = await analyzeMissingOpportunities(
           missingOpportunities,
           auditTypes,
@@ -649,6 +698,7 @@ export async function runOpportunityStatusProcessor(message, context) {
           onboardStartTime,
           serviceStatus,
           context,
+          testLookbackDays,
         );
 
         // Send Slack messages for each missing opportunity
