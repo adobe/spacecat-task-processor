@@ -1,3 +1,38 @@
+## [1.3.15](https://github.com/adobe/spacecat-task-processor/compare/v1.3.14...v1.3.15) (2025-10-31)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#111](https://github.com/adobe/spacecat-task-processor/issues/111)) ([2c8b65e](https://github.com/adobe/spacecat-task-processor/commit/2c8b65e0b494cd7db21378b438080fc581dbaded))
+
+## [1.3.14](https://github.com/adobe/spacecat-task-processor/compare/v1.3.13...v1.3.14) (2025-10-30)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#110](https://github.com/adobe/spacecat-task-processor/issues/110)) ([fe5044f](https://github.com/adobe/spacecat-task-processor/commit/fe5044fd01e82b44164b00c9015b906c33db80bf))
+
+## [1.3.13](https://github.com/adobe/spacecat-task-processor/compare/v1.3.12...v1.3.13) (2025-10-28)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#109](https://github.com/adobe/spacecat-task-processor/issues/109)) ([7c84a74](https://github.com/adobe/spacecat-task-processor/commit/7c84a74f456687b4f58a4f172563fff20855fe37))
+
+## [1.3.12](https://github.com/adobe/spacecat-task-processor/compare/v1.3.11...v1.3.12) (2025-10-26)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#107](https://github.com/adobe/spacecat-task-processor/issues/107)) ([afe05ea](https://github.com/adobe/spacecat-task-processor/commit/afe05ea2ee340b223e479595b4e289f05dc99179))
+
+## [1.3.11](https://github.com/adobe/spacecat-task-processor/compare/v1.3.10...v1.3.11) (2025-10-25)
+
+
+### Bug Fixes
+
+* **deps:** update external fixes ([#108](https://github.com/adobe/spacecat-task-processor/issues/108)) ([b9efb7c](https://github.com/adobe/spacecat-task-processor/commit/b9efb7c3794beeb387b00e854b8ac16865434770))
+
 ## [1.3.10](https://github.com/adobe/spacecat-task-processor/compare/v1.3.9...v1.3.10) (2025-10-23)
 
 
