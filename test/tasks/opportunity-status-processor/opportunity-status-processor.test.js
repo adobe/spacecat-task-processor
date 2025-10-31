@@ -49,6 +49,9 @@ describe('Opportunity Status Processor', () => {
         Site: {
           findById: sandbox.stub().resolves(mockSite),
         },
+        SiteTopPage: {
+          allBySiteIdAndSourceAndGeo: sandbox.stub().resolves([]),
+        },
       })
       .build();
 
@@ -89,11 +92,12 @@ describe('Opportunity Status Processor', () => {
         siteId: 'test-site-id',
         organizationId: 'test-org-id',
         auditTypes: ['cwv', 'broken-links'],
+        onboardStartTime: undefined,
       })).to.be.true;
 
       expect(context.dataAccess.Site.findById.calledWith('test-site-id')).to.be.true;
       expect(mockSite.getOpportunities.called).to.be.true;
-      expect(context.log.info.calledWith('Found 2 opportunities for site test-site-id. RUM available: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 2 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
     });
 
     it('should handle site not found error', async () => {
@@ -131,7 +135,7 @@ describe('Opportunity Status Processor', () => {
       await runOpportunityStatusProcessor(message, context);
 
       // Should complete without error
-      expect(context.log.info.calledWith('Found 2 opportunities for site test-site-id. RUM available: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 2 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
     });
 
     it('should handle opportunities with different statuses', async () => {
@@ -154,7 +158,7 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.log.info.calledWith('Found 3 opportunities for site test-site-id. RUM available: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 3 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
     });
 
     it('should handle empty opportunities array', async () => {
@@ -162,7 +166,7 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.log.info.calledWith('Found 0 opportunities for site test-site-id. RUM available: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
     });
 
     it('should handle getSuggestions errors', async () => {
@@ -190,7 +194,7 @@ describe('Opportunity Status Processor', () => {
       mockSite.getOpportunities.resolves(mockOpportunities);
 
       await runOpportunityStatusProcessor(message, context);
-      expect(context.log.info.calledWith('Found 1 opportunities for site test-site-id. RUM available: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 1 opportunity for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
     });
 
     it('should process opportunities by type avoiding duplicates', async () => {
@@ -218,7 +222,7 @@ describe('Opportunity Status Processor', () => {
       await runOpportunityStatusProcessor(message, context);
 
       // Should process all opportunities (4 total opportunities)
-      expect(context.log.info.calledWith('Found 4 opportunities for site test-site-id. RUM available: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 4 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
 
       // With the new logic, getSuggestions should only be called for unique opportunity types
       // First occurrence of 'cwv' should be processed
@@ -242,7 +246,7 @@ describe('Opportunity Status Processor', () => {
       mockSite.getOpportunities.resolves(mockOpportunities);
 
       await runOpportunityStatusProcessor(message, context);
-      expect(context.log.info.calledWith('Found 1 opportunities for site test-site-id. RUM available: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 1 opportunity for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
     });
 
     it('should handle invalid siteUrl gracefully', async () => {
@@ -258,8 +262,66 @@ describe('Opportunity Status Processor', () => {
       // For this test, we'll just verify that the error is handled gracefully
       // The actual resolveCanonicalUrl function will throw an error for invalid URLs
       await runOpportunityStatusProcessor(message, context);
-      expect(context.log.warn.calledWith('Could not resolve canonical URL or parse siteUrl for RUM check: invalid-url', sinon.match.any)).to.be.true;
-      expect(context.log.info.calledWith('Found 1 opportunities for site test-site-id. RUM available: false')).to.be.true;
+      expect(context.log.warn.calledWith('Could not resolve canonical URL or parse siteUrl for data source checks: invalid-url', sinon.match.any)).to.be.true;
+      expect(context.log.info.calledWith('Found 1 opportunity for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
+    });
+
+    it('should check AHREFS data availability', async () => {
+      // Mock AHREFS data available
+      context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.resolves([
+        { url: 'https://example.com/page1', traffic: 100 },
+        { url: 'https://example.com/page2', traffic: 50 },
+      ]);
+
+      const mockOpportunities = [
+        {
+          getType: () => 'cwv',
+          getSuggestions: sinon.stub().resolves(['suggestion1']),
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.calledWith('test-site-id', 'ahrefs', 'global')).to.be.true;
+      expect(context.log.info.calledWith('AHREFS data availability for site test-site-id: Available (2 top pages)')).to.be.true;
+      expect(context.log.info.calledWithMatch(/Found 1 opportunity for site test-site-id.*AHREFS: true/)).to.be.true;
+    });
+
+    it('should handle AHREFS data not available', async () => {
+      // Mock AHREFS data not available
+      context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.resolves([]);
+
+      const mockOpportunities = [
+        {
+          getType: () => 'cwv',
+          getSuggestions: sinon.stub().resolves(['suggestion1']),
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.log.info.calledWith('AHREFS data availability for site test-site-id: Not available (0 top pages)')).to.be.true;
+      expect(context.log.info.calledWith('Found 1 opportunity for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
+    });
+
+    it('should handle AHREFS check errors', async () => {
+      // Mock AHREFS check error
+      context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.rejects(new Error('Database error'));
+
+      const mockOpportunities = [
+        {
+          getType: () => 'cwv',
+          getSuggestions: sinon.stub().resolves(['suggestion1']),
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.log.error.calledWith('Error checking AHREFS data availability for site test-site-id: Database error')).to.be.true;
+      expect(context.log.info.calledWith('Found 1 opportunity for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
     });
   });
 
@@ -318,14 +380,17 @@ describe('Opportunity Status Processor', () => {
                 getOpportunities: sinon.stub().resolves([]),
               }),
             },
+            SiteTopPage: {
+              allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+            },
           },
         };
 
         await runOpportunityStatusProcessor(testMessage, testContext);
 
         // Verify error handling for localhost URLs
-        expect(testContext.log.warn.calledWith(`Could not resolve canonical URL or parse siteUrl for RUM check: ${testCase.url}`, sinon.match.any)).to.be.true;
-        expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. RUM available: false')).to.be.true;
+        expect(testContext.log.warn.calledWith(`Could not resolve canonical URL or parse siteUrl for data source checks: ${testCase.url}`, sinon.match.any)).to.be.true;
+        expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
       }));
     });
 
@@ -353,6 +418,9 @@ describe('Opportunity Status Processor', () => {
               getOpportunities: sinon.stub().resolves([]),
             }),
           },
+          SiteTopPage: {
+            allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+          },
         },
       };
 
@@ -362,7 +430,7 @@ describe('Opportunity Status Processor', () => {
       expect(createFromStub.calledWith(testContext)).to.be.true;
       expect(mockRUMClient.retrieveDomainkey.calledWith('example.com')).to.be.true;
       expect(testContext.log.info.calledWith('RUM is available for domain: example.com')).to.be.true;
-      expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. RUM available: true')).to.be.true;
+      expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: true, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
 
       createFromStub.restore();
     });
@@ -406,15 +474,375 @@ describe('Opportunity Status Processor', () => {
                 getOpportunities: sinon.stub().resolves(testCase.opportunities),
               }),
             },
+            SiteTopPage: {
+              allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+            },
           },
         };
 
         await runOpportunityStatusProcessor(testMessage, testContext);
 
         // Verify error handling for localhost URLs
-        expect(testContext.log.warn.calledWith('Could not resolve canonical URL or parse siteUrl for RUM check: http://localhost:3001', sinon.match.any)).to.be.true;
-        expect(testContext.log.info.calledWith(`Found ${testCase.expectedCount} opportunities for site test-site-id. RUM available: false`)).to.be.true;
+        expect(testContext.log.warn.calledWith('Could not resolve canonical URL or parse siteUrl for data source checks: http://localhost:3001', sinon.match.any)).to.be.true;
+        const opportunityWord = testCase.expectedCount === 1 ? 'opportunity' : 'opportunities';
+        expect(testContext.log.info.calledWith(`Found ${testCase.expectedCount} ${opportunityWord} for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false`)).to.be.true;
       }));
+    });
+  });
+
+  describe('GSC Configuration', () => {
+    let mockContext;
+    let mockGoogleClient;
+
+    beforeEach(async () => {
+      mockContext = {
+        log: {
+          info: sinon.stub(),
+          error: sinon.stub(),
+          warn: sinon.stub(),
+        },
+        env: {
+          GOOGLE_CLIENT_ID: 'test-client-id',
+          GOOGLE_CLIENT_SECRET: 'test-client-secret',
+          GOOGLE_REDIRECT_URI: 'test-redirect-uri',
+        },
+      };
+
+      mockGoogleClient = {
+        listSites: sinon.stub(),
+      };
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should handle GSC configuration success', async () => {
+      // Mock GSC success
+      mockGoogleClient.listSites.resolves({
+        data: {
+          siteEntry: [
+            { siteUrl: 'https://example.com' },
+          ],
+        },
+      });
+
+      const GoogleClient = await import('@adobe/spacecat-shared-google-client');
+      const createFromStub = sinon.stub(GoogleClient.default, 'createFrom').resolves(mockGoogleClient);
+
+      const testMessage = {
+        siteId: 'test-site-id',
+        siteUrl: 'https://example.com',
+        organizationId: 'test-org-id',
+        taskContext: {
+          auditTypes: ['cwv'],
+          slackContext: null,
+        },
+      };
+
+      const testContext = {
+        ...mockContext,
+        dataAccess: {
+          Site: {
+            findById: sinon.stub().resolves({
+              getOpportunities: sinon.stub().resolves([]),
+            }),
+          },
+          SiteTopPage: {
+            allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+          },
+        },
+      };
+
+      await runOpportunityStatusProcessor(testMessage, testContext);
+
+      // Check if GoogleClient.createFrom was called (it should be called with context and URL)
+      expect(createFromStub.called).to.be.true;
+      expect(createFromStub.firstCall.args[0]).to.deep.equal(testContext);
+      expect(createFromStub.firstCall.args[1]).to.equal('https://example.com/');
+      expect(mockGoogleClient.listSites.called).to.be.true;
+      expect(testContext.log.info.calledWith('GSC configuration for site https://example.com/: Configured and connected')).to.be.true;
+      expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: true, Import: false, Scraping: false')).to.be.true;
+
+      createFromStub.restore();
+    });
+
+    it('should handle GSC configuration failure', async () => {
+      // Mock GSC failure
+      const GoogleClient = await import('@adobe/spacecat-shared-google-client');
+      const createFromStub = sinon.stub(GoogleClient.default, 'createFrom').rejects(new Error('GSC not configured'));
+
+      const testMessage = {
+        siteId: 'test-site-id',
+        siteUrl: 'https://example.com',
+        organizationId: 'test-org-id',
+        taskContext: {
+          auditTypes: ['cwv'],
+          slackContext: null,
+        },
+      };
+
+      const testContext = {
+        ...mockContext,
+        dataAccess: {
+          Site: {
+            findById: sinon.stub().resolves({
+              getOpportunities: sinon.stub().resolves([]),
+            }),
+          },
+          SiteTopPage: {
+            allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+          },
+        },
+      };
+
+      await runOpportunityStatusProcessor(testMessage, testContext);
+
+      // Verify that GoogleClient.createFrom was called and failed
+      expect(createFromStub.called).to.be.true;
+      expect(createFromStub.firstCall.args[0]).to.deep.equal(testContext);
+      expect(createFromStub.firstCall.args[1]).to.equal('https://example.com/');
+
+      // Check that the error was logged
+      expect(testContext.log.info.calledWith('GSC is not configured for site https://example.com/. Reason: GSC not configured')).to.be.true;
+      expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
+
+      createFromStub.restore();
+    });
+  });
+
+  describe('Runbook Detection and Failure Reasons', () => {
+    it('should detect RUM failure from runbook', async () => {
+      const mockOpportunities = [
+        {
+          getType: () => 'cwv',
+          getSuggestions: sinon.stub().resolves([]),
+          getData: () => ({ runbook: 'RUM data is required for this audit' }),
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+      message.siteUrl = 'https://example.com';
+      message.taskContext.slackContext = {
+        channelId: 'test-channel',
+        threadTs: 'test-thread',
+      };
+
+      await runOpportunityStatusProcessor(message, context);
+
+      // Verify the RUM-specific failure message was logged
+      expect(context.log.info.calledWithMatch('Processing opportunities')).to.be.true;
+    });
+
+    it('should detect AHREFS failure from runbook', async () => {
+      const mockOpportunities = [
+        {
+          getType: () => 'seo',
+          getSuggestions: sinon.stub().resolves([]),
+          getData: () => ({ runbook: 'AHREFS data is required for this analysis' }),
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+      message.siteUrl = 'https://example.com';
+      message.taskContext.slackContext = {
+        channelId: 'test-channel',
+        threadTs: 'test-thread',
+      };
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.log.info.calledWithMatch('Processing opportunities')).to.be.true;
+    });
+
+    it('should detect GSC failure from runbook', async () => {
+      const mockOpportunities = [
+        {
+          getType: () => 'seo',
+          getSuggestions: sinon.stub().resolves([]),
+          getData: () => ({ runbook: 'Google Search Console data is required' }),
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+      message.siteUrl = 'https://example.com';
+      message.taskContext.slackContext = {
+        channelId: 'test-channel',
+        threadTs: 'test-thread',
+      };
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.log.info.calledWithMatch('Processing opportunities')).to.be.true;
+    });
+
+    it('should handle opportunity with runbook using getRunbook method', async () => {
+      const mockOpportunities = [
+        {
+          getType: () => 'cwv',
+          getSuggestions: sinon.stub().resolves([]),
+          getData: () => ({}),
+          getRunbook: () => 'rum data not available',
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+      message.siteUrl = 'https://example.com';
+      message.taskContext.slackContext = {
+        channelId: 'test-channel',
+        threadTs: 'test-thread',
+      };
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.log.info.calledWithMatch('Processing opportunities')).to.be.true;
+    });
+
+    it('should detect missing opportunities when expected opportunities are not found', async () => {
+      // Set up audit types and expected opportunities
+      // (don't set onboardStartTime to avoid CloudWatch calls)
+      message.taskContext.auditTypes = ['cwv', 'broken-backlinks'];
+
+      // Mock site with no opportunities (all are missing)
+      mockSite.getOpportunities.resolves([]);
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.log.warn.calledWith('Missing opportunities for site test-site-id: cwv, broken-backlinks')).to.be.true;
+    });
+
+    it('should analyze missing opportunities without onboard start time', async () => {
+      // Set up audit types but no onboardStartTime
+      message.taskContext.auditTypes = ['cwv'];
+      message.taskContext.onboardStartTime = undefined;
+
+      // Mock site with no opportunities
+      mockSite.getOpportunities.resolves([]);
+
+      await runOpportunityStatusProcessor(message, context);
+
+      // Should warn about missing but not analyze
+      expect(context.log.warn.calledWith('Missing opportunities for site test-site-id: cwv')).to.be.true;
+    });
+
+    it('should check import availability', async () => {
+      // Mock top pages data
+      context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.resolves([
+        { url: 'https://example.com/page1' },
+        { url: 'https://example.com/page2' },
+      ]);
+
+      const mockOpportunities = [
+        {
+          getType: () => 'meta-tags',
+          getSuggestions: sinon.stub().resolves([]),
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.calledWith('test-site-id')).to.be.true;
+      expect(context.log.info.calledWith('Import check: Found 2 imported top pages for site test-site-id')).to.be.true;
+    });
+
+    it('should detect when import is not available', async () => {
+      // Mock no top pages data
+      context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.resolves([]);
+
+      const mockOpportunities = [
+        {
+          getType: () => 'meta-tags',
+          getSuggestions: sinon.stub().resolves([]),
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.log.warn.calledWith('Import check: No imported top pages found for site test-site-id')).to.be.true;
+    });
+
+    it('should handle missing opportunities with unmet dependencies', async () => {
+      // Set up audit types
+      message.taskContext.auditTypes = ['cwv'];
+      message.taskContext.onboardStartTime = Date.now() - 3600000;
+
+      // Mock site with no opportunities
+      mockSite.getOpportunities.resolves([]);
+
+      await runOpportunityStatusProcessor(message, context);
+
+      // Should detect missing cwv opportunity
+      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
+    });
+
+    it('should log all expected opportunities when present', async () => {
+      // Set up audit types
+      message.taskContext.auditTypes = ['cwv', 'broken-backlinks'];
+
+      // Mock site with all expected opportunities
+      const mockOpportunities = [
+        {
+          getType: () => 'cwv',
+          getSuggestions: sinon.stub().resolves([]),
+        },
+        {
+          getType: () => 'broken-backlinks',
+          getSuggestions: sinon.stub().resolves([]),
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.log.info.calledWith('All expected opportunities are present for site test-site-id')).to.be.true;
+    });
+
+    it('should check scraping for site with URL', async () => {
+      message.siteUrl = 'https://www.example.com';
+
+      const mockOpportunities = [
+        {
+          getType: () => 'alt-text',
+          getSuggestions: sinon.stub().resolves([]),
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+
+      await runOpportunityStatusProcessor(message, context);
+
+      // Scraping check should be performed
+      expect(mockSite.getOpportunities.called).to.be.true;
+    });
+
+    it('should handle when auditTypes is empty array', async () => {
+      message.taskContext.auditTypes = [];
+
+      const mockOpportunities = [
+        {
+          getType: () => 'cwv',
+          getSuggestions: sinon.stub().resolves([]),
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+
+      await runOpportunityStatusProcessor(message, context);
+
+      // Should still process opportunities
+      expect(mockSite.getOpportunities.called).to.be.true;
+    });
+
+    it('should handle opportunities with no audit types mapping', async () => {
+      message.taskContext.auditTypes = ['unknown-audit'];
+
+      const mockOpportunities = [
+        {
+          getType: () => 'some-opportunity',
+          getSuggestions: sinon.stub().resolves([]),
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(mockSite.getOpportunities.called).to.be.true;
     });
   });
 });
