@@ -772,11 +772,6 @@ export async function runOpportunityStatusProcessor(message, context) {
 
     if (servicesToAnalyze.length > 0) {
       log.info(`Services requiring log analysis: ${servicesToAnalyze.map((s) => s.service).join(', ')}`);
-      // TODO: Implement CloudWatch log reading and analysis for these services
-      // servicesToAnalyze.forEach(({ service, logGroup }) => {
-      //   // Read logs from logGroup
-      //   // Derive Slack message from log content
-      // });
     } else {
       log.info('All service preconditions passed - no log analysis needed');
     }
@@ -916,9 +911,6 @@ export async function runOpportunityStatusProcessor(message, context) {
       if (auditErrors.length > 0) {
         await say(env, log, slackContext, auditErrors.join('\n'));
       }
-
-      // TODO: Add CloudWatch log analysis here
-      // Will check logs after preconditions and derive Slack messages directly
     }
 
     log.info(`Processed ${opportunities.length} opportunities for site ${siteId}`);

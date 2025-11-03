@@ -954,35 +954,6 @@ describe('Opportunity Status Processor', () => {
       expect(mockSite.getOpportunities.called).to.be.true;
     });
 
-    it('should check scraping success rate from CloudWatch logs', async () => {
-      message.siteUrl = 'https://example.com';
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-
-      await runOpportunityStatusProcessor(message, context);
-
-      // Should complete successfully and attempt to check CloudWatch logs
-      expect(mockSite.getOpportunities.called).to.be.true;
-    });
-
-    it('should flag site as unavailable when scraping success rate is low', async () => {
-      message.siteUrl = 'https://example.com';
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-
-      await runOpportunityStatusProcessor(message, context);
-
-      // With proper CloudWatch mocking, this would test the low success rate path
-      expect(mockSite.getOpportunities.called).to.be.true;
-    });
-
-    it('should handle CloudWatch errors when checking scraping success rate', async () => {
-      message.siteUrl = 'https://example.com';
-      // CloudWatch errors are handled gracefully in the implementation
-      await runOpportunityStatusProcessor(message, context);
-
-      // Should complete successfully even with CloudWatch errors
-      expect(mockSite.getOpportunities.called).to.be.true;
-    });
-
     it('should parse robots.txt with SpaceCat user agent', async () => {
       message.siteUrl = 'https://example.com';
       global.fetch.onFirstCall().resolves({
