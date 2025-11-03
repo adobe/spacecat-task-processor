@@ -17,10 +17,7 @@ import GoogleClient from '@adobe/spacecat-shared-google-client';
 import { resolveCanonicalUrl } from '@adobe/spacecat-shared-utils';
 import { say } from '../../utils/slack-utils.js';
 import { getOpportunitiesForAudit } from './audit-opportunity-map.js';
-import {
-  OPPORTUNITY_DEPENDENCY_MAP,
-  getOpportunitiesWithUnmetDependencies,
-} from './opportunity-dependency-map.js';
+import { OPPORTUNITY_DEPENDENCY_MAP } from './opportunity-dependency-map.js';
 
 const TASK_TYPE = 'opportunity-status-processor';
 
@@ -144,16 +141,6 @@ function getOpportunityTitle(opportunityType) {
     .split('-')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
-}
-
-/**
- * Generate failure recommendations based on error category and subcategory
- * @returns {Array<string>} Array of recommendations
- * @deprecated This function is deprecated. Use error-mapping-loader instead.
- */
-export function generateFailureRecommendations() {
-  // Deprecated: This function is no longer used with the new error mapping system
-  return [];
 }
 
 /**
@@ -658,76 +645,6 @@ async function analyzeMissingOpportunities(
   /* eslint-enable no-await-in-loop */
 
   return results;
-}
-
-/**
- * Finds and analyzes opportunities for a given site
- * Returns list of opportunities with their dependency status
- *
- * @param {object} site - The site object
- * @param {object} serviceStatus - Object containing status of all services
- *   (rum, ahrefs, gsc, import, scraping)
- * @param {object} context - The context object with log
- * @returns {Promise<{
- *   allOpportunities: Array<object>,
- *   opportunitiesWithMetDependencies: Array<object>,
- *   opportunitiesWithUnmetDependencies: Array<object>
- * }>} Opportunity analysis results
- */
-// eslint-disable-next-line no-unused-vars
-async function findOpportunitiesForSite(site, serviceStatus, context) {
-  const { log } = context;
-
-  try {
-    // Get all opportunities for the site
-    const allOpportunities = await site.getOpportunities();
-
-    if (!allOpportunities || allOpportunities.length === 0) {
-      log.info('No opportunities found for site');
-      return {
-        allOpportunities: [],
-        opportunitiesWithMetDependencies: [],
-        opportunitiesWithUnmetDependencies: [],
-      };
-    }
-
-    // Extract opportunity types
-    const opportunityTypes = allOpportunities.map((opp) => opp.getType());
-
-    // Check which opportunities have unmet dependencies
-    const unmetDependencies = getOpportunitiesWithUnmetDependencies(
-      opportunityTypes,
-      serviceStatus,
-    );
-
-    // Separate opportunities into those with met vs unmet dependencies
-    const opportunitiesWithUnmetDependencies = allOpportunities.filter(
-      (opp) => unmetDependencies.some((unmet) => unmet.opportunity === opp.getType()),
-    );
-
-    const opportunitiesWithMetDependencies = allOpportunities.filter(
-      (opp) => !unmetDependencies.some((unmet) => unmet.opportunity === opp.getType()),
-    );
-
-    log.info(`Found ${allOpportunities.length} total opportunities: `
-      + `${opportunitiesWithMetDependencies.length} with met dependencies, `
-      + `${opportunitiesWithUnmetDependencies.length} with unmet dependencies`);
-
-    return {
-      allOpportunities,
-      opportunitiesWithMetDependencies,
-      opportunitiesWithUnmetDependencies,
-      unmetDependencyDetails: unmetDependencies,
-    };
-  } catch (error) {
-    log.error('Error finding opportunities for site:', error);
-    return {
-      allOpportunities: [],
-      opportunitiesWithMetDependencies: [],
-      opportunitiesWithUnmetDependencies: [],
-      unmetDependencyDetails: [],
-    };
-  }
 }
 
 /**

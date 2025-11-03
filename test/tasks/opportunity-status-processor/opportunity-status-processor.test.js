@@ -1287,7 +1287,6 @@ Disallow: /private
     });
 
     it('should handle opportunities with null runbook', async () => {
-      message.siteUrl = 'https://example.com';
       message.taskContext.slackContext = {
         channelId: 'test-channel',
         threadTs: 'test-thread',
@@ -2023,6 +2022,94 @@ DISALLOW: /
 
       await runOpportunityStatusProcessor(message, context);
 
+      expect(mockSite.getOpportunities.called).to.be.true;
+    });
+
+    it('should handle audit executed but no scraping failure found (unknown reason)', async () => {
+      message.siteUrl = 'https://example.com';
+      message.taskContext.auditTypes = ['alt-text'];
+      message.taskContext.onboardStartTime = Date.now() - 3600000;
+      mockSite.getOpportunities.resolves([]);
+
+      // Mock audit was executed
+      context.mockCloudWatchSend.onFirstCall().resolves({
+        events: [{
+          timestamp: Date.now(),
+          message: `Received alt-text audit request for: ${message.siteId}`,
+        }],
+      });
+
+      // No audit failure reason found
+      context.mockCloudWatchSend.onSecondCall().resolves({
+        events: [],
+      });
+
+      // No scraping failure found either
+      context.mockCloudWatchSend.onThirdCall().resolves({
+        events: [],
+      });
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
+    });
+
+    it('should handle audit failure with specific failure reason', async () => {
+      message.taskContext.auditTypes = ['cwv'];
+      message.taskContext.onboardStartTime = Date.now() - 3600000;
+      mockSite.getOpportunities.resolves([]);
+
+      // Mock audit was executed
+      context.mockCloudWatchSend.onFirstCall().resolves({
+        events: [{
+          timestamp: Date.now(),
+          message: `Received cwv audit request for: ${message.siteId}`,
+        }],
+      });
+
+      // Mock audit failure with reason
+      context.mockCloudWatchSend.onSecondCall().resolves({
+        events: [{
+          timestamp: Date.now(),
+          message: `cwv audit for ${message.siteId} failed. Reason: RUM data unavailable at worker.js:45`,
+        }],
+      });
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
+    });
+
+    it('should test getServicesNeedingLogAnalysis with all services available', async () => {
+      message.siteUrl = undefined; // No siteUrl to skip RUM/GSC/Scraping checks
+      message.taskContext.slackContext = {
+        channelId: 'test-channel',
+        threadTs: 'test-thread',
+      };
+
+      // Mock import and AHREFS as available
+      context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo = sinon.stub();
+      context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
+        .withArgs(message.siteId)
+        .resolves([{ url: 'https://example.com/page1' }]);
+      context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
+        .withArgs(message.siteId, 'ahrefs', 'global')
+        .resolves([{ url: 'https://example.com/page1', traffic: 1000 }]);
+
+      const mockOpportunities = [
+        {
+          getType: () => 'cwv',
+          getSuggestions: sinon.stub().resolves(['suggestion1']),
+        },
+      ];
+      mockSite.getOpportunities.resolves(mockOpportunities);
+
+      await runOpportunityStatusProcessor(message, context);
+
+      // When no siteUrl, RUM/GSC/Scraping are false, but AHREFS and Import are true
+      // This will trigger "Services requiring log analysis" log,
+      // not "All service preconditions passed"
+      // The test verifies the function executes without errors
       expect(mockSite.getOpportunities.called).to.be.true;
     });
   });
