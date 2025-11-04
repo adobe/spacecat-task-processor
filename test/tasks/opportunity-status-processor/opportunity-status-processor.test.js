@@ -106,7 +106,7 @@ describe('Opportunity Status Processor', () => {
 
       expect(context.dataAccess.Site.findById.calledWith('test-site-id')).to.be.true;
       expect(mockSite.getOpportunities.called).to.be.true;
-      expect(context.log.info.calledWith('Found 2 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 2 opportunities for site test-site-id. Data sources - RUM: false, AHREFS Import: false, GSC: false, Scraping: false')).to.be.true;
     });
 
     it('should handle site not found error', async () => {
@@ -144,7 +144,7 @@ describe('Opportunity Status Processor', () => {
       await runOpportunityStatusProcessor(message, context);
 
       // Should complete without error
-      expect(context.log.info.calledWith('Found 2 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 2 opportunities for site test-site-id. Data sources - RUM: false, AHREFS Import: false, GSC: false, Scraping: false')).to.be.true;
     });
 
     it('should handle opportunities with different statuses', async () => {
@@ -167,7 +167,7 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.log.info.calledWith('Found 3 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 3 opportunities for site test-site-id. Data sources - RUM: false, AHREFS Import: false, GSC: false, Scraping: false')).to.be.true;
     });
 
     it('should handle empty opportunities array', async () => {
@@ -175,7 +175,7 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: false, AHREFS Import: false, GSC: false, Scraping: false')).to.be.true;
     });
 
     it('should handle getSuggestions errors', async () => {
@@ -203,7 +203,7 @@ describe('Opportunity Status Processor', () => {
       mockSite.getOpportunities.resolves(mockOpportunities);
 
       await runOpportunityStatusProcessor(message, context);
-      expect(context.log.info.calledWith('Found 1 opportunity for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 1 opportunity for site test-site-id. Data sources - RUM: false, AHREFS Import: false, GSC: false, Scraping: false')).to.be.true;
     });
 
     it('should process opportunities by type avoiding duplicates', async () => {
@@ -231,7 +231,7 @@ describe('Opportunity Status Processor', () => {
       await runOpportunityStatusProcessor(message, context);
 
       // Should process all opportunities (4 total opportunities)
-      expect(context.log.info.calledWith('Found 4 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 4 opportunities for site test-site-id. Data sources - RUM: false, AHREFS Import: false, GSC: false, Scraping: false')).to.be.true;
 
       // With the new logic, getSuggestions should only be called for unique opportunity types
       // First occurrence of 'cwv' should be processed
@@ -255,7 +255,7 @@ describe('Opportunity Status Processor', () => {
       mockSite.getOpportunities.resolves(mockOpportunities);
 
       await runOpportunityStatusProcessor(message, context);
-      expect(context.log.info.calledWith('Found 1 opportunity for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 1 opportunity for site test-site-id. Data sources - RUM: false, AHREFS Import: false, GSC: false, Scraping: false')).to.be.true;
     });
 
     it('should handle invalid siteUrl gracefully', async () => {
@@ -272,11 +272,11 @@ describe('Opportunity Status Processor', () => {
       // The actual resolveCanonicalUrl function will throw an error for invalid URLs
       await runOpportunityStatusProcessor(message, context);
       expect(context.log.warn.calledWith('Could not resolve canonical URL or parse siteUrl for data source checks: invalid-url', sinon.match.any)).to.be.true;
-      expect(context.log.info.calledWith('Found 1 opportunity for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
+      expect(context.log.info.calledWith('Found 1 opportunity for site test-site-id. Data sources - RUM: false, AHREFS Import: false, GSC: false, Scraping: false')).to.be.true;
     });
 
-    it('should check AHREFS data availability', async () => {
-      // Mock AHREFS data available
+    it('should check AHREFS Import data availability', async () => {
+      // Mock AHREFSImport data available
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.resolves([
         { url: 'https://example.com/page1', traffic: 100 },
         { url: 'https://example.com/page2', traffic: 50 },
@@ -293,12 +293,12 @@ describe('Opportunity Status Processor', () => {
       await runOpportunityStatusProcessor(message, context);
 
       expect(context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.calledWith('test-site-id', 'ahrefs', 'global')).to.be.true;
-      expect(context.log.info.calledWith('AHREFS data availability for site test-site-id: Available (2 top pages)')).to.be.true;
-      expect(context.log.info.calledWithMatch(/Found 1 opportunity for site test-site-id.*AHREFS: true/)).to.be.true;
+      expect(context.log.info.calledWith('AHREFS Import data availability for site test-site-id: Available (2 top pages)')).to.be.true;
+      expect(context.log.info.calledWithMatch(/Found 1 opportunity for site test-site-id.*AHREFS Import: true/)).to.be.true;
     });
 
-    it('should handle AHREFS data not available', async () => {
-      // Mock AHREFS data not available
+    it('should handle AHREFSImport data not available', async () => {
+      // Mock AHREFSImport data not available
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.resolves([]);
 
       const mockOpportunities = [
@@ -311,12 +311,12 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.log.info.calledWith('AHREFS data availability for site test-site-id: Not available (0 top pages)')).to.be.true;
-      expect(context.log.info.calledWith('Found 1 opportunity for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
+      expect(context.log.info.calledWith('AHREFS Import data availability for site test-site-id: Not available (0 top pages)')).to.be.true;
+      expect(context.log.info.calledWith('Found 1 opportunity for site test-site-id. Data sources - RUM: false, AHREFS Import: false, GSC: false, Scraping: false')).to.be.true;
     });
 
-    it('should handle AHREFS check errors', async () => {
-      // Mock AHREFS check error
+    it('should handle AHREFSImport check errors', async () => {
+      // Mock AHREFSImport check error
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.rejects(new Error('Database error'));
 
       const mockOpportunities = [
@@ -329,8 +329,8 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.log.error.calledWith('Error checking AHREFS data availability for site test-site-id: Database error')).to.be.true;
-      expect(context.log.info.calledWith('Found 1 opportunity for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
+      expect(context.log.error.calledWith('Error checking AHREFS Import data availability for site test-site-id: Database error')).to.be.true;
+      expect(context.log.info.calledWith('Found 1 opportunity for site test-site-id. Data sources - RUM: false, AHREFS Import: false, GSC: false, Scraping: false')).to.be.true;
     });
   });
 
@@ -399,7 +399,7 @@ describe('Opportunity Status Processor', () => {
 
         // Verify error handling for localhost URLs
         expect(testContext.log.warn.calledWith(`Could not resolve canonical URL or parse siteUrl for data source checks: ${testCase.url}`, sinon.match.any)).to.be.true;
-        expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
+        expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: false, AHREFS Import: false, GSC: false, Scraping: false')).to.be.true;
       }));
     });
 
@@ -439,7 +439,7 @@ describe('Opportunity Status Processor', () => {
       expect(createFromStub.calledWith(testContext)).to.be.true;
       expect(mockRUMClient.retrieveDomainkey.calledWith('example.com')).to.be.true;
       expect(testContext.log.info.calledWith('RUM is available for domain: example.com')).to.be.true;
-      expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: true, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
+      expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: true, AHREFS Import: false, GSC: false, Scraping: false')).to.be.true;
 
       createFromStub.restore();
     });
@@ -494,7 +494,7 @@ describe('Opportunity Status Processor', () => {
         // Verify error handling for localhost URLs
         expect(testContext.log.warn.calledWith('Could not resolve canonical URL or parse siteUrl for data source checks: http://localhost:3001', sinon.match.any)).to.be.true;
         const opportunityWord = testCase.expectedCount === 1 ? 'opportunity' : 'opportunities';
-        expect(testContext.log.info.calledWith(`Found ${testCase.expectedCount} ${opportunityWord} for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false`)).to.be.true;
+        expect(testContext.log.info.calledWith(`Found ${testCase.expectedCount} ${opportunityWord} for site test-site-id. Data sources - RUM: false, AHREFS Import: false, GSC: false, Scraping: false`)).to.be.true;
       }));
     });
   });
@@ -571,7 +571,7 @@ describe('Opportunity Status Processor', () => {
       expect(createFromStub.firstCall.args[1]).to.equal('https://example.com/');
       expect(mockGoogleClient.listSites.called).to.be.true;
       expect(testContext.log.info.calledWith('GSC configuration for site https://example.com/: Configured and connected')).to.be.true;
-      expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: true, Import: false, Scraping: false')).to.be.true;
+      expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: false, AHREFS Import: false, GSC: true, Scraping: false')).to.be.true;
 
       createFromStub.restore();
     });
@@ -614,7 +614,7 @@ describe('Opportunity Status Processor', () => {
 
       // Check that the error was logged
       expect(testContext.log.info.calledWith('GSC is not configured for site https://example.com/. Reason: GSC not configured')).to.be.true;
-      expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: false, AHREFS: false, GSC: false, Import: false, Scraping: false')).to.be.true;
+      expect(testContext.log.info.calledWith('Found 0 opportunities for site test-site-id. Data sources - RUM: false, AHREFS Import: false, GSC: false, Scraping: false')).to.be.true;
 
       createFromStub.restore();
     });
@@ -642,12 +642,12 @@ describe('Opportunity Status Processor', () => {
       expect(context.log.info.calledWithMatch('Processing opportunities')).to.be.true;
     });
 
-    it('should detect AHREFS failure from runbook', async () => {
+    it('should detect AHREFSImport failure from runbook', async () => {
       const mockOpportunities = [
         {
           getType: () => 'seo',
           getSuggestions: sinon.stub().resolves([]),
-          getData: () => ({ runbook: 'AHREFS data is required for this analysis' }),
+          getData: () => ({ runbook: 'AHREFSImport data is required for this analysis' }),
         },
       ];
       mockSite.getOpportunities.resolves(mockOpportunities);
@@ -728,44 +728,6 @@ describe('Opportunity Status Processor', () => {
 
       // Should warn about missing but not analyze
       expect(context.log.warn.calledWith('Missing opportunities for site test-site-id: cwv')).to.be.true;
-    });
-
-    it('should check import availability', async () => {
-      // Mock top pages data
-      context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.resolves([
-        { url: 'https://example.com/page1' },
-        { url: 'https://example.com/page2' },
-      ]);
-
-      const mockOpportunities = [
-        {
-          getType: () => 'meta-tags',
-          getSuggestions: sinon.stub().resolves([]),
-        },
-      ];
-      mockSite.getOpportunities.resolves(mockOpportunities);
-
-      await runOpportunityStatusProcessor(message, context);
-
-      expect(context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.calledWith('test-site-id')).to.be.true;
-      expect(context.log.info.calledWith('Import check: Found 2 imported top pages for site test-site-id')).to.be.true;
-    });
-
-    it('should detect when import is not available', async () => {
-      // Mock no top pages data
-      context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.resolves([]);
-
-      const mockOpportunities = [
-        {
-          getType: () => 'meta-tags',
-          getSuggestions: sinon.stub().resolves([]),
-        },
-      ];
-      mockSite.getOpportunities.resolves(mockOpportunities);
-
-      await runOpportunityStatusProcessor(message, context);
-
-      expect(context.log.warn.calledWith('Import check: No imported top pages found for site test-site-id')).to.be.true;
     });
 
     it('should handle missing opportunities with unmet dependencies', async () => {
@@ -901,16 +863,16 @@ describe('Opportunity Status Processor', () => {
     });
   });
 
-  describe('Import and AHREFS Checks', () => {
-    it('should handle import check errors gracefully', async () => {
+  describe('Import and AHREFSImport Checks', () => {
+    it('should handle AHREFSImport check errors gracefully', async () => {
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.rejects(new Error('Database error'));
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.log.warn.calledWithMatch('Import check failed')).to.be.true;
+      expect(context.log.error.calledWithMatch('Error checking AHREFS Import data availability')).to.be.true;
     });
 
-    it('should check AHREFS data with specific source and geo parameters', async () => {
+    it('should check AHREFSImport data with specific source and geo parameters', async () => {
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
         .withArgs('test-site-id', 'ahrefs', 'global')
         .resolves([{ url: 'https://example.com/page1' }]);
@@ -921,7 +883,7 @@ describe('Opportunity Status Processor', () => {
         .calledWith('test-site-id', 'ahrefs', 'global')).to.be.true;
     });
 
-    it('should log AHREFS data availability with page count', async () => {
+    it('should log AHREFS Import data availability with page count', async () => {
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
         .withArgs('test-site-id', 'ahrefs', 'global')
         .resolves([
@@ -932,7 +894,7 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.log.info.calledWithMatch('AHREFS data availability')).to.be.true;
+      expect(context.log.info.calledWithMatch('AHREFS Import data availability')).to.be.true;
       expect(context.log.info.calledWithMatch('3 top pages')).to.be.true;
     });
   });
@@ -1371,7 +1333,7 @@ describe('Opportunity Status Processor', () => {
       };
       message.taskContext.auditTypes = ['cwv', 'broken-backlinks'];
 
-      // Mock AHREFS and Import available
+      // Mock AHREFSImport and Import available
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
         .withArgs(message.siteId, 'ahrefs', 'global')
         .resolves([{ url: 'https://example.com/page1' }]);
@@ -1389,7 +1351,7 @@ describe('Opportunity Status Processor', () => {
         {
           getType: () => 'broken-backlinks',
           getSuggestions: sinon.stub().resolves([]),
-          getData: () => ({ runbook: 'AHREFS data required' }),
+          getData: () => ({ runbook: 'AHREFSImport data required' }),
         },
       ];
       mockSite.getOpportunities.resolves(mockOpportunities);
@@ -1719,7 +1681,7 @@ describe('Opportunity Status Processor', () => {
         threadTs: 'test-thread',
       };
 
-      // Mock import and AHREFS as available
+      // Mock import and AHREFSImport as available
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo = sinon.stub();
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
         .withArgs(message.siteId)
@@ -1738,7 +1700,7 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      // When no siteUrl, RUM/GSC/Scraping are false, but AHREFS and Import are true
+      // When no siteUrl, RUM/GSC/Scraping are false, but AHREFSImport and Import are true
       // This will trigger "Services requiring log analysis" log,
       // not "All service preconditions passed"
       // The test verifies the function executes without errors

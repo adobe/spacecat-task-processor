@@ -45,26 +45,25 @@ async function isRUMAvailable(domain, context) {
 }
 
 /**
- * Checks if AHREFS data is available by checking if top pages exist for the site
+ * Checks if AHREFSImport data is available by checking if top pages exist for the site
  * @param {string} siteId - The site ID to check
  * @param {object} dataAccess - The data access object
  * @param {object} context - The context object with log
- * @returns {Promise<boolean>} True if AHREFS data is available, false otherwise
+ * @returns {Promise<boolean>} True if AHREFS Import data is available, false otherwise
  */
-async function isAHREFSDataAvailable(siteId, dataAccess, context) {
+async function isAHREFSImportDataAvailable(siteId, dataAccess, context) {
   const { log } = context;
   const { SiteTopPage } = dataAccess;
 
   try {
-    // Check if top pages exist from AHREFS source
     const topPages = await SiteTopPage.allBySiteIdAndSourceAndGeo(siteId, 'ahrefs', 'global');
 
     const hasData = topPages && topPages.length > 0;
-    log.info(`AHREFS data availability for site ${siteId}: ${hasData ? 'Available' : 'Not available'} (${topPages?.length || 0} top pages)`);
+    log.info(`AHREFS Import data availability for site ${siteId}: ${hasData ? 'Available' : 'Not available'} (${topPages?.length || 0} top pages)`);
 
     return hasData;
   } catch (error) {
-    log.error(`Error checking AHREFS data availability for site ${siteId}: ${error.message}`);
+    log.error(`Error checking AHREFS Import data availability for site ${siteId}: ${error.message}`);
     return false;
   }
 }
@@ -119,34 +118,6 @@ function getOpportunityTitle(opportunityType) {
     .split('-')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
-}
-
-/**
- * Checks if import functionality is available for a site
- * @param {string} siteId - The site ID to check
- * @param {object} dataAccess - The data access object
- * @param {object} context - The context object with env and log
- * @returns {Promise<boolean>} True if imports are available, false otherwise
- */
-async function isImportAvailable(siteId, dataAccess, context) {
-  const { log } = context;
-  const { SiteTopPage } = dataAccess;
-
-  try {
-    // Check if there are any imported top pages for this site
-    const topPages = await SiteTopPage.allBySiteIdAndSourceAndGeo(siteId);
-
-    if (topPages && topPages.length > 0) {
-      log.info(`Import check: Found ${topPages.length} imported top pages for site ${siteId}`);
-      return true;
-    }
-
-    log.warn(`Import check: No imported top pages found for site ${siteId}`);
-    return false;
-  } catch (error) {
-    log.warn(`Import check failed for site ${siteId}:`, error);
-    return false;
-  }
 }
 
 /**
@@ -395,9 +366,8 @@ export async function runOpportunityStatusProcessor(message, context) {
 
     // Check data source availability and service preconditions
     let rumAvailable = false;
-    let ahrefsAvailable = false;
+    let ahrefsImportAvailable = false;
     let gscConfigured = false;
-    let importAvailable = false;
     let scrapingAvailable = false;
 
     if (siteUrl) {
@@ -414,8 +384,7 @@ export async function runOpportunityStatusProcessor(message, context) {
       }
     }
 
-    ahrefsAvailable = await isAHREFSDataAvailable(siteId, dataAccess, context);
-    importAvailable = await isImportAvailable(siteId, dataAccess, context);
+    ahrefsImportAvailable = await isAHREFSImportDataAvailable(siteId, dataAccess, context);
 
     const opportunities = await site.getOpportunities();
 
@@ -434,9 +403,9 @@ export async function runOpportunityStatusProcessor(message, context) {
     // Determine service status for dependency checking
     const serviceStatus = {
       rum: rumAvailable,
-      ahrefs: ahrefsAvailable,
+      ahrefs: ahrefsImportAvailable,
       gsc: gscConfigured,
-      import: importAvailable,
+      import: ahrefsImportAvailable, // Import and AHREFS are the same
       scraping: scrapingAvailable,
     };
 
@@ -479,22 +448,20 @@ export async function runOpportunityStatusProcessor(message, context) {
 
     const opportunityWord = opportunities.length === 1 ? 'opportunity' : 'opportunities';
     log.info(`Found ${opportunities.length} ${opportunityWord} for site ${siteId}. `
-      + `Data sources - RUM: ${rumAvailable}, AHREFS: ${ahrefsAvailable}, `
-      + `GSC: ${gscConfigured}, Import: ${importAvailable}, Scraping: ${scrapingAvailable}`);
+      + `Data sources - RUM: ${rumAvailable}, AHREFS Import: ${ahrefsImportAvailable}, `
+      + `GSC: ${gscConfigured}, Scraping: ${scrapingAvailable}`);
 
     const statusMessages = [];
 
     // Data source and service precondition status
     const rumStatus = rumAvailable ? ':white_check_mark:' : ':x:';
-    const ahrefsStatus = ahrefsAvailable ? ':white_check_mark:' : ':x:';
+    const ahrefsImportStatus = ahrefsImportAvailable ? ':white_check_mark:' : ':x:';
     const gscStatus = gscConfigured ? ':white_check_mark:' : ':x:';
-    const importStatus = importAvailable ? ':white_check_mark:' : ':x:';
     const scrapingStatus = scrapingAvailable ? ':white_check_mark:' : ':x:';
 
     statusMessages.push(`RUM ${rumStatus}`);
-    statusMessages.push(`AHREFS ${ahrefsStatus}`);
+    statusMessages.push(`AHREFS Import ${ahrefsImportStatus}`);
     statusMessages.push(`GSC ${gscStatus}`);
-    statusMessages.push(`Import ${importStatus}`);
     statusMessages.push(`Scraping ${scrapingStatus}`);
 
     // Process opportunities by type to avoid duplicates
@@ -530,8 +497,8 @@ export async function runOpportunityStatusProcessor(message, context) {
         if (runbook) {
           if (runbook.includes('RUM') || runbook.includes('rum')) {
             specificReason = 'RUM data not available';
-          } else if (runbook.includes('AHREFS') || runbook.includes('ahrefs')) {
-            specificReason = 'AHREFS data not available';
+          } else if (runbook.includes('AHREFSImport') || runbook.includes('ahrefs')) {
+            specificReason = 'AHREFS Import data not available';
           } else if (runbook.includes('GSC') || runbook.includes('Google Search Console')) {
             specificReason = 'GSC not configured';
           }
@@ -555,9 +522,8 @@ export async function runOpportunityStatusProcessor(message, context) {
 
       const dataSourceMessages = [];
       dataSourceMessages.push(`RUM ${rumAvailable ? ':white_check_mark:' : ':x:'}`);
-      dataSourceMessages.push(`AHREFS ${ahrefsAvailable ? ':white_check_mark:' : ':x:'}`);
+      dataSourceMessages.push(`AHREFS Import ${ahrefsImportAvailable ? ':white_check_mark:' : ':x:'}`);
       dataSourceMessages.push(`GSC ${gscConfigured ? ':white_check_mark:' : ':x:'}`);
-      dataSourceMessages.push(`Import ${importAvailable ? ':white_check_mark:' : ':x:'}`);
       dataSourceMessages.push(`Scraping ${scrapingAvailable ? ':white_check_mark:' : ':x:'}`);
 
       await say(env, log, slackContext, dataSourceMessages.join('\n'));
@@ -566,9 +532,8 @@ export async function runOpportunityStatusProcessor(message, context) {
       await say(env, log, slackContext, `*Opportunity Statuses for site ${siteUrl}*`);
       const opportunityMessages = statusMessages.filter(
         (msg) => !msg.includes('RUM')
-          && !msg.includes('AHREFS')
+          && !msg.includes('AHREFS Import')
           && !msg.includes('GSC')
-          && !msg.includes('Import')
           && !msg.includes('Scraping'),
       );
       if (opportunityMessages.length > 0) {
@@ -577,29 +542,20 @@ export async function runOpportunityStatusProcessor(message, context) {
         await say(env, log, slackContext, 'No opportunities found for this site');
       }
 
-      // Section 3: Audit Processing Errors
       await say(env, log, slackContext, `*Audit Processing Errors for site ${siteUrl}*`);
 
       const auditErrors = [];
 
-      // Check Import availability
-      if (!importAvailable) {
-        auditErrors.push('Import: No imported top pages found :x:');
+      if (!ahrefsImportAvailable) {
+        auditErrors.push('AHREFS Import: No data found :x:');
       }
 
-      // Check Scraping availability
       if (!scrapingAvailable) {
         auditErrors.push('Scraping: Site not scrapable :x:');
       }
 
-      // Check RUM configuration
       if (!rumAvailable) {
         auditErrors.push('RUM: Not configured :x:');
-      }
-
-      // Check AHREFS data
-      if (!ahrefsAvailable) {
-        auditErrors.push('AHREFS: No data found :x:');
       }
 
       // Check GSC configuration
@@ -626,11 +582,11 @@ export async function runOpportunityStatusProcessor(message, context) {
       opportunitiesProcessed: opportunities.length,
       dataSources: {
         rum: rumAvailable,
-        ahrefs: ahrefsAvailable,
+        ahrefsImport: ahrefsImportAvailable,
         gsc: gscConfigured,
       },
       servicePreconditions: {
-        import: importAvailable,
+        import: ahrefsImportAvailable, // Import and AHREFS are the same
         scraping: scrapingAvailable,
       },
     });
