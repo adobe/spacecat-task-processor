@@ -150,163 +150,11 @@ async function isImportAvailable(siteId, dataAccess, context) {
 }
 
 /**
- * Checks if robots.txt blocks scraping for a site
- * @param {string} siteUrl - The site URL to check
- * @param {object} log - The logger object
- * @returns {Promise<boolean>} True if robots.txt allows scraping, false if blocked
- */
-async function checkRobotsTxt(siteUrl, log) {
-  try {
-    const url = new URL(siteUrl);
-    const robotsUrl = `${url.protocol}//${url.hostname}/robots.txt`;
-
-    const response = await fetch(robotsUrl, {
-      method: 'GET',
-      headers: { 'User-Agent': 'SpaceCat-Bot/1.0' },
-      signal: AbortSignal.timeout(5000), // 5 second timeout
-    });
-
-    if (!response.ok) {
-      // If robots.txt doesn't exist (404), assume scraping is allowed
-      log.info(`Scraping check: No robots.txt found at ${robotsUrl}, assuming allowed`);
-      return true;
-    }
-
-    const robotsTxt = await response.text();
-
-    // Check if our user agent or wildcard (*) is disallowed
-    const lines = robotsTxt.split('\n');
-    let currentUserAgent = null;
-    let isBlocked = false;
-
-    for (const line of lines) {
-      const trimmed = line.trim().toLowerCase();
-
-      // Check User-agent lines
-      if (trimmed.startsWith('user-agent:')) {
-        const agent = trimmed.split(':')[1].trim();
-        currentUserAgent = (agent === '*' || agent.includes('spacecat')) ? agent : null;
-      }
-
-      // Check Disallow lines for our user agent
-      if (currentUserAgent && trimmed.startsWith('disallow:')) {
-        const disallowPath = trimmed.split(':')[1].trim();
-        // If Disallow: / then the entire site is blocked
-        if (disallowPath === '/') {
-          isBlocked = true;
-          log.warn(`Scraping check: robots.txt blocks scraping for ${currentUserAgent} at ${siteUrl}`);
-          break;
-        }
-      }
-    }
-
-    if (isBlocked) {
-      return false;
-    }
-
-    log.info(`Scraping check: robots.txt allows scraping at ${siteUrl}`);
-    return true;
-  } catch (error) {
-    // If we can't check robots.txt, assume scraping is allowed
-    log.info(`Scraping check: Could not fetch robots.txt for ${siteUrl}, assuming allowed: ${error.message}`);
-    return true;
-  }
-}
-
-/**
- * Checks if site is reachable with a HEAD request
- * @param {string} siteUrl - The site URL to check
- * @param {object} log - The logger object
- * @returns {Promise<boolean>} True if site is reachable, false otherwise
- */
-async function isSiteReachable(siteUrl, log) {
-  try {
-    const response = await fetch(siteUrl, {
-      method: 'HEAD',
-      headers: { 'User-Agent': 'SpaceCat-Bot/1.0' },
-      signal: AbortSignal.timeout(10000), // 10 second timeout
-      redirect: 'follow',
-    });
-
-    if (response.ok) {
-      log.info(`Scraping check: Site ${siteUrl} is reachable (status: ${response.status})`);
-      return true;
-    }
-
-    log.warn(`Scraping check: Site ${siteUrl} returned non-OK status: ${response.status}`);
-    return false;
-  } catch (error) {
-    log.warn(`Scraping check: Site ${siteUrl} is not reachable: ${error.message}`);
-    return false;
-  }
-}
-
-/**
- * Checks recent scraping success rate from CloudWatch logs
- * @param {string} siteId - The site ID
- * @param {object} context - The context object
- * @returns {Promise<{success: number, total: number, rate: number}>} Scraping success rate
- */
-async function checkScrapingSuccessRate(siteId, context) {
-  const { log, env } = context;
-  const logGroupName = '/aws/lambda/spacecat-services--content-scraper';
-
-  try {
-    const cloudWatchClient = new CloudWatchLogsClient({ region: env.AWS_REGION || 'us-east-1' });
-
-    // Check for scraping events in the last 24 hours
-    const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
-
-    // Search for successful scrapes
-    const successCommand = new FilterLogEventsCommand({
-      logGroupName,
-      filterPattern: `"successfully scraped" "${siteId}"`,
-      startTime: oneDayAgo,
-      endTime: Date.now(),
-    });
-
-    const successResponse = await cloudWatchClient.send(successCommand);
-    const successCount = successResponse.events?.length || 0;
-
-    // Search for failed scrapes
-    const failureCommand = new FilterLogEventsCommand({
-      logGroupName,
-      filterPattern: `"failed to scrape" "${siteId}"`,
-      startTime: oneDayAgo,
-      endTime: Date.now(),
-    });
-
-    const failureResponse = await cloudWatchClient.send(failureCommand);
-    const failureCount = failureResponse.events?.length || 0;
-
-    const totalAttempts = successCount + failureCount;
-    const successRate = totalAttempts > 0 ? (successCount / totalAttempts) : 1.0;
-
-    log.info(`Scraping check: Recent scraping stats for site ${siteId} - `
-      + `Success: ${successCount}, Failed: ${failureCount}, Rate: ${(successRate * 100).toFixed(1)}%`);
-
-    return {
-      success: successCount,
-      total: totalAttempts,
-      rate: successRate,
-    };
-  } catch (error) {
-    log.warn(`Scraping check: Could not check recent scraping success rate: ${error.message}`);
-    // Return neutral result if we can't check logs
-    return { success: 0, total: 0, rate: 1.0 };
-  }
-}
-
-/**
  * Checks if scraping functionality is available for a site
- * Performs multiple checks:
- * 1. Validates URL is accessible
- * 2. Checks if robots.txt blocks scraping
- * 3. Verifies site is reachable with HEAD request
- * 4. Analyzes recent scraping success rate from logs
+ * Validates that the URL is accessible and resolvable
  *
  * @param {string} siteUrl - The site URL to check
- * @param {string} siteId - The site ID (optional, for log analysis)
+ * @param {string} siteId - The site ID (unused, kept for API compatibility)
  * @param {object} context - The context object with env and log
  * @returns {Promise<boolean>} True if scraping is available, false otherwise
  */
@@ -319,45 +167,14 @@ async function isScrapingAvailable(siteUrl, siteId, context) {
       return false;
     }
 
-    // Check 1: Validate URL is accessible
+    // Validate URL is accessible and resolvable
     const resolvedUrl = await resolveCanonicalUrl(siteUrl, log);
     if (!resolvedUrl) {
       log.warn(`Scraping check: Could not resolve URL ${siteUrl}`);
       return false;
     }
 
-    // Check 2: Check if robots.txt blocks scraping
-    const robotsAllowed = await checkRobotsTxt(resolvedUrl, log);
-    if (!robotsAllowed) {
-      log.warn(`Scraping check: Site ${siteUrl} blocks scraping via robots.txt`);
-      return false;
-    }
-
-    // Check 3: Verify site is reachable
-    const isReachable = await isSiteReachable(resolvedUrl, log);
-    if (!isReachable) {
-      log.warn(`Scraping check: Site ${siteUrl} is not reachable`);
-      return false;
-    }
-
-    // Check 4: Analyze recent scraping success rate (if siteId provided)
-    if (siteId) {
-      const scrapingStats = await checkScrapingSuccessRate(siteId, context);
-
-      // If there have been recent scraping attempts and success rate is low, flag as unavailable
-      if (scrapingStats.total >= 5 && scrapingStats.rate < 0.5) {
-        log.warn(`Scraping check: Site ${siteUrl} has low recent success rate: `
-          + `${(scrapingStats.rate * 100).toFixed(1)}% (${scrapingStats.success}/${scrapingStats.total})`);
-        return false;
-      }
-
-      if (scrapingStats.total > 0) {
-        log.info(`Scraping check: Site ${siteUrl} has acceptable scraping success rate: `
-          + `${(scrapingStats.rate * 100).toFixed(1)}% (${scrapingStats.success}/${scrapingStats.total})`);
-      }
-    }
-
-    log.info(`Scraping check: Site ${siteUrl} appears scrapable - all checks passed`);
+    log.info(`Scraping check: Site ${siteUrl} is scrapable (URL validated)`);
     return true;
   } catch (error) {
     log.warn(`Scraping check failed for ${siteUrl}:`, error);
