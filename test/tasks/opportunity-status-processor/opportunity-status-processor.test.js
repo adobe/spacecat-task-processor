@@ -889,16 +889,6 @@ describe('Opportunity Status Processor', () => {
       expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
     });
 
-    it('should handle scraping failure reason extraction', async () => {
-      message.siteUrl = 'https://example.com';
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-
-      await runOpportunityStatusProcessor(message, context);
-
-      // Should attempt to check scraping failures
-      expect(mockSite.getOpportunities.called).to.be.true;
-    });
-
     it('should report unknown reason when audit executed but opportunity missing', async () => {
       message.taskContext.auditTypes = ['cwv'];
       message.taskContext.onboardStartTime = Date.now() - 3600000;
@@ -1246,23 +1236,6 @@ describe('Opportunity Status Processor', () => {
       expect(mockSite.getOpportunities.called).to.be.true;
     });
 
-    it('should handle scraping failure with detailed error message', async () => {
-      message.siteUrl = 'https://example.com';
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-
-      // Mock CloudWatch to return scraping failure
-      context.mockCloudWatchSend.resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: 'failed to scrape URL https://example.com: Timeout exceeded at request.js:45',
-        }],
-      });
-
-      await runOpportunityStatusProcessor(message, context);
-
-      expect(mockSite.getOpportunities.called).to.be.true;
-    });
-
     it('should analyze missing opportunities with all dependencies met', async () => {
       message.taskContext.auditTypes = ['cwv'];
       message.taskContext.onboardStartTime = Date.now() - 3600000;
@@ -1281,11 +1254,8 @@ describe('Opportunity Status Processor', () => {
         }],
       });
 
-      // Mock no failure found
+      // Mock no failure found - should report as "unknown reason"
       context.mockCloudWatchSend.onSecondCall().resolves({ events: [] });
-
-      // Mock no scraping failure
-      context.mockCloudWatchSend.onThirdCall().resolves({ events: [] });
 
       await runOpportunityStatusProcessor(message, context);
 
@@ -1706,84 +1676,6 @@ describe('Opportunity Status Processor', () => {
       expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
     });
 
-    it('should extract scraping failure with error match', async () => {
-      message.siteUrl = 'https://example.com';
-      message.taskContext.auditTypes = ['alt-text'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-      mockSite.getOpportunities.resolves([]);
-
-      // Mock audit executed
-      context.mockCloudWatchSend.onFirstCall().resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `Received alt-text audit request for: ${message.siteId}`,
-        }],
-      });
-
-      // No audit failure
-      context.mockCloudWatchSend.onSecondCall().resolves({ events: [] });
-
-      // Mock scraping failure
-      context.mockCloudWatchSend.onThirdCall().resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `failed to scrape URL ${message.siteUrl}: Connection timeout occurred at scraper.js:56`,
-        }],
-      });
-
-      await runOpportunityStatusProcessor(message, context);
-
-      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
-    });
-
-    it('should handle scraping failure without match', async () => {
-      message.siteUrl = 'https://example.com';
-      message.taskContext.auditTypes = ['alt-text'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-      mockSite.getOpportunities.resolves([]);
-
-      // Mock scraping failure without detailed message
-      context.mockCloudWatchSend.onThirdCall().resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: 'failed to scrape URL',
-        }],
-      });
-
-      await runOpportunityStatusProcessor(message, context);
-
-      expect(mockSite.getOpportunities.called).to.be.true;
-    });
-
-    it('should handle audit executed but no scraping failure found (unknown reason)', async () => {
-      message.siteUrl = 'https://example.com';
-      message.taskContext.auditTypes = ['alt-text'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-      mockSite.getOpportunities.resolves([]);
-
-      // Mock audit was executed
-      context.mockCloudWatchSend.onFirstCall().resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `Received alt-text audit request for: ${message.siteId}`,
-        }],
-      });
-
-      // No audit failure reason found
-      context.mockCloudWatchSend.onSecondCall().resolves({
-        events: [],
-      });
-
-      // No scraping failure found either
-      context.mockCloudWatchSend.onThirdCall().resolves({
-        events: [],
-      });
-
-      await runOpportunityStatusProcessor(message, context);
-
-      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
-    });
-
     it('should trigger audit failure path (lines 616-620)', async () => {
       // Use meta-tags which only depends on 'top-pages' (import)
       message.taskContext.auditTypes = ['meta-tags'];
@@ -1894,31 +1786,6 @@ describe('Opportunity Status Processor', () => {
 
       // Mock CloudWatch error on second call
       context.mockCloudWatchSend.onSecondCall().rejects(new Error('CloudWatch service error'));
-
-      await runOpportunityStatusProcessor(message, context);
-
-      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
-    });
-
-    it('should handle CloudWatch error in getScrapingFailureReason (lines 523-525)', async () => {
-      message.siteUrl = 'https://example.com';
-      message.taskContext.auditTypes = ['alt-text'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-      mockSite.getOpportunities.resolves([]);
-
-      // Mock audit execution
-      context.mockCloudWatchSend.onFirstCall().resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `Received alt-text audit request for: ${message.siteId}`,
-        }],
-      });
-
-      // Mock no audit failure
-      context.mockCloudWatchSend.onSecondCall().resolves({ events: [] });
-
-      // Mock CloudWatch error on third call (scraping failure check)
-      context.mockCloudWatchSend.onThirdCall().rejects(new Error('CloudWatch timeout'));
 
       await runOpportunityStatusProcessor(message, context);
 

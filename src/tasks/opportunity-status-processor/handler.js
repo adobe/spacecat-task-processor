@@ -255,48 +255,6 @@ async function getAuditFailureReason(auditType, siteId, onboardStartTime, contex
 }
 
 /**
- * Searches CloudWatch logs for scraping failure reason
- * @param {string} siteId - The site ID
- * @param {number} onboardStartTime - The onboarding start timestamp
- * @param {object} context - The context object
- * @returns {Promise<string|null>} The failure reason or null if not found
- */
-async function getScrapingFailureReason(siteId, onboardStartTime, context) {
-  const { log, env } = context;
-  const logGroupName = '/aws/lambda/spacecat-services--content-scraper';
-
-  try {
-    const cloudWatchClient = new CloudWatchLogsClient({ region: env.AWS_REGION || 'us-east-1' });
-    const filterPattern = '"failed to scrape URL"';
-
-    const command = new FilterLogEventsCommand({
-      logGroupName,
-      filterPattern,
-      startTime: onboardStartTime,
-      endTime: Date.now(),
-    });
-
-    const response = await cloudWatchClient.send(command);
-
-    if (response.events && response.events.length > 0) {
-      // Return the first scraping failure message
-      const { message } = response.events[0];
-      // Extract the relevant error details
-      const errorMatch = message.match(/failed to scrape URL[^:]*:\s*(.+?)(?:\s+at\s|$)/i);
-      if (errorMatch && errorMatch[1]) {
-        return errorMatch[1].trim();
-      }
-      return 'Scraping failed - see logs for details';
-    }
-
-    return null;
-  } catch (error) {
-    log.error('Error checking scraping failure:', error);
-    return null;
-  }
-}
-
-/**
  * Analyzes missing opportunities and determines the root cause
  * @param {Array<string>} missingOpportunities - Array of missing opportunity types
  * @param {Array<string>} auditTypes - Array of audit types from profile
@@ -390,26 +348,11 @@ async function analyzeMissingOpportunities(
           reason: `Audit failed: ${failureReason}`,
         });
       } else {
-        // Check for scraping failures if audit requires scraping
-        const scrapingFailureReason = await getScrapingFailureReason(
-          siteId,
-          onboardStartTime,
-          context,
-        );
-
-        if (scrapingFailureReason) {
-          results.push({
-            opportunity: opportunityType,
-            audit: auditType,
-            reason: `Scraping failed: ${scrapingFailureReason}`,
-          });
-        } else {
-          results.push({
-            opportunity: opportunityType,
-            audit: auditType,
-            reason: 'Reason unknown - audit executed but opportunity not created',
-          });
-        }
+        results.push({
+          opportunity: opportunityType,
+          audit: auditType,
+          reason: 'Reason unknown - audit executed but opportunity not created',
+        });
       }
     }
   }
