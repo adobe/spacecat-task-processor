@@ -648,9 +648,7 @@ export async function runOpportunityStatusProcessor(message, context) {
       // Add missing opportunities analysis
       if (missingOpportunitiesAnalysis.length > 0) {
         for (const analysis of missingOpportunitiesAnalysis) {
-          auditErrors.push(`Missing Opportunity: ${analysis.opportunity} :x:`);
-          auditErrors.push(`     Audit: ${analysis.audit}`);
-          auditErrors.push(`     Reason: ${analysis.reason}`);
+          auditErrors.push(`${analysis.opportunity}: ${analysis.reason} :x:`);
         }
       }
 
