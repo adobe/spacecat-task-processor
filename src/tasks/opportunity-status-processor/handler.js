@@ -481,12 +481,14 @@ export async function runOpportunityStatusProcessor(message, context) {
       (expectedType) => !uniqueActualOpportunityTypes.includes(expectedType),
     );
 
+    // Store missing opportunities analysis for later display in Audit Processing Errors section
+    let missingOpportunitiesAnalysis = [];
     if (missingOpportunities.length > 0) {
       log.warn(`Missing opportunities for site ${siteId}: ${missingOpportunities.join(', ')}`);
 
       // Analyze missing opportunities to determine root cause
       if (onboardStartTime) {
-        const missingOpportunitiesAnalysis = await analyzeMissingOpportunities(
+        missingOpportunitiesAnalysis = await analyzeMissingOpportunities(
           missingOpportunities,
           auditTypes,
           siteId,
@@ -494,16 +496,6 @@ export async function runOpportunityStatusProcessor(message, context) {
           serviceStatus,
           context,
         );
-
-        // Send Slack messages for each missing opportunity
-        /* eslint-disable no-await-in-loop */
-        for (const analysis of missingOpportunitiesAnalysis) {
-          const slackMessage = `:x: *Missing Opportunity: ${analysis.opportunity}*\n`
-            + `Audit: \`${analysis.audit}\`\n`
-            + `Reason: ${analysis.reason}`;
-          await say(env, log, slackContext, slackMessage);
-        }
-        /* eslint-enable no-await-in-loop */
       }
     } else if (expectedOpportunityTypes.length > 0) {
       log.info(`All expected opportunities are present for site ${siteId}`);
@@ -650,6 +642,15 @@ export async function runOpportunityStatusProcessor(message, context) {
       if (failedOpportunities.length > 0) {
         for (const failed of failedOpportunities) {
           auditErrors.push(`${failed.title}: ${failed.reason} :x:`);
+        }
+      }
+
+      // Add missing opportunities analysis
+      if (missingOpportunitiesAnalysis.length > 0) {
+        for (const analysis of missingOpportunitiesAnalysis) {
+          auditErrors.push(`Missing Opportunity: ${analysis.opportunity} :x:`);
+          auditErrors.push(`     Audit: ${analysis.audit}`);
+          auditErrors.push(`     Reason: ${analysis.reason}`);
         }
       }
 
