@@ -14,6 +14,7 @@ import { ok } from '@adobe/spacecat-shared-http-utils';
 import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
 import RUMAPIClient from '@adobe/spacecat-shared-rum-api-client';
 import GoogleClient from '@adobe/spacecat-shared-google-client';
+import { ScrapeClient } from '@adobe/spacecat-shared-scrape-client';
 import { resolveCanonicalUrl } from '@adobe/spacecat-shared-utils';
 import { say } from '../../utils/slack-utils.js';
 import { getOpportunitiesForAudit } from './audit-opportunity-map.js';
@@ -121,35 +122,72 @@ function getOpportunityTitle(opportunityType) {
 }
 
 /**
- * Checks if scraping functionality is available for a site
- * Validates that the URL is accessible and resolvable
+ * Checks if scraping functionality is available for a site by analyzing recent scrape jobs
+ * Fetches latest scrape job results and provides detailed URL-level status
  *
- * @param {string} siteUrl - The site URL to check
+ * @param {string} baseUrl - The base URL to check
  * @param {string} siteId - The site ID (unused, kept for API compatibility)
  * @param {object} context - The context object with env and log
- * @returns {Promise<boolean>} True if scraping is available, false otherwise
+ * @returns {Promise<{available: boolean, results: Array}>} Scraping availability and URL results
  */
-async function isScrapingAvailable(siteUrl, siteId, context) {
+async function isScrapingAvailable(baseUrl, siteId, context) {
   const { log } = context;
 
   try {
-    if (!siteUrl) {
-      log.warn('Scraping check: No siteUrl provided');
-      return false;
+    if (!baseUrl) {
+      log.warn('Scraping check: No baseUrl provided');
+      return { available: false, results: [] };
     }
 
-    // Validate URL is accessible and resolvable
-    const resolvedUrl = await resolveCanonicalUrl(siteUrl, log);
-    if (!resolvedUrl) {
-      log.warn(`Scraping check: Could not resolve URL ${siteUrl}`);
-      return false;
+    // Create scrape client
+    const scrapeClient = ScrapeClient.createFrom(context);
+
+    // Get all scrape jobs for this baseUrl with 'default' processing type
+    const jobs = await scrapeClient.getScrapeJobsByBaseURL(baseUrl, 'default');
+
+    if (!jobs || jobs.length === 0) {
+      log.info(`Scraping check: No scrape jobs found for ${baseUrl}`);
+      return { available: false, results: [] };
     }
 
-    log.info(`Scraping check: Site ${siteUrl} is scrapable (URL validated)`);
-    return true;
+    // Sort jobs by date (latest first) - assuming jobs have a timestamp field
+    const sortedJobs = jobs.sort((a, b) => {
+      const dateA = new Date(b.startedAt || b.createdAt || 0);
+      const dateB = new Date(a.startedAt || a.createdAt || 0);
+      return dateA - dateB;
+    });
+
+    // Find the first job that has URL results
+    let jobWithResults = null;
+    let urlResults = [];
+
+    /* eslint-disable no-await-in-loop */
+    for (const job of sortedJobs) {
+      const results = await scrapeClient.getScrapeJobUrlResults(job.id);
+      if (results && results.length > 0) {
+        jobWithResults = job;
+        urlResults = results;
+        break;
+      }
+    }
+    /* eslint-enable no-await-in-loop */
+
+    if (!jobWithResults) {
+      log.info(`Scraping check: No jobs with URL results found for ${baseUrl}`);
+      return { available: false, results: [] };
+    }
+
+    // Check if at least one URL was successfully scraped (status === 'COMPLETE')
+    const hasSuccessfulScrape = urlResults.some((result) => result.status === 'COMPLETE');
+
+    return {
+      available: hasSuccessfulScrape,
+      results: urlResults,
+      jobId: jobWithResults.id,
+    };
   } catch (error) {
-    log.warn(`Scraping check failed for ${siteUrl}:`, error);
-    return false;
+    log.error(`Scraping check failed for ${baseUrl}:`, error);
+    return { available: false, results: [] };
   }
 }
 
@@ -284,12 +322,11 @@ async function analyzeMissingOpportunities(
       const unmetDeps = [];
 
       for (const dep of dependencies) {
-        const depKey = dep.toLowerCase();
-        if (depKey === 'rum' && !serviceStatus.rum) {
+        if (dep === 'RUM' && !serviceStatus.rum) {
           unmetDeps.push('RUM');
-        } else if (depKey === 'top-pages' && !serviceStatus.import) {
-          unmetDeps.push('Import (top-pages)');
-        } else if (depKey === 'scraping' && !serviceStatus.scraping) {
+        } else if (dep === 'AHREFSImport' && !serviceStatus.ahrefsImport) {
+          unmetDeps.push('AHREFS Import');
+        } else if (dep === 'scraping' && !serviceStatus.scraping) {
           unmetDeps.push('Scraping');
         }
       }
@@ -369,22 +406,7 @@ export async function runOpportunityStatusProcessor(message, context) {
     let ahrefsImportAvailable = false;
     let gscConfigured = false;
     let scrapingAvailable = false;
-
-    if (siteUrl) {
-      try {
-        const resolvedUrl = await resolveCanonicalUrl(siteUrl);
-        log.info(`Resolved URL: ${resolvedUrl}`);
-        const domain = new URL(resolvedUrl).hostname;
-
-        rumAvailable = await isRUMAvailable(domain, context);
-        gscConfigured = await isGSCConfigured(resolvedUrl, context);
-        scrapingAvailable = await isScrapingAvailable(siteUrl, siteId, context);
-      } catch (error) {
-        log.warn(`Could not resolve canonical URL or parse siteUrl for data source checks: ${siteUrl}`, error);
-      }
-    }
-
-    ahrefsImportAvailable = await isAHREFSImportDataAvailable(siteId, dataAccess, context);
+    let scrapingResults = [];
 
     const opportunities = await site.getOpportunities();
 
@@ -400,12 +422,53 @@ export async function runOpportunityStatusProcessor(message, context) {
       log.info(`Expected opportunity types based on audits [${auditTypes.join(', ')}]: ${expectedOpportunityTypes.join(', ')}`);
     }
 
+    // Calculate which dependencies are needed based on expected opportunities
+    const requiredDependencies = new Set();
+    expectedOpportunityTypes.forEach((oppType) => {
+      const deps = OPPORTUNITY_DEPENDENCY_MAP[oppType] || [];
+      deps.forEach((dep) => requiredDependencies.add(dep));
+    });
+    log.info(`Required dependencies for expected opportunities: ${Array.from(requiredDependencies).join(', ')}`);
+
+    const needsRUM = requiredDependencies.has('RUM');
+    const needsAHREFSImport = requiredDependencies.has('AHREFSImport');
+    const needsScraping = requiredDependencies.has('scraping');
+    const needsGSC = requiredDependencies.has('GSC');
+
+    // Only check data sources that are needed
+    if (siteUrl && (needsRUM || needsGSC || needsScraping)) {
+      try {
+        const resolvedUrl = await resolveCanonicalUrl(siteUrl);
+        log.info(`Resolved URL: ${resolvedUrl}`);
+        const domain = new URL(resolvedUrl).hostname;
+
+        if (needsRUM) {
+          rumAvailable = await isRUMAvailable(domain, context);
+        }
+
+        if (needsGSC) {
+          gscConfigured = await isGSCConfigured(resolvedUrl, context);
+        }
+
+        if (needsScraping) {
+          const scrapingCheck = await isScrapingAvailable(siteUrl, siteId, context);
+          scrapingAvailable = scrapingCheck.available;
+          scrapingResults = scrapingCheck.results || [];
+        }
+      } catch (error) {
+        log.warn(`Could not resolve canonical URL or parse siteUrl for data source checks: ${siteUrl}`, error);
+      }
+    }
+
+    if (needsAHREFSImport) {
+      ahrefsImportAvailable = await isAHREFSImportDataAvailable(siteId, dataAccess, context);
+    }
+
     // Determine service status for dependency checking
     const serviceStatus = {
       rum: rumAvailable,
-      ahrefs: ahrefsImportAvailable,
+      ahrefsImport: ahrefsImportAvailable,
       gsc: gscConfigured,
-      import: ahrefsImportAvailable, // Import and AHREFS are the same
       scraping: scrapingAvailable,
     };
 
@@ -517,16 +580,25 @@ export async function runOpportunityStatusProcessor(message, context) {
     }
 
     if (slackContext && statusMessages.length > 0) {
-      // Section 1: Data Sources for site
-      await say(env, log, slackContext, `*Data Sources for site ${siteUrl}*`);
-
+      // Section 1: Data Sources for site (only show required dependencies)
       const dataSourceMessages = [];
-      dataSourceMessages.push(`RUM ${rumAvailable ? ':white_check_mark:' : ':x:'}`);
-      dataSourceMessages.push(`AHREFS Import ${ahrefsImportAvailable ? ':white_check_mark:' : ':x:'}`);
-      dataSourceMessages.push(`GSC ${gscConfigured ? ':white_check_mark:' : ':x:'}`);
-      dataSourceMessages.push(`Scraping ${scrapingAvailable ? ':white_check_mark:' : ':x:'}`);
+      if (needsRUM) {
+        dataSourceMessages.push(`RUM ${rumAvailable ? ':white_check_mark:' : ':x:'}`);
+      }
+      if (needsAHREFSImport) {
+        dataSourceMessages.push(`AHREFS Import ${ahrefsImportAvailable ? ':white_check_mark:' : ':x:'}`);
+      }
+      if (needsGSC) {
+        dataSourceMessages.push(`GSC ${gscConfigured ? ':white_check_mark:' : ':x:'}`);
+      }
+      if (needsScraping) {
+        dataSourceMessages.push(`Scraping ${scrapingAvailable ? ':white_check_mark:' : ':x:'}`);
+      }
 
-      await say(env, log, slackContext, dataSourceMessages.join('\n'));
+      if (dataSourceMessages.length > 0) {
+        await say(env, log, slackContext, `*Data Sources for site ${siteUrl}*`);
+        await say(env, log, slackContext, dataSourceMessages.join('\n'));
+      }
 
       // Section 2: Opportunity Statuses for site
       await say(env, log, slackContext, `*Opportunity Statuses for site ${siteUrl}*`);
@@ -546,20 +618,31 @@ export async function runOpportunityStatusProcessor(message, context) {
 
       const auditErrors = [];
 
-      if (!ahrefsImportAvailable) {
+      // Only show errors for required dependencies
+      if (needsAHREFSImport && !ahrefsImportAvailable) {
         auditErrors.push('AHREFS Import: No data found :x:');
       }
 
-      if (!scrapingAvailable) {
-        auditErrors.push('Scraping: Site not scrapable :x:');
+      // Add scraping details with URL-level status (only if scraping is needed)
+      if (needsScraping) {
+        if (scrapingResults.length > 0) {
+          auditErrors.push('Scraping:');
+          scrapingResults.forEach((result) => {
+            const status = result.status === 'COMPLETE' ? ':white_check_mark:' : ':x:';
+            const reasonText = result.status === 'FAILED' && result.reason ? ` (${result.reason})` : '';
+            auditErrors.push(`    ${result.url} ${status}${reasonText}`);
+          });
+        } else if (!scrapingAvailable) {
+          auditErrors.push('Scraping: Site not scrapable :x:');
+        }
       }
 
-      if (!rumAvailable) {
+      if (needsRUM && !rumAvailable) {
         auditErrors.push('RUM: Not configured :x:');
       }
 
-      // Check GSC configuration
-      if (!gscConfigured) {
+      // Check GSC configuration (only if needed)
+      if (needsGSC && !gscConfigured) {
         auditErrors.push('GSC: Not configured :x:');
       }
 

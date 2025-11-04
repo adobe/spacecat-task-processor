@@ -16,8 +16,6 @@ import { expect } from 'chai';
 import {
   OPPORTUNITY_DEPENDENCY_MAP,
   getDependenciesForOpportunity,
-  areDependenciesMet,
-  getOpportunitiesWithUnmetDependencies,
 } from '../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js';
 
 describe('Opportunity Dependency Map', () => {
@@ -34,9 +32,9 @@ describe('Opportunity Dependency Map', () => {
     it('should map opportunities to dependencies correctly', () => {
       expect(OPPORTUNITY_DEPENDENCY_MAP.cwv).to.deep.equal(['RUM']);
       expect(OPPORTUNITY_DEPENDENCY_MAP['high-organic-low-ctr']).to.deep.equal(['RUM']);
-      expect(OPPORTUNITY_DEPENDENCY_MAP['broken-internal-links']).to.deep.equal(['RUM', 'top-pages']);
-      expect(OPPORTUNITY_DEPENDENCY_MAP['meta-tags']).to.deep.equal(['top-pages']);
-      expect(OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks']).to.deep.equal(['top-pages']);
+      expect(OPPORTUNITY_DEPENDENCY_MAP['broken-internal-links']).to.deep.equal(['RUM', 'AHREFSImport']);
+      expect(OPPORTUNITY_DEPENDENCY_MAP['meta-tags']).to.deep.equal(['AHREFSImport']);
+      expect(OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks']).to.deep.equal(['AHREFSImport']);
     });
   });
 
@@ -52,7 +50,7 @@ describe('Opportunity Dependency Map', () => {
       expect(dependencies).to.be.an('array');
       expect(dependencies).to.have.lengthOf(2);
       expect(dependencies).to.include('RUM');
-      expect(dependencies).to.include('top-pages');
+      expect(dependencies).to.include('AHREFSImport');
     });
 
     it('should return empty array for opportunity with no dependencies', () => {
@@ -71,126 +69,6 @@ describe('Opportunity Dependency Map', () => {
       const dependencies = getDependenciesForOpportunity(null);
       expect(dependencies).to.be.an('array');
       expect(dependencies).to.have.lengthOf(0);
-    });
-  });
-
-  describe('areDependenciesMet', () => {
-    it('should return true when all RUM dependencies are met', () => {
-      const serviceStatus = { rum: true, import: false, scraping: false };
-      const result = areDependenciesMet('cwv', serviceStatus);
-      expect(result).to.be.true;
-    });
-
-    it('should return false when RUM dependency is not met', () => {
-      const serviceStatus = { rum: false, import: false, scraping: false };
-      const result = areDependenciesMet('cwv', serviceStatus);
-      expect(result).to.be.false;
-    });
-
-    it('should return true when top-pages dependency is met', () => {
-      const serviceStatus = { rum: false, import: true, scraping: false };
-      const result = areDependenciesMet('meta-tags', serviceStatus);
-      expect(result).to.be.true;
-    });
-
-    it('should return false when top-pages dependency is not met', () => {
-      const serviceStatus = { rum: false, import: false, scraping: false };
-      const result = areDependenciesMet('meta-tags', serviceStatus);
-      expect(result).to.be.false;
-    });
-
-    it('should return true when all multiple dependencies are met', () => {
-      const serviceStatus = { rum: true, import: true, scraping: false };
-      const result = areDependenciesMet('broken-internal-links', serviceStatus);
-      expect(result).to.be.true;
-    });
-
-    it('should return false when some multiple dependencies are not met', () => {
-      const serviceStatus = { rum: true, import: false, scraping: false };
-      const result = areDependenciesMet('broken-internal-links', serviceStatus);
-      expect(result).to.be.false;
-    });
-
-    it('should return true for opportunity with no dependencies', () => {
-      const serviceStatus = { rum: false, import: false, scraping: false };
-      const result = areDependenciesMet('accessibility', serviceStatus);
-      expect(result).to.be.true;
-    });
-
-    it('should return true for unknown opportunity type', () => {
-      const serviceStatus = { rum: false, import: false, scraping: false };
-      const result = areDependenciesMet('unknown-opportunity', serviceStatus);
-      expect(result).to.be.true;
-    });
-  });
-
-  describe('getOpportunitiesWithUnmetDependencies', () => {
-    it('should return empty array when all dependencies are met', () => {
-      const opportunityTypes = ['cwv', 'meta-tags'];
-      const serviceStatus = { rum: true, import: true, scraping: true };
-      const result = getOpportunitiesWithUnmetDependencies(opportunityTypes, serviceStatus);
-      expect(result).to.be.an('array');
-      expect(result).to.have.lengthOf(0);
-    });
-
-    it('should return opportunities with unmet RUM dependency', () => {
-      const opportunityTypes = ['cwv', 'high-organic-low-ctr'];
-      const serviceStatus = { rum: false, import: true, scraping: true };
-      const result = getOpportunitiesWithUnmetDependencies(opportunityTypes, serviceStatus);
-      expect(result).to.be.an('array');
-      expect(result).to.have.lengthOf(2);
-      expect(result[0]).to.have.property('opportunity', 'cwv');
-      expect(result[0]).to.have.property('missingDependencies');
-      expect(result[0].missingDependencies).to.include('RUM');
-      expect(result[1]).to.have.property('opportunity', 'high-organic-low-ctr');
-    });
-
-    it('should return opportunities with unmet top-pages dependency', () => {
-      const opportunityTypes = ['meta-tags', 'broken-backlinks'];
-      const serviceStatus = { rum: true, import: false, scraping: true };
-      const result = getOpportunitiesWithUnmetDependencies(opportunityTypes, serviceStatus);
-      expect(result).to.be.an('array');
-      expect(result).to.have.lengthOf(2);
-      expect(result[0]).to.have.property('opportunity', 'meta-tags');
-      expect(result[0].missingDependencies).to.include('top-pages');
-    });
-
-    it('should return opportunities with multiple unmet dependencies', () => {
-      const opportunityTypes = ['broken-internal-links'];
-      const serviceStatus = { rum: false, import: false, scraping: true };
-      const result = getOpportunitiesWithUnmetDependencies(opportunityTypes, serviceStatus);
-      expect(result).to.be.an('array');
-      expect(result).to.have.lengthOf(1);
-      expect(result[0]).to.have.property('opportunity', 'broken-internal-links');
-      expect(result[0].missingDependencies).to.have.lengthOf(2);
-      expect(result[0].missingDependencies).to.include('RUM');
-      expect(result[0].missingDependencies).to.include('top-pages');
-    });
-
-    it('should not return opportunities with no dependencies', () => {
-      const opportunityTypes = ['accessibility', 'cwv'];
-      const serviceStatus = { rum: false, import: false, scraping: false };
-      const result = getOpportunitiesWithUnmetDependencies(opportunityTypes, serviceStatus);
-      expect(result).to.be.an('array');
-      expect(result).to.have.lengthOf(1);
-      expect(result[0]).to.have.property('opportunity', 'cwv');
-    });
-
-    it('should handle empty opportunity types array', () => {
-      const opportunityTypes = [];
-      const serviceStatus = { rum: true, import: true, scraping: true };
-      const result = getOpportunitiesWithUnmetDependencies(opportunityTypes, serviceStatus);
-      expect(result).to.be.an('array');
-      expect(result).to.have.lengthOf(0);
-    });
-
-    it('should handle mixed met and unmet dependencies', () => {
-      const opportunityTypes = ['cwv', 'meta-tags', 'accessibility'];
-      const serviceStatus = { rum: true, import: false, scraping: false };
-      const result = getOpportunitiesWithUnmetDependencies(opportunityTypes, serviceStatus);
-      expect(result).to.be.an('array');
-      expect(result).to.have.lengthOf(1);
-      expect(result[0]).to.have.property('opportunity', 'meta-tags');
     });
   });
 });
