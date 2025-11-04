@@ -22,28 +22,6 @@ import { OPPORTUNITY_DEPENDENCY_MAP } from './opportunity-dependency-map.js';
 const TASK_TYPE = 'opportunity-status-processor';
 
 /**
- * Map of service preconditions to determine if log analysis is needed
- * Key: service name, Value: whether to check logs when this service fails
- */
-const SERVICE_LOG_CHECK_MAP = {
-  rum: true, // Check logs if RUM is unavailable
-  ahrefs: false, // Don't check logs if AHREFS is unavailable (data source issue)
-  gsc: false, // Don't check logs if GSC is not configured (configuration issue)
-  import: true, // Check logs if imports are failing
-  scraping: true, // Check logs if scraping is failing
-};
-
-/**
- * Map of service types to their corresponding CloudWatch log groups
- * Used to target specific log groups when a service is failing
- */
-const SERVICE_LOG_GROUP_MAP = {
-  rum: '/aws/lambda/spacecat-services--audit-worker',
-  import: '/aws/lambda/spacecat-services--import-worker',
-  scraping: '/aws/lambda/spacecat-services--content-scraper',
-};
-
-/**
  * Checks if RUM is available for a domain by attempting to get a domainkey
  * @param {string} domain - The domain to check
  * @param {object} context - The context object with env and log
@@ -385,30 +363,6 @@ async function isScrapingAvailable(siteUrl, siteId, context) {
     log.warn(`Scraping check failed for ${siteUrl}:`, error);
     return false;
   }
-}
-
-/**
- * Determines which services need log analysis based on precondition check results
- * @param {object} serviceStatus - Object containing status of all services
- * @returns {Array<{service: string, logGroup: string}>} Array of services that need log analysis
- */
-function getServicesNeedingLogAnalysis(serviceStatus) {
-  const servicesToCheck = [];
-
-  Object.entries(serviceStatus).forEach(([serviceName, isAvailable]) => {
-    // Check if this service should have logs analyzed when it fails
-    if (!isAvailable && SERVICE_LOG_CHECK_MAP[serviceName]) {
-      const logGroup = SERVICE_LOG_GROUP_MAP[serviceName];
-      if (logGroup) {
-        servicesToCheck.push({
-          service: serviceName,
-          logGroup,
-        });
-      }
-    }
-  });
-
-  return servicesToCheck;
 }
 
 /**
@@ -767,14 +721,6 @@ export async function runOpportunityStatusProcessor(message, context) {
     log.info(`Found ${opportunities.length} ${opportunityWord} for site ${siteId}. `
       + `Data sources - RUM: ${rumAvailable}, AHREFS: ${ahrefsAvailable}, `
       + `GSC: ${gscConfigured}, Import: ${importAvailable}, Scraping: ${scrapingAvailable}`);
-
-    const servicesToAnalyze = getServicesNeedingLogAnalysis(serviceStatus);
-
-    if (servicesToAnalyze.length > 0) {
-      log.info(`Services requiring log analysis: ${servicesToAnalyze.map((s) => s.service).join(', ')}`);
-    } else {
-      log.info('All service preconditions passed - no log analysis needed');
-    }
 
     const statusMessages = [];
 
