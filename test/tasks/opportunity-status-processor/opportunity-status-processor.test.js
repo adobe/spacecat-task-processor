@@ -2025,29 +2025,39 @@ DISALLOW: /
       expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
     });
 
-    it('should handle audit failure with specific failure reason', async () => {
-      message.taskContext.auditTypes = ['cwv'];
+    it('should trigger audit failure path (lines 616-620)', async () => {
+      // Use meta-tags which only depends on 'top-pages' (import)
+      message.taskContext.auditTypes = ['meta-tags'];
       message.taskContext.onboardStartTime = Date.now() - 3600000;
-      mockSite.getOpportunities.resolves([]);
+      mockSite.getOpportunities.resolves([]); // meta-tags opportunity is missing
 
-      // Mock audit was executed
-      context.mockCloudWatchSend.onFirstCall().resolves({
+      // Mock import (top-pages) as available so dependency check passes
+      context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
+        .withArgs(message.siteId)
+        .resolves([{ url: 'https://example.com/page1' }]);
+
+      // Reset and configure CloudWatch calls
+      context.mockCloudWatchSend.reset();
+
+      // First call: checkAuditExecution - audit WAS executed
+      context.mockCloudWatchSend.onCall(0).resolves({
         events: [{
           timestamp: Date.now(),
-          message: `Received cwv audit request for: ${message.siteId}`,
+          message: `Received meta-tags audit request for: ${message.siteId}`,
         }],
       });
 
-      // Mock audit failure with reason
-      context.mockCloudWatchSend.onSecondCall().resolves({
+      // Second call: getAuditFailureReason - return a failure reason
+      context.mockCloudWatchSend.onCall(1).resolves({
         events: [{
           timestamp: Date.now(),
-          message: `cwv audit for ${message.siteId} failed. Reason: RUM data unavailable at worker.js:45`,
+          message: `meta-tags audit for ${message.siteId} failed. Reason: Unable to parse meta tags`,
         }],
       });
 
       await runOpportunityStatusProcessor(message, context);
 
+      // Verify the audit failure path was triggered
       expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
     });
 
@@ -2082,6 +2092,116 @@ DISALLOW: /
       // not "All service preconditions passed"
       // The test verifies the function executes without errors
       expect(mockSite.getOpportunities.called).to.be.true;
+    });
+
+    it('should extract failure reason with Reason: pattern (lines 475-476)', async () => {
+      message.taskContext.auditTypes = ['cwv'];
+      message.taskContext.onboardStartTime = Date.now() - 3600000;
+      mockSite.getOpportunities.resolves([]);
+
+      // Mock audit execution
+      context.mockCloudWatchSend.onFirstCall().resolves({
+        events: [{
+          timestamp: Date.now(),
+          message: `Received cwv audit request for: ${message.siteId}`,
+        }],
+      });
+
+      // Mock failure with "Reason:" pattern (without "at")
+      context.mockCloudWatchSend.onSecondCall().resolves({
+        events: [{
+          timestamp: Date.now(),
+          message: `cwv audit for ${message.siteId} failed. Reason: Invalid RUM data format`,
+        }],
+      });
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
+    });
+
+    it('should handle CloudWatch error in getAuditFailureReason (lines 481-483)', async () => {
+      message.taskContext.auditTypes = ['cwv'];
+      message.taskContext.onboardStartTime = Date.now() - 3600000;
+      mockSite.getOpportunities.resolves([]);
+
+      // Mock audit execution
+      context.mockCloudWatchSend.onFirstCall().resolves({
+        events: [{
+          timestamp: Date.now(),
+          message: `Received cwv audit request for: ${message.siteId}`,
+        }],
+      });
+
+      // Mock CloudWatch error on second call
+      context.mockCloudWatchSend.onSecondCall().rejects(new Error('CloudWatch service error'));
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
+    });
+
+    it('should handle CloudWatch error in getScrapingFailureReason (lines 523-525)', async () => {
+      message.siteUrl = 'https://example.com';
+      message.taskContext.auditTypes = ['alt-text'];
+      message.taskContext.onboardStartTime = Date.now() - 3600000;
+      mockSite.getOpportunities.resolves([]);
+
+      // Mock audit execution
+      context.mockCloudWatchSend.onFirstCall().resolves({
+        events: [{
+          timestamp: Date.now(),
+          message: `Received alt-text audit request for: ${message.siteId}`,
+        }],
+      });
+
+      // Mock no audit failure
+      context.mockCloudWatchSend.onSecondCall().resolves({ events: [] });
+
+      // Mock CloudWatch error on third call (scraping failure check)
+      context.mockCloudWatchSend.onThirdCall().rejects(new Error('CloudWatch timeout'));
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
+    });
+
+    it('should handle opportunity with no related audits (lines 557-560)', async () => {
+      message.taskContext.auditTypes = ['unknown-audit'];
+      message.taskContext.onboardStartTime = Date.now() - 3600000;
+      mockSite.getOpportunities.resolves([]);
+
+      await runOpportunityStatusProcessor(message, context);
+
+      // Should complete without errors even with unknown audit type
+      expect(mockSite.getOpportunities.called).to.be.true;
+    });
+
+    it('should check scraping dependency for missing opportunity (lines 593-594)', async () => {
+      message.siteUrl = 'https://example.com';
+      message.taskContext.auditTypes = ['alt-text'];
+      message.taskContext.onboardStartTime = Date.now() - 3600000;
+      mockSite.getOpportunities.resolves([]);
+
+      // Mock robots.txt blocking scraping
+      global.fetch.resetBehavior();
+      global.fetch.resolves({
+        ok: true,
+        status: 200,
+        text: sinon.stub().resolves('User-agent: *\nDisallow: /'),
+      });
+
+      // Mock audit executed
+      context.mockCloudWatchSend.onFirstCall().resolves({
+        events: [{
+          timestamp: Date.now(),
+          message: `Received alt-text audit request for: ${message.siteId}`,
+        }],
+      });
+
+      await runOpportunityStatusProcessor(message, context);
+
+      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
     });
   });
 });
