@@ -220,10 +220,13 @@ async function checkAuditExecution(auditType, siteId, onboardStartTime, context)
     });
 
     log.info(`Checking audit execution for ${auditType}:`, {
+      logGroupName,
       filterPattern,
+      siteId,
       onboardStartTime: onboardStartTime ? new Date(onboardStartTime).toISOString() : 'undefined',
       searchStartTime: searchStartTime ? new Date(searchStartTime).toISOString() : 'undefined',
       endTime: new Date(Date.now()).toISOString(),
+      bufferSeconds: bufferMs / 1000,
     });
 
     const response = await cloudWatchClient.send(command);
