@@ -412,9 +412,14 @@ export async function runOpportunityStatusProcessor(message, context) {
 
     // Get expected opportunities based on audits from profile
     let expectedOpportunityTypes = [];
+    let hasUnknownAuditTypes = false;
     if (auditTypes && auditTypes.length > 0) {
       auditTypes.forEach((auditType) => {
         const opportunitiesForAudit = getOpportunitiesForAudit(auditType);
+        if (opportunitiesForAudit.length === 0) {
+          // This audit type doesn't map to any known opportunities
+          hasUnknownAuditTypes = true;
+        }
         expectedOpportunityTypes = [...expectedOpportunityTypes, ...opportunitiesForAudit];
       });
       // Remove duplicates
@@ -520,11 +525,27 @@ export async function runOpportunityStatusProcessor(message, context) {
     statusMessages.push(`Scraping ${scrapingStatus}`);
 
     // Process opportunities by type to avoid duplicates
+    // Only process opportunities that are expected based on the profile's audit types
     const processedTypes = new Set();
     const failedOpportunities = [];
 
     for (const opportunity of opportunities) {
       const opportunityType = opportunity.getType();
+
+      // Filter opportunities based on profile's audit configuration
+      // Only filter if we have audits configured AND all audits map to known opportunities
+      // If there are unknown audit types, don't filter (backward compatibility)
+      const shouldFilter = auditTypes
+        && auditTypes.length > 0
+        && expectedOpportunityTypes.length > 0
+        && !hasUnknownAuditTypes;
+
+      if (shouldFilter && !expectedOpportunityTypes.includes(opportunityType)) {
+        // This opportunity is not expected based on the configured audits - skip it
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+
       if (processedTypes.has(opportunityType)) {
         // eslint-disable-next-line no-continue
         continue;
