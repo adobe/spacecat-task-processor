@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/adobe/spacecat-task-processor/compare/v1.3.20...v1.4.0) (2025-11-05)
+
+
+### Features
+
+* artifacts upload action ([#117](https://github.com/adobe/spacecat-task-processor/issues/117)) ([0752a93](https://github.com/adobe/spacecat-task-processor/commit/0752a93ad4f74880ca83fda2ac7cce780585482c))
+
 ## [1.3.20](https://github.com/adobe/spacecat-task-processor/compare/v1.3.19...v1.3.20) (2025-11-04)
 
 
