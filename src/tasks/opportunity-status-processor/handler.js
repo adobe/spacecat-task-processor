@@ -207,15 +207,37 @@ async function checkAuditExecution(auditType, siteId, onboardStartTime, context)
     const cloudWatchClient = new CloudWatchLogsClient({ region: env.AWS_REGION || 'us-east-1' });
     const filterPattern = `"Received ${auditType} audit request for: ${siteId}"`;
 
+    // Add small buffer before onboardStartTime to account for clock skew and processing delays
+    // The audit log should be after onboardStartTime, but we add a small buffer for safety
+    const bufferMs = 30 * 1000; // 30 seconds
+    const searchStartTime = onboardStartTime ? onboardStartTime - bufferMs : undefined;
+
     const command = new FilterLogEventsCommand({
       logGroupName,
       filterPattern,
-      startTime: onboardStartTime,
+      startTime: searchStartTime,
       endTime: Date.now(),
     });
 
+    log.info(`Checking audit execution for ${auditType}:`, {
+      filterPattern,
+      onboardStartTime: onboardStartTime ? new Date(onboardStartTime).toISOString() : 'undefined',
+      searchStartTime: searchStartTime ? new Date(searchStartTime).toISOString() : 'undefined',
+      endTime: new Date(Date.now()).toISOString(),
+    });
+
     const response = await cloudWatchClient.send(command);
-    return response.events && response.events.length > 0;
+    const found = response.events && response.events.length > 0;
+
+    if (found) {
+      log.info(`Found ${response.events.length} audit execution log(s) for ${auditType}`, {
+        firstEventTimestamp: new Date(response.events[0].timestamp).toISOString(),
+      });
+    } else {
+      log.info(`No audit execution logs found for ${auditType} between ${searchStartTime ? new Date(searchStartTime).toISOString() : 'undefined'} and ${new Date(Date.now()).toISOString()}`);
+    }
+
+    return found;
   } catch (error) {
     log.error(`Error checking audit execution for ${auditType}:`, error);
     return false;
@@ -238,10 +260,14 @@ async function getAuditFailureReason(auditType, siteId, onboardStartTime, contex
     const cloudWatchClient = new CloudWatchLogsClient({ region: env.AWS_REGION || 'us-east-1' });
     const filterPattern = `"${auditType} audit for ${siteId} failed"`;
 
+    // Add small buffer before onboardStartTime to account for clock skew and processing delays
+    const bufferMs = 30 * 1000; // 30 seconds
+    const searchStartTime = onboardStartTime ? onboardStartTime - bufferMs : undefined;
+
     const command = new FilterLogEventsCommand({
       logGroupName,
       filterPattern,
-      startTime: onboardStartTime,
+      startTime: searchStartTime,
       endTime: Date.now(),
     });
 
