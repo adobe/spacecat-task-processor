@@ -283,6 +283,8 @@ async function getAuditFailureReason(auditType, siteId, onboardStartTime, contex
       if (reasonMatch && reasonMatch[1]) {
         return reasonMatch[1].trim();
       }
+      // Fallback: return entire message if "Reason:" pattern not found
+      return message.trim();
     }
 
     return null;
@@ -388,7 +390,7 @@ async function analyzeMissingOpportunities(
         results.push({
           opportunity: opportunityType,
           audit: auditType,
-          reason: 'Reason unknown - audit executed but opportunity not created',
+          reason: 'Audit executed successfully but found no issues to report (no opportunities created)',
         });
       }
     }
@@ -698,7 +700,9 @@ export async function runOpportunityStatusProcessor(message, context) {
       // Add missing opportunities analysis
       if (missingOpportunitiesAnalysis.length > 0) {
         for (const analysis of missingOpportunitiesAnalysis) {
-          auditErrors.push(`${analysis.opportunity}: ${analysis.reason} :x:`);
+          // Use info icon for successful audits, error icon for actual failures
+          const emoji = analysis.reason.includes('found no issues to report') ? ':information_source:' : ':x:';
+          auditErrors.push(`${analysis.opportunity}: ${analysis.reason} ${emoji}`);
         }
       }
 
