@@ -588,7 +588,7 @@ export async function runOpportunityStatusProcessor(message, context) {
 
       const opportunityTitle = getOpportunityTitle(opportunityType);
       const hasSuggestions = suggestions && suggestions.length > 0;
-      const status = hasSuggestions ? ':white_check_mark:' : ':cross-x:';
+      const status = hasSuggestions ? ':white_check_mark:' : ':x:';
       statusMessages.push(`${opportunityTitle} ${status}`);
 
       // Track failed opportunities (no suggestions)
@@ -639,9 +639,11 @@ export async function runOpportunityStatusProcessor(message, context) {
         dataSourceMessages.push(`Scraping ${scrapingAvailable ? ':white_check_mark:' : ':x:'}`);
       }
 
+      await say(env, log, slackContext, `*Data Sources for site ${siteUrl}*`);
       if (dataSourceMessages.length > 0) {
-        await say(env, log, slackContext, `*Data Sources for site ${siteUrl}*`);
         await say(env, log, slackContext, dataSourceMessages.join('\n'));
+      } else {
+        await say(env, log, slackContext, 'No data sources found');
       }
 
       // Section 2: Opportunity Statuses for site
@@ -652,10 +654,18 @@ export async function runOpportunityStatusProcessor(message, context) {
           && !msg.includes('GSC')
           && !msg.includes('Scraping'),
       );
-      if (opportunityMessages.length > 0) {
-        await say(env, log, slackContext, opportunityMessages.join('\n'));
+
+      // Add successful audits (those that found no issues) to the Opportunity Statuses section
+      const successfulAudits = missingOpportunitiesAnalysis
+        .filter((analysis) => analysis.reason.includes('found no issues to report'))
+        .map((analysis) => `${analysis.opportunity} :information_source:`);
+
+      const allOpportunityMessages = [...opportunityMessages, ...successfulAudits];
+
+      if (allOpportunityMessages.length > 0) {
+        await say(env, log, slackContext, allOpportunityMessages.join('\n'));
       } else {
-        await say(env, log, slackContext, 'No opportunities found for this site');
+        await say(env, log, slackContext, 'No opportunities found');
       }
 
       await say(env, log, slackContext, `*Audit Processing Errors for site ${siteUrl}*`);
@@ -708,6 +718,8 @@ export async function runOpportunityStatusProcessor(message, context) {
 
       if (auditErrors.length > 0) {
         await say(env, log, slackContext, auditErrors.join('\n'));
+      } else {
+        await say(env, log, slackContext, 'No audit errors found');
       }
     }
 
