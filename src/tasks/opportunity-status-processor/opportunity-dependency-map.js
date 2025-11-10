@@ -23,6 +23,9 @@ export const OPPORTUNITY_DEPENDENCY_MAP = {
   'broken-internal-links': ['RUM', 'AHREFSImport'],
   'meta-tags': ['AHREFSImport'],
   'broken-backlinks': ['AHREFSImport'],
+  'alt-text': ['AHREFSImport'],
+  'form-accessibility': ['RUM'],
+  'forms-opportunities': ['RUM'],
 };
 
 /**

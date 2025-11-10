@@ -437,7 +437,6 @@ export async function runOpportunityStatusProcessor(message, context) {
     let ahrefsImportAvailable = false;
     let gscConfigured = false;
     let scrapingAvailable = false;
-    let scrapingResults = [];
 
     const opportunities = await site.getOpportunities();
 
@@ -489,7 +488,6 @@ export async function runOpportunityStatusProcessor(message, context) {
         if (needsScraping) {
           const scrapingCheck = await isScrapingAvailable(siteUrl, siteId, context);
           scrapingAvailable = scrapingCheck.available;
-          scrapingResults = scrapingCheck.results || [];
         }
       } catch (error) {
         log.warn(`Could not resolve canonical URL or parse siteUrl for data source checks: ${siteUrl}`, error);
@@ -671,34 +669,6 @@ export async function runOpportunityStatusProcessor(message, context) {
       await say(env, log, slackContext, `*Audit Processing Errors for site ${siteUrl}*`);
 
       const auditErrors = [];
-
-      // Only show errors for required dependencies
-      if (needsAHREFSImport && !ahrefsImportAvailable) {
-        auditErrors.push('AHREFS Import: No data found :x:');
-      }
-
-      // Add scraping details with URL-level status (only if scraping is needed)
-      if (needsScraping) {
-        if (scrapingResults.length > 0) {
-          auditErrors.push('Scraping:');
-          scrapingResults.forEach((result) => {
-            const status = result.status === 'COMPLETE' ? ':white_check_mark:' : ':x:';
-            const reasonText = result.status === 'FAILED' && result.reason ? ` (${result.reason})` : '';
-            auditErrors.push(`    ${result.url} ${status}${reasonText}`);
-          });
-        } else if (!scrapingAvailable) {
-          auditErrors.push('Scraping: Site not scrapable :x:');
-        }
-      }
-
-      if (needsRUM && !rumAvailable) {
-        auditErrors.push('RUM: Not configured :x:');
-      }
-
-      // Check GSC configuration (only if needed)
-      if (needsGSC && !gscConfigured) {
-        auditErrors.push('GSC: Not configured :x:');
-      }
 
       // Add failed opportunities with their reasons
       if (failedOpportunities.length > 0) {
