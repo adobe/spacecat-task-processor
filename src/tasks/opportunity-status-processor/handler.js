@@ -390,7 +390,7 @@ async function analyzeMissingOpportunities(
         results.push({
           opportunity: opportunityType,
           audit: auditType,
-          reason: 'Audit executed successfully but found no issues to report (no opportunities created)',
+          reason: 'Audit executed successfully, found no issues to report (no opportunities created)',
         });
       }
     }
@@ -591,32 +591,12 @@ export async function runOpportunityStatusProcessor(message, context) {
 
       // Track failed opportunities (no suggestions)
       if (!hasSuggestions) {
-        const opportunityData = opportunity.getData ? opportunity.getData() : {};
-        const runbook = opportunityData.runbook
-          || (opportunity.getRunbook ? opportunity.getRunbook() : null);
-
-        // Determine detailed failure reason
-        let failureReason = 'No suggestions generated';
-        let specificReason = null;
-
-        if (runbook) {
-          if (runbook.includes('RUM') || runbook.includes('rum')) {
-            specificReason = 'RUM data not available';
-          } else if (runbook.includes('AHREFSImport') || runbook.includes('ahrefs')) {
-            specificReason = 'AHREFS Import data not available';
-          } else if (runbook.includes('GSC') || runbook.includes('Google Search Console')) {
-            specificReason = 'GSC not configured';
-          }
-        }
-
-        // Combine reasons for detailed message
-        if (specificReason) {
-          failureReason = `No suggestions generated, ${specificReason}`;
-        }
+        // Use informational message for opportunities with zero suggestions
+        const reason = 'Audit executed successfully, opportunity found with zero suggestions';
 
         failedOpportunities.push({
           title: opportunityTitle,
-          reason: failureReason,
+          reason,
         });
       }
     }
@@ -673,7 +653,9 @@ export async function runOpportunityStatusProcessor(message, context) {
       // Add failed opportunities with their reasons
       if (failedOpportunities.length > 0) {
         for (const failed of failedOpportunities) {
-          auditErrors.push(`${failed.title}: ${failed.reason} :x:`);
+          // Use info icon for successful audits with zero suggestions
+          const emoji = failed.reason.includes('opportunity found with zero suggestions') ? ' :information_source:' : ' :x:';
+          auditErrors.push(`*${failed.title}*: ${failed.reason}${emoji}`);
         }
       }
 
@@ -682,7 +664,7 @@ export async function runOpportunityStatusProcessor(message, context) {
         for (const analysis of missingOpportunitiesAnalysis) {
           // Use info icon for successful audits, error icon for actual failures
           const emoji = analysis.reason.includes('found no issues to report') ? ':information_source:' : ':x:';
-          auditErrors.push(`${analysis.opportunity}: ${analysis.reason} ${emoji}`);
+          auditErrors.push(`*${analysis.opportunity}*: ${analysis.reason} ${emoji}`);
         }
       }
 
