@@ -592,7 +592,7 @@ export async function runOpportunityStatusProcessor(message, context) {
       // Track failed opportunities (no suggestions)
       if (!hasSuggestions) {
         // Use informational message for opportunities with zero suggestions
-        const reason = 'Audit executed successfully, opportunity found with zero suggestions';
+        const reason = 'Audit executed successfully, opportunity added, but found no suggestions';
 
         failedOpportunities.push({
           title: opportunityTitle,
