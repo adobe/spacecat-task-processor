@@ -1,3 +1,10 @@
+## [1.4.7](https://github.com/adobe/spacecat-task-processor/compare/v1.4.6...v1.4.7) (2025-11-12)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adobe/spacecat-shared-ims-client to v1.10.0 ([#126](https://github.com/adobe/spacecat-task-processor/issues/126)) ([fbc9558](https://github.com/adobe/spacecat-task-processor/commit/fbc955825ba68adf010e55db1ad4527400b18101))
+
 ## [1.4.6](https://github.com/adobe/spacecat-task-processor/compare/v1.4.5...v1.4.6) (2025-11-11)
 
 
