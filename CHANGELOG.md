@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/adobe/spacecat-task-processor/compare/v1.4.8...v1.5.0) (2025-11-14)
+
+
+### Features
+
+* Provide data sources and causes of failures in the slack thread ([#95](https://github.com/adobe/spacecat-task-processor/issues/95)) ([97d8d3f](https://github.com/adobe/spacecat-task-processor/commit/97d8d3f3b0726eb82efabe74aaa097d602a9d000))
+
 ## [1.4.8](https://github.com/adobe/spacecat-task-processor/compare/v1.4.7...v1.4.8) (2025-11-13)
 
 
