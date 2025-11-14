@@ -92,7 +92,7 @@ describe('Demo URL Processor', () => {
         organizationId: 'test-org-id',
       })).to.be.true;
       const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@adobe-sites-engineering/sites-optimizer/sites/test-site-id/home';
-      expect(context.log.info.calledWith(`Setup complete for site example.com! Access your environment here: ${expectedDemoUrl}`)).to.be.true;
+      expect(context.log.info.calledWith(`Onboarding setup completed successfully for the site example.com! Access your environment here: ${expectedDemoUrl}`)).to.be.true;
     });
 
     it('should handle organization not found error', async () => {
@@ -104,7 +104,7 @@ describe('Demo URL Processor', () => {
       // Should log error and return early
       expect(context.log.error.calledWith('Organization not found for organizationId: test-org-id')).to.be.true;
       // Should not log the success message
-      expect(context.log.info.calledWithMatch(sinon.match('Setup complete for site example.com!'))).to.be.false;
+      expect(context.log.info.calledWithMatch(sinon.match('Onboarding setup completed successfully for the site example.com!'))).to.be.false;
     });
 
     it('should use tenantId when available (highest priority)', async () => {
@@ -119,7 +119,7 @@ describe('Demo URL Processor', () => {
 
       // Should use the tenantId (highest priority)
       const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@adobe-sites-engineering/sites-optimizer/sites/test-site-id/home';
-      expect(context.log.info.calledWith(`Setup complete for site example.com! Access your environment here: ${expectedDemoUrl}`)).to.be.true;
+      expect(context.log.info.calledWith(`Onboarding setup completed successfully for the site example.com! Access your environment here: ${expectedDemoUrl}`)).to.be.true;
     });
 
     it('should fallback to name when tenantId is missing (backward compatibility)', async () => {
@@ -137,7 +137,7 @@ describe('Demo URL Processor', () => {
 
       // Should use the name-based tenant (lowercase, no spaces) as fallback
       const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@adobesitesengineering/sites-optimizer/sites/test-site-id/home';
-      expect(context.log.info.calledWith(`Setup complete for site example.com! Access your environment here: ${expectedDemoUrl}`)).to.be.true;
+      expect(context.log.info.calledWith(`Onboarding setup completed successfully for the site example.com! Access your environment here: ${expectedDemoUrl}`)).to.be.true;
     });
 
     it('should fallback to DEFAULT_TENANT_ID when both name and tenantId are missing', async () => {
@@ -158,7 +158,7 @@ describe('Demo URL Processor', () => {
       // Should log error about using default tenant ID
       expect(context.log.error.calledWith('Using default tenant ID')).to.be.true;
       const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@default-tenant/sites-optimizer/sites/test-site-id/home';
-      expect(context.log.info.calledWith(`Setup complete for site example.com! Access your environment here: ${expectedDemoUrl}`)).to.be.true;
+      expect(context.log.info.calledWith(`Onboarding setup completed successfully for the site example.com! Access your environment here: ${expectedDemoUrl}`)).to.be.true;
     });
 
     it('should return success message when processing completes', async () => {
@@ -171,7 +171,7 @@ describe('Demo URL Processor', () => {
       await runDemoUrlProcessor(message, context);
 
       // Verify that the success message was logged
-      expect(context.log.info.calledWithMatch(sinon.match('Setup complete for site example.com!'))).to.be.true;
+      expect(context.log.info.calledWithMatch(sinon.match('Onboarding setup completed successfully for the site example.com!'))).to.be.true;
     });
 
     it('should handle error when Organization.findById throws an exception', async () => {
@@ -194,7 +194,7 @@ describe('Demo URL Processor', () => {
       // the error handling works and the function completes successfully.
 
       // Verify that the success message was still logged (since the function continues)
-      expect(context.log.info.calledWithMatch(sinon.match('Setup complete for site example.com!'))).to.be.true;
+      expect(context.log.info.calledWithMatch(sinon.match('Onboarding setup completed successfully for the site example.com!'))).to.be.true;
 
       // Verify that the processing log was recorded
       expect(context.log.info.calledWith('Processing demo url for site:', {
