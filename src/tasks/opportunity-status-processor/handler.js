@@ -220,7 +220,7 @@ async function checkAuditExecution(auditType, siteId, onboardStartTime, context)
 
     // Add small buffer before onboardStartTime to account for clock skew and processing delays
     // The audit log should be after onboardStartTime, but we add a small buffer for safety
-    const bufferMs = 120 * 1000; // 2 minutes
+    const bufferMs = 60 * 1000; // 1 minute
     const searchStartTime = onboardStartTime ? onboardStartTime - bufferMs : undefined;
 
     const command = new FilterLogEventsCommand({
