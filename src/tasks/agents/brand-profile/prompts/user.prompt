@@ -1,0 +1,19 @@
+Analyze the brand voice for: {{ baseURL }}
+
+Perform a comprehensive multi-phase analysis:
+
+PHASE 1 (Discovery): Map the URL structure and identify content types
+PHASE 2 (Clustering): Group similar content and detect sub-brands systematically
+PHASE 3 (Deep Analysis): Extract voice profiles WITH competitive/industry context
+PHASE 4 (Synthesis): Provide confidence assessment with evidence
+
+Parameters (JSON, optional): {{ params }}
+
+CRITICAL: Include competitive_context showing:
+- What industry is this brand in?
+- Similar brands and why
+- Contrasting brands and why
+- How this voice compares to industry norms
+- What makes it unique
+
+Return ONLY the JSON object. No markdown, no code fences, just pure JSON.
