@@ -35,7 +35,7 @@ async function getImsTenantId(imsOrgId, organization, context, slackContext) {
     let imsOrgDetails;
     try {
       imsOrgDetails = await imsClient.getImsOrganizationDetails(imsOrgId);
-      log.info(`IMS Org Details: ${imsOrgDetails}`);
+      log.info(`IMS Org Details - tenantId: ${imsOrgDetails.tenantId}`);
       return imsOrgDetails.tenantId;
     } catch (error) {
       log.error(`Error retrieving IMS Org details: ${error.message}`);
@@ -91,13 +91,13 @@ export async function runDemoUrlProcessor(message, context) {
   }
 
   const demoUrl = `${experienceUrl}?organizationId=${organizationId}#/@${imsTenantId}/sites-optimizer/sites/${siteId}/home`;
-  const slackMessage = `:white_check_mark: Setup complete for site ${siteUrl}! Access your environment here: ${demoUrl}`;
+  const slackMessage = `:white_check_mark: Onboarding setup completed successfully for the site ${siteUrl}!\nAccess your environment here: ${demoUrl}`;
 
   if (slackContext) {
     await say(env, log, slackContext, slackMessage);
   }
 
-  log.info(`Setup complete for site ${siteUrl}! Access your environment here: ${demoUrl}`);
+  log.info(`Onboarding setup completed successfully for the site ${siteUrl}! Access your environment here: ${demoUrl}`);
 
   return ok({ message: 'Demo URL processor completed' });
 }
