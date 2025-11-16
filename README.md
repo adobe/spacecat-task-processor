@@ -27,7 +27,9 @@ SpaceCat Task Processor is a Node.js service that processes messages from the AW
 
 ## Usage
 - The service is designed to run as a serverless function or background worker.
-- It listens for messages on the SQS queue and processes them automatically.
+- It can be invoked in two ways:
+  - **SQS mode:** listens to the `SPACECAT-TASK-PROCESSOR-JOBS` queue and processes messages automatically (default path for existing workflows).
+  - **Direct mode:** the Lambda entrypoint auto-detects single-message payloads (e.g., from AWS Step Functions) and executes the corresponding handler synchronously. This is used by the new agent workflows to obtain immediate results before triggering follow-up actions.
 
 ## Development
 - To run tests:
