@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/adobe/spacecat-task-processor/compare/v1.5.4...v1.6.0) (2025-11-16)
+
+
+### Features
+
+* agent executor ([#132](https://github.com/adobe/spacecat-task-processor/issues/132)) ([6a14e06](https://github.com/adobe/spacecat-task-processor/commit/6a14e0651b1ba05ed5db0b25e3ca9307e8b22e12))
+
 ## [1.5.4](https://github.com/adobe/spacecat-task-processor/compare/v1.5.3...v1.5.4) (2025-11-16)
 
 
