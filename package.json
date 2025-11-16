@@ -25,7 +25,8 @@
     "prepare": "husky",
     "local-build": "sam build",
     "local-run": "sam local invoke",
-    "local-watch": "node scripts/watch-and-copy.js"
+    "local-watch": "node scripts/watch-and-copy.js",
+    "test:brand-profile-it": "BRAND_PROFILE_IT=1 mocha test/it/agent-executor/brand-profile.test.js"
   },
   "wsk": {
     "target": "aws",
