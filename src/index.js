@@ -21,11 +21,15 @@ import { runOpportunityStatusProcessor as opportunityStatusProcessor } from './t
 import { runDisableImportAuditProcessor as disableImportAuditProcessor } from './tasks/disable-import-audit-processor/handler.js';
 import { runDemoUrlProcessor as demoUrlProcessor } from './tasks/demo-url-processor/handler.js';
 import { runCwvDemoSuggestionsProcessor as cwvDemoSuggestionsProcessor } from './tasks/cwv-demo-suggestions-processor/handler.js';
+import { runAgentExecutor as agentExecutor } from './tasks/agent-executor/handler.js';
+import { runSlackNotify as slackNotify } from './tasks/slack-notify/handler.js';
 
 const HANDLERS = {
   'opportunity-status-processor': opportunityStatusProcessor,
   'disable-import-audit-processor': disableImportAuditProcessor,
   'demo-url-processor': demoUrlProcessor,
+  'agent-executor': agentExecutor,
+  'slack-notify': slackNotify,
   'cwv-demo-suggestions-processor': cwvDemoSuggestionsProcessor,
   dummy: (message) => ok(message),
 };
@@ -50,7 +54,7 @@ function getElapsedSeconds(startTime) {
  * @param {UniversalContext} context the context of the universal serverless function
  * @returns {Response} a response
  */
-async function run(message, context) {
+async function processTask(message, context) {
   const { log } = context;
   const { type, siteId } = message;
 
@@ -76,9 +80,30 @@ async function run(message, context) {
   }
 }
 
-export const main = wrap(run)
+const runSQS = wrap(processTask)
   .with(dataAccess)
   .with(sqsEventAdapter)
   .with(imsClientWrapper)
   .with(secrets, { name: getSecretName })
   .with(helixStatus);
+
+const runDirect = wrap(processTask)
+  .with(dataAccess)
+  .with(imsClientWrapper)
+  .with(secrets, { name: getSecretName })
+  .with(helixStatus);
+
+function isSqsEvent(event, context) {
+  if (Array.isArray(event?.Records)) {
+    return true;
+  }
+  if (Array.isArray(context?.invocation?.event?.Records)) {
+    return true;
+  }
+  return typeof event?.type !== 'string';
+}
+
+export const main = async (event, context) => {
+  const handler = isSqsEvent(event, context) ? runSQS : runDirect;
+  return handler(event, context);
+};

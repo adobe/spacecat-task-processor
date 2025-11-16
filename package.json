@@ -25,7 +25,8 @@
     "prepare": "husky",
     "local-build": "sam build",
     "local-run": "sam local invoke",
-    "local-watch": "node scripts/watch-and-copy.js"
+    "local-watch": "node scripts/watch-and-copy.js",
+    "test:brand-profile-it": "BRAND_PROFILE_IT=1 mocha test/it/agent-executor/brand-profile.test.js"
   },
   "wsk": {
     "target": "aws",
@@ -78,6 +79,7 @@
     "@aws-sdk/client-cloudwatch-logs": "3.932.0",
     "@adobe/spacecat-shared-ims-client": "1.11.1",
     "@adobe/spacecat-shared-data-access": "2.83.2",
+    "@adobe/spacecat-shared-gpt-client": "1.6.9",
     "@adobe/spacecat-shared-http-utils": "1.18.2",
     "@adobe/spacecat-shared-slack-client": "1.5.30",
     "@adobe/spacecat-shared-utils": "1.73.1",

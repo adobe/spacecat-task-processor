@@ -180,4 +180,19 @@ describe('Index Tests', () => {
     expect(resp.status).to.equal(500); // Should return internal server error
     expect(context.log.error.calledWithMatch(sinon.match('demo-url-processor task for test-site failed after'))).to.be.true;
   });
+
+  it('processes direct invocation events without SQS adapter', async () => {
+    const directContext = {
+      ...context,
+      invocation: undefined,
+    };
+    const directEvent = {
+      type: 'dummy',
+      siteId: 'direct-site',
+    };
+
+    const resp = await main(directEvent, directContext);
+    expect(resp.status).to.equal(200);
+    expect(directContext.log.info.calledWith('Found task handler for type: dummy')).to.be.true;
+  });
 });

@@ -7,13 +7,15 @@ SpaceCat Task Processor is a Node.js service that processes messages from the AW
 ## Features
 - Receives and processes messages from SQS
 - Supports multiple task types via modular handlers
-- Handlers for audit status, demo URL preparation, and disabling imports/audits
+- Built-in handlers for audit status, demo URL preparation, disabling imports/audits, generic agent execution, and Slack notifications
 - Extensible and easy to add new handlers
 
 ## Handlers
 - **opportunity-status-processor**: Checks and reports status audits for a site
 - **disable-import-audit-processor**: Disables specified imports and audits for a site
 - **demo-url-processor**: Prepares and shares a demo URL for a site
+- **agent-executor**: Runs registered AI/LLM agents (e.g., the brand-profile agent) asynchronously after onboarding flows
+- **slack-notify**: Sends Slack notifications (text or block messages) from workflows
 
 ## Setup
 1. Clone the repository
@@ -25,13 +27,32 @@ SpaceCat Task Processor is a Node.js service that processes messages from the AW
 
 ## Usage
 - The service is designed to run as a serverless function or background worker.
-- It listens for messages on the SQS queue and processes them automatically.
+- It can be invoked in two ways:
+  - **SQS mode:** listens to the `SPACECAT-TASK-PROCESSOR-JOBS` queue and processes messages automatically (default path for existing workflows).
+  - **Direct mode:** the Lambda entrypoint auto-detects single-message payloads (e.g., from AWS Step Functions) and executes the corresponding handler synchronously. This is used by the new agent workflows to obtain immediate results before triggering follow-up actions.
 
 ## Development
 - To run tests:
   ```sh
   npm test
   ```
+- To run the optional brand-profile integration test (requires Azure OpenAI env variables):
+  ```sh
+  npm run test:brand-profile-it
+  ```
+
+### Agent Executor Environment
+
+The `agent-executor` (and the provided brand-profile agent) rely on the Azure OpenAI credentials consumed by `@adobe/spacecat-shared-gpt-client`. Ensure the following variables are configured in the Lambda/runner environment (and locally when running the IT test):
+
+| Variable | Purpose |
+| --- | --- |
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL |
+| `AZURE_OPENAI_KEY` | API key for the Azure OpenAI resource |
+| `AZURE_API_VERSION` | API version used for the chat completions |
+| `AZURE_COMPLETION_DEPLOYMENT` | Deployment/model name (e.g., `gpt-4o`) |
+
+When invoking the integration test, you can also set `BRAND_PROFILE_TEST_BASE_URL` to control which site is analyzed and `BRAND_PROFILE_IT_FULL=1` to print the complete agent response (otherwise the preview is truncated for readability).
 - To lint code:
   ```sh
   npm run lint
