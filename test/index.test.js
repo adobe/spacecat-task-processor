@@ -195,4 +195,25 @@ describe('Index Tests', () => {
     expect(resp.status).to.equal(200);
     expect(directContext.log.info.calledWith('Found task handler for type: dummy')).to.be.true;
   });
+
+  it('treats direct invocation with context invocation records as direct', async () => {
+    const directContext = {
+      ...context,
+      invocation: {
+        event: {
+          Records: [{
+            body: JSON.stringify({ fake: 'value' }),
+          }],
+        },
+      },
+    };
+    const directEvent = {
+      type: 'dummy',
+      siteId: 'direct-site',
+    };
+
+    const resp = await main(directEvent, directContext);
+    expect(resp.status).to.equal(200);
+    expect(directContext.log.info.calledWith('Found task handler for type: dummy')).to.be.true;
+  });
 });

@@ -93,17 +93,11 @@ const runDirect = wrap(processTask)
   .with(secrets, { name: getSecretName })
   .with(helixStatus);
 
-function isSqsEvent(event, context) {
-  if (Array.isArray(event?.Records)) {
-    return true;
-  }
-  if (Array.isArray(context?.invocation?.event?.Records)) {
-    return true;
-  }
-  return typeof event?.type !== 'string';
+function isSqsEvent(event) {
+  return Array.isArray(event?.Records);
 }
 
 export const main = async (event, context) => {
-  const handler = isSqsEvent(event, context) ? runSQS : runDirect;
+  const handler = isSqsEvent(event) ? runSQS : runDirect;
   return handler(event, context);
 };
