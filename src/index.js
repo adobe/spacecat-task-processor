@@ -13,9 +13,14 @@ import wrap from '@adobe/helix-shared-wrap';
 import { helixStatus } from '@adobe/helix-status';
 import secrets from '@adobe/helix-shared-secrets';
 import dataAccess from '@adobe/spacecat-shared-data-access';
-import { sqsEventAdapter } from '@adobe/spacecat-shared-utils';
-import { internalServerError, notFound, ok } from '@adobe/spacecat-shared-http-utils';
+import {
+  internalServerError,
+  notFound,
+  ok,
+  badRequest,
+} from '@adobe/spacecat-shared-http-utils';
 import { imsClientWrapper } from '@adobe/spacecat-shared-ims-client';
+import { isNonEmptyObject, sqsEventAdapter } from '@adobe/spacecat-shared-utils';
 
 import { runOpportunityStatusProcessor as opportunityStatusProcessor } from './tasks/opportunity-status-processor/handler.js';
 import { runDisableImportAuditProcessor as disableImportAuditProcessor } from './tasks/disable-import-audit-processor/handler.js';
@@ -31,7 +36,7 @@ const HANDLERS = {
   'agent-executor': agentExecutor,
   'slack-notify': slackNotify,
   'cwv-demo-suggestions-processor': cwvDemoSuggestionsProcessor,
-  dummy: (message) => ok(message),
+  dummy: (message) => ok(message), // for tests
 };
 
 // Custom secret name resolver to use the correct secret path
@@ -98,10 +103,15 @@ function isSqsEvent(event) {
 }
 
 export const main = async (event, context) => {
-  const { log } = context;
-  // const isSQSEvent = Array.isArray(context.invocation?.event?.Records);
-  log.debug(JSON.stringify(event, null, 2));
-  log.debug(JSON.stringify(context, null, 2));
-  const handler = isSqsEvent(event) ? runSQS : runDirect;
-  return handler(event, context);
+  if (isSqsEvent(event)) {
+    return runSQS(event, context);
+  }
+
+  const payload = context?.invocation?.event;
+  if (!isNonEmptyObject(payload)) {
+    context?.log?.warn?.('Direct invocation missing payload');
+    return badRequest('Event does not contain a valid message body');
+  }
+
+  return runDirect(payload, context);
 };

@@ -182,50 +182,25 @@ describe('Index Tests', () => {
     expect(context.log.error.calledWithMatch(sinon.match('demo-url-processor task for test-site failed after'))).to.be.true;
   });
 
-  it('processes direct invocation events without SQS adapter', async () => {
-    const directContext = {
-      ...context,
-      invocation: undefined,
-    };
-    const directEvent = {
-      type: 'dummy',
-      siteId: 'direct-site',
-    };
+  describe('direct invocation detection', () => {
+    it('falls back to badRequest when no payload is provided', async () => {
+      const resp = await main({ random: 'value' }, { ...context, invocation: undefined });
+      expect(resp.status).to.equal(400);
+    });
 
-    const resp = await main(directEvent, directContext);
-    expect(resp.status).to.equal(200);
-    expect(directContext.log.info.calledWith('Found task handler for type: dummy')).to.be.true;
-  });
-
-  it('treats direct invocation with context invocation records as direct', async () => {
-    const directContext = {
-      ...context,
-      invocation: {
-        event: {
-          Records: [{
-            body: JSON.stringify({ fake: 'value' }),
-          }],
+    it('uses payload from context invocation when present', async () => {
+      const directContext = {
+        ...context,
+        invocation: {
+          event: {
+            type: 'dummy',
+            siteId: 'direct-site',
+          },
         },
-      },
-    };
-    const directEvent = {
-      type: 'dummy',
-      siteId: 'direct-site',
-    };
-
-    const resp = await main(directEvent, directContext);
-    expect(resp.status).to.equal(200);
-    expect(directContext.log.info.calledWith('Found task handler for type: dummy')).to.be.true;
-  });
-
-  it('processes direct invocation events even when context contains invocation records', async () => {
-    const directEvent = {
-      type: 'dummy',
-      siteId: 'direct-site',
-    };
-
-    const resp = await main(directEvent, context);
-    expect(resp.status).to.equal(200);
-    expect(context.log.info.calledWith('Found task handler for type: dummy')).to.be.true;
+      };
+      const resp = await main({}, directContext);
+      expect(resp.status).to.equal(200);
+      expect(directContext.log.info.calledWith('Found task handler for type: dummy')).to.be.true;
+    });
   });
 });
