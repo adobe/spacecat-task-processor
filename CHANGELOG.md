@@ -1,3 +1,11 @@
+## [1.6.1](https://github.com/adobe/spacecat-task-processor/compare/v1.6.0...v1.6.1) (2025-11-17)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adobe/spacecat-shared-gpt-client to v1.6.10 ([#133](https://github.com/adobe/spacecat-task-processor/issues/133)) ([97f6757](https://github.com/adobe/spacecat-task-processor/commit/97f6757e2126c5bfb9b8d5581e448223d15b3f4e))
+* direct invoke ([#134](https://github.com/adobe/spacecat-task-processor/issues/134)) ([0d74ca4](https://github.com/adobe/spacecat-task-processor/commit/0d74ca4da3b50f3badbeeaa0057a114c1f24cfc2))
+
 # [1.6.0](https://github.com/adobe/spacecat-task-processor/compare/v1.5.4...v1.6.0) (2025-11-16)
 
 
