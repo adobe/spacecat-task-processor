@@ -18,7 +18,7 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 
-import { readPromptFile, renderTemplate } from '../../../src/tasks/agents/base.js';
+import { readPromptFile, renderTemplate } from '../../src/agents/base.js';
 
 describe('agents/base utilities', () => {
   describe('renderTemplate', () => {

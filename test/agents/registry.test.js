@@ -37,8 +37,8 @@ describe('agents/registry', () => {
       persist: sandbox.stub().resolves(),
     };
 
-    const registryModule = await esmock('../../../src/tasks/agents/registry.js', {
-      '../../../src/tasks/agents/brand-profile/index.js': {
+    const registryModule = await esmock('../../src/agents/registry.js', {
+      '../../src/agents/brand-profile/index.js': {
         default: mockAgent,
       },
     });
@@ -50,8 +50,8 @@ describe('agents/registry', () => {
   });
 
   it('returns null for unknown agent id', async () => {
-    const registryModule = await esmock('../../../src/tasks/agents/registry.js', {
-      '../../../src/tasks/agents/brand-profile/index.js': {
+    const registryModule = await esmock('../../src/agents/registry.js', {
+      '../../src/agents/brand-profile/index.js': {
         default: {},
       },
     });

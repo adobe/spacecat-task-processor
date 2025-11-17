@@ -42,7 +42,8 @@
     "timeout": 900000,
     "nodeVersion": 22,
     "static": [
-      "src/tasks/agents/brand-profile/prompts",
+      "src/agents/brand-profile/prompts/system.prompt",
+      "src/agents/brand-profile/prompts/user.prompt",
       "static/cls1.md",
       "static/cls2.md",
       "static/inp1.md",

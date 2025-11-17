@@ -12,7 +12,7 @@
 import { ok, badRequest } from '@adobe/spacecat-shared-http-utils';
 import { hasText, isNonEmptyObject } from '@adobe/spacecat-shared-utils';
 
-import { getAgent } from '../agents/registry.js';
+import { getAgent } from '../../agents/registry.js';
 
 /**
  * Message shape:
