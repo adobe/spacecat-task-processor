@@ -38,7 +38,7 @@ describe('agent-executor handler', () => {
 
   it('returns 400 when agentId is missing', async () => {
     const handlerModule = await esmock('../../../src/tasks/agent-executor/handler.js', {
-      '../../../src/tasks/agents/registry.js': {
+      '../../../src/agents/registry.js': {
         getAgent: sandbox.stub().returns(null),
       },
       '@adobe/spacecat-shared-utils': {
@@ -53,7 +53,7 @@ describe('agent-executor handler', () => {
 
   it('returns 400 when agent is unknown', async () => {
     const handlerModule = await esmock('../../../src/tasks/agent-executor/handler.js', {
-      '../../../src/tasks/agents/registry.js': {
+      '../../../src/agents/registry.js': {
         getAgent: sandbox.stub().returns(null),
       },
       '@adobe/spacecat-shared-utils': {
@@ -70,7 +70,7 @@ describe('agent-executor handler', () => {
   it('runs agent without persist and returns result', async () => {
     const runStub = sandbox.stub().resolves({ a: 1 });
     const handlerModule = await esmock('../../../src/tasks/agent-executor/handler.js', {
-      '../../../src/tasks/agents/registry.js': {
+      '../../../src/agents/registry.js': {
         getAgent: sandbox.stub().returns({ run: runStub }),
       },
       '@adobe/spacecat-shared-utils': {
@@ -99,7 +99,7 @@ describe('agent-executor handler', () => {
     const getAgent = sandbox.stub().returns({ run: runStub, persist: persistStub });
 
     const handlerModule = await esmock('../../../src/tasks/agent-executor/handler.js', {
-      '../../../src/tasks/agents/registry.js': { getAgent },
+      '../../../src/agents/registry.js': { getAgent },
       '@adobe/spacecat-shared-utils': { hasText: () => true },
     });
     runAgentExecutor = handlerModule.runAgentExecutor;
@@ -117,7 +117,7 @@ describe('agent-executor handler', () => {
   it('bubbles up errors thrown by agent.run', async () => {
     const runStub = sandbox.stub().rejects(new Error('run failed'));
     const handlerModule = await esmock('../../../src/tasks/agent-executor/handler.js', {
-      '../../../src/tasks/agents/registry.js': {
+      '../../../src/agents/registry.js': {
         getAgent: sandbox.stub().returns({ run: runStub }),
       },
       '@adobe/spacecat-shared-utils': {
@@ -134,7 +134,7 @@ describe('agent-executor handler', () => {
     const runStub = sandbox.stub().resolves({ ok: true });
     const persistStub = sandbox.stub().rejects(new Error('persist failed'));
     const handlerModule = await esmock('../../../src/tasks/agent-executor/handler.js', {
-      '../../../src/tasks/agents/registry.js': {
+      '../../../src/agents/registry.js': {
         getAgent: sandbox.stub().returns({ run: runStub, persist: persistStub }),
       },
       '@adobe/spacecat-shared-utils': {
@@ -149,7 +149,7 @@ describe('agent-executor handler', () => {
 
   it('returns 400 when message is undefined', async () => {
     const handlerModule = await esmock('../../../src/tasks/agent-executor/handler.js', {
-      '../../../src/tasks/agents/registry.js': {
+      '../../../src/agents/registry.js': {
         getAgent: sandbox.stub().returns(null),
       },
       '@adobe/spacecat-shared-utils': {
@@ -165,7 +165,7 @@ describe('agent-executor handler', () => {
     const runStub = sandbox.stub().resolves({ ok: true });
     const persistStub = sandbox.stub().resolves({ stored: true, version: 2 });
     const handlerModule = await esmock('../../../src/tasks/agent-executor/handler.js', {
-      '../../../src/tasks/agents/registry.js': {
+      '../../../src/agents/registry.js': {
         getAgent: sandbox.stub().returns({ run: runStub, persist: persistStub }),
       },
       '@adobe/spacecat-shared-utils': {
@@ -186,7 +186,7 @@ describe('agent-executor handler', () => {
     const runStub = sandbox.stub().resolves({ ok: true });
     const persistStub = sandbox.stub().resolves({});
     const handlerModule = await esmock('../../../src/tasks/agent-executor/handler.js', {
-      '../../../src/tasks/agents/registry.js': {
+      '../../../src/agents/registry.js': {
         getAgent: sandbox.stub().returns({ run: runStub, persist: persistStub }),
       },
       '@adobe/spacecat-shared-utils': {

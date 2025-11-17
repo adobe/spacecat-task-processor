@@ -42,8 +42,8 @@ async function run(context, env, log) {
     throw new Error('brand-profile: context.baseURL is required');
   }
 
-  const systemPrompt = readPromptFile(import.meta.url, './prompts/system.prompt');
-  const userTemplate = readPromptFile(import.meta.url, './prompts/user.prompt');
+  const systemPrompt = readPromptFile('brand-profile/system.prompt');
+  const userTemplate = readPromptFile('brand-profile/user.prompt');
   const userPrompt = renderTemplate(userTemplate, { baseURL, params: JSON.stringify(params) });
 
   return callModel({
@@ -53,7 +53,7 @@ async function run(context, env, log) {
 
 async function persist(message, context, result) {
   const { log, dataAccess } = context;
-  const siteId = message?.context?.siteId;
+  const siteId = message?.siteId;
 
   if (!isValidUUID(siteId)) {
     log.warn(`brand-profile persist: invalid siteId ${siteId}`);

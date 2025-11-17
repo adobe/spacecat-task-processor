@@ -42,6 +42,7 @@
     "timeout": 900000,
     "nodeVersion": 22,
     "static": [
+      "static/prompts/",
       "static/cls1.md",
       "static/cls2.md",
       "static/inp1.md",

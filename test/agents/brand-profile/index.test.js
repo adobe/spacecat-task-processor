@@ -49,11 +49,11 @@ describe('agents/brand-profile', () => {
     });
     const createFrom = sandbox.stub().returns({ fetchChatCompletion });
 
-    const mod = await esmock('../../../../src/tasks/agents/brand-profile/index.js', {
+    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
       '@adobe/spacecat-shared-gpt-client': {
         AzureOpenAIClient: { createFrom },
       },
-      '../../../../src/tasks/agents/base.js': {
+      '../../../src/agents/base.js': {
         readPromptFile: sandbox.stub()
           .onFirstCall()
           .returns('SYS_PROMPT')
@@ -78,8 +78,8 @@ describe('agents/brand-profile', () => {
   });
 
   it('run() throws on invalid baseURL', async () => {
-    const mod = await esmock('../../../../src/tasks/agents/brand-profile/index.js', {
-      '../../../../src/tasks/agents/base.js': {
+    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
+      '../../../src/agents/base.js': {
         readPromptFile: sandbox.stub(),
         renderTemplate: sandbox.stub(),
       },
@@ -94,11 +94,11 @@ describe('agents/brand-profile', () => {
     });
     const createFrom = sandbox.stub().returns({ fetchChatCompletion });
 
-    const mod = await esmock('../../../../src/tasks/agents/brand-profile/index.js', {
+    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
       '@adobe/spacecat-shared-gpt-client': {
         AzureOpenAIClient: { createFrom },
       },
-      '../../../../src/tasks/agents/base.js': {
+      '../../../src/agents/base.js': {
         readPromptFile: sandbox.stub()
           .onFirstCall()
           .returns('SYS_PROMPT')
@@ -119,11 +119,11 @@ describe('agents/brand-profile', () => {
     });
     const createFrom = sandbox.stub().returns({ fetchChatCompletion });
 
-    const mod = await esmock('../../../../src/tasks/agents/brand-profile/index.js', {
+    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
       '@adobe/spacecat-shared-gpt-client': {
         AzureOpenAIClient: { createFrom },
       },
-      '../../../../src/tasks/agents/base.js': {
+      '../../../src/agents/base.js': {
         readPromptFile: sandbox.stub()
           .onFirstCall()
           .returns('SYS_PROMPT')
@@ -142,10 +142,10 @@ describe('agents/brand-profile', () => {
   });
 
   it('persist() returns early for invalid siteId', async () => {
-    const mod = await esmock('../../../../src/tasks/agents/brand-profile/index.js', {});
+    const mod = await esmock('../../../src/agents/brand-profile/index.js', {});
 
     await mod.default.persist(
-      { context: { siteId: 'invalid' } },
+      { siteId: 'invalid' },
       context,
       { ok: true },
     );
@@ -153,9 +153,9 @@ describe('agents/brand-profile', () => {
   });
 
   it('persist() returns early for empty result', async () => {
-    const mod = await esmock('../../../../src/tasks/agents/brand-profile/index.js', {});
+    const mod = await esmock('../../../src/agents/brand-profile/index.js', {});
     await mod.default.persist(
-      { context: { siteId: '123e4567-e89b-12d3-a456-426614174000' } },
+      { siteId: '123e4567-e89b-12d3-a456-426614174000' },
       context,
       {},
     );
@@ -166,9 +166,9 @@ describe('agents/brand-profile', () => {
     const findById = sandbox.stub().resolves(null);
     context.dataAccess.Site = { findById };
 
-    const mod = await esmock('../../../../src/tasks/agents/brand-profile/index.js', {});
+    const mod = await esmock('../../../src/agents/brand-profile/index.js', {});
     await mod.default.persist(
-      { context: { siteId: '123e4567-e89b-12d3-a456-426614174000' } },
+      { siteId: '123e4567-e89b-12d3-a456-426614174000' },
       context,
       { ok: true },
     );
@@ -195,14 +195,14 @@ describe('agents/brand-profile', () => {
     context.dataAccess.Site = { findById };
 
     const toDynamoItem = sandbox.stub().callsFake((c) => c);
-    const mod = await esmock('../../../../src/tasks/agents/brand-profile/index.js', {
+    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
       '@adobe/spacecat-shared-data-access/src/models/site/config.js': {
         Config: { toDynamoItem },
       },
     });
 
     await mod.default.persist(
-      { context: { siteId: '123e4567-e89b-12d3-a456-426614174000', baseURL: 'https://example.com' } },
+      { siteId: '123e4567-e89b-12d3-a456-426614174000', baseURL: 'https://example.com' },
       context,
       { any: 'result' },
     );
@@ -230,14 +230,14 @@ describe('agents/brand-profile', () => {
     context.dataAccess.Site = { findById };
 
     const toDynamoItem = sandbox.stub().callsFake((c) => c);
-    const mod = await esmock('../../../../src/tasks/agents/brand-profile/index.js', {
+    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
       '@adobe/spacecat-shared-data-access/src/models/site/config.js': {
         Config: { toDynamoItem },
       },
     });
 
     await mod.default.persist(
-      { context: { siteId: '123e4567-e89b-12d3-a456-426614174000', baseURL: 'https://example.com' } },
+      { siteId: '123e4567-e89b-12d3-a456-426614174000', baseURL: 'https://example.com' },
       context,
       { unchanged: true },
     );
@@ -267,14 +267,14 @@ describe('agents/brand-profile', () => {
     context.dataAccess.Site = { findById };
 
     const toDynamoItem = sandbox.stub().callsFake((c) => c);
-    const mod = await esmock('../../../../src/tasks/agents/brand-profile/index.js', {
+    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
       '@adobe/spacecat-shared-data-access/src/models/site/config.js': {
         Config: { toDynamoItem },
       },
     });
 
     await mod.default.persist(
-      { context: { siteId: '123e4567-e89b-12d3-a456-426614174000' } },
+      { siteId: '123e4567-e89b-12d3-a456-426614174000' },
       context,
       { foo: 'bar' },
     );

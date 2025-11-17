@@ -15,7 +15,6 @@
 import { expect, use } from 'chai';
 import sinon from 'sinon';
 import sinonChai from 'sinon-chai';
-import { Request } from '@adobe/fetch';
 import esmock from 'esmock';
 import { main, getSecretName } from '../src/index.js';
 
@@ -24,7 +23,7 @@ use(sinonChai);
 const sandbox = sinon.createSandbox();
 
 describe('Index Tests', () => {
-  const request = new Request('https://space.cat');
+  let sqsEvent;
   let context;
   let messageBodyJson;
 
@@ -37,6 +36,12 @@ describe('Index Tests', () => {
         key: 'value',
       },
     };
+    sqsEvent = {
+      Records: [{
+        body: JSON.stringify(messageBodyJson),
+      }],
+    };
+
     context = {
       dataAccess: {},
       log: {
@@ -63,11 +68,7 @@ describe('Index Tests', () => {
         region: 'us-east-1',
       },
       invocation: {
-        event: {
-          Records: [{
-            body: JSON.stringify(messageBodyJson),
-          }],
-        },
+        event: sqsEvent,
       },
     };
   });
@@ -78,7 +79,7 @@ describe('Index Tests', () => {
 
   it('requests without a valid event payload are rejected', async () => {
     delete context.invocation;
-    const resp = await main(request, context);
+    const resp = await main(sqsEvent, context);
 
     expect(resp.status).to.equal(400);
     expect(resp.headers.get('x-error')).to.equal('Event does not contain any records');
@@ -87,7 +88,7 @@ describe('Index Tests', () => {
   it('returns 404 for unknown handler type', async () => {
     messageBodyJson.type = 'unknown-type';
     context.invocation.event.Records[0].body = JSON.stringify(messageBodyJson);
-    const resp = await main(request, context);
+    const resp = await main(sqsEvent, context);
     expect(resp.status).to.equal(404);
     // Verify the error message was logged
     expect(context.log.error.calledWith('no such task type: unknown-type')).to.be.true;
@@ -119,14 +120,14 @@ describe('Index Tests', () => {
       }),
     };
 
-    const resp = await main(request, context);
+    const resp = await main(sqsEvent, context);
     expect(resp.status).to.equal(200); // Handler should handle the error gracefully
     // Verify the task handler was found
     expect(context.log.info.calledWith('Found task handler for type: demo-url-processor')).to.be.true;
   });
 
   it('happy path', async () => {
-    const resp = await main(request, context);
+    const resp = await main(sqsEvent, context);
     expect(resp.status).to.equal(200);
     // Verify the task handler was found
     expect(context.log.info.calledWith('Found task handler for type: dummy')).to.be.true;
@@ -155,7 +156,7 @@ describe('Index Tests', () => {
       },
     };
 
-    const resp = await main(request, context);
+    const resp = await main(sqsEvent, context);
     expect(resp.status).to.equal(200); // Handler catches the error internally
     // Verify the task handler was found
     expect(context.log.info.calledWith('Found task handler for type: opportunity-status-processor')).to.be.true;
@@ -176,23 +177,30 @@ describe('Index Tests', () => {
       },
     });
 
-    const resp = await mockedMain(request, context);
+    const resp = await mockedMain(sqsEvent, context);
     expect(resp.status).to.equal(500); // Should return internal server error
     expect(context.log.error.calledWithMatch(sinon.match('demo-url-processor task for test-site failed after'))).to.be.true;
   });
 
-  it('processes direct invocation events without SQS adapter', async () => {
-    const directContext = {
-      ...context,
-      invocation: undefined,
-    };
-    const directEvent = {
-      type: 'dummy',
-      siteId: 'direct-site',
-    };
+  describe('direct invocation detection', () => {
+    it('falls back to badRequest when no payload is provided', async () => {
+      const resp = await main({ random: 'value' }, { ...context, invocation: undefined });
+      expect(resp.status).to.equal(400);
+    });
 
-    const resp = await main(directEvent, directContext);
-    expect(resp.status).to.equal(200);
-    expect(directContext.log.info.calledWith('Found task handler for type: dummy')).to.be.true;
+    it('uses payload from context invocation when present', async () => {
+      const directContext = {
+        ...context,
+        invocation: {
+          event: {
+            type: 'dummy',
+            siteId: 'direct-site',
+          },
+        },
+      };
+      const resp = await main({}, directContext);
+      expect(resp.status).to.equal(200);
+      expect(directContext.log.info.calledWith('Found task handler for type: dummy')).to.be.true;
+    });
   });
 });
