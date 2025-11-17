@@ -99,7 +99,9 @@ function isSqsEvent(event) {
 
 export const main = async (event, context) => {
   const { log } = context;
-  log.debug(JSON.stringify(event.Records, null, 2));
+  // const isSQSEvent = Array.isArray(context.invocation?.event?.Records);
+  log.debug(JSON.stringify(event, null, 2));
+  log.debug(JSON.stringify(context, null, 2));
   const handler = isSqsEvent(event) ? runSQS : runDirect;
   return handler(event, context);
 };
