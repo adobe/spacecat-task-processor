@@ -12,7 +12,7 @@
 import { readFileSync } from 'fs';
 import path from 'path';
 
-export function readPromptFile(importMetaUrl, relPath) {
+export function readPromptFile(relPath) {
   const fullPath = path.resolve(process.cwd(), 'static/prompts/', relPath);
   return readFileSync(fullPath, 'utf-8');
 }

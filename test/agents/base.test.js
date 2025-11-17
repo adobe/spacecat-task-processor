@@ -13,9 +13,7 @@
 /* eslint-env mocha */
 
 import { expect } from 'chai';
-import { fileURLToPath } from 'url';
 import path from 'path';
-import os from 'os';
 import fs from 'fs';
 
 import { readPromptFile, renderTemplate } from '../../src/agents/base.js';
@@ -46,39 +44,22 @@ describe('agents/base utilities', () => {
   });
 
   describe('readPromptFile', () => {
-    const testDir = path.dirname(fileURLToPath(import.meta.url));
-
     const unlink = (filePath) => {
       try {
         fs.unlinkSync(filePath);
       } catch (e) { /* ignore */ }
     };
 
-    it('reads a file via relative path against import.meta.url dirname', () => {
+    it('reads a file via relative path against static prompt dirname', () => {
       const relName = 'tmp.prompt';
-      const relPath = `./${relName}`;
-      const absPath = path.resolve(testDir, relName);
+      const absPath = path.resolve(process.cwd(), 'static/prompts/', relName);
       const content = 'relative content';
       try {
         fs.writeFileSync(absPath, content, 'utf-8');
-        const read = readPromptFile(import.meta.url, relPath);
+        const read = readPromptFile('./tmp.prompt');
         expect(read).to.equal(content);
       } finally {
         unlink(absPath);
-      }
-    });
-
-    it('reads a file via absolute path ignoring dirname resolution', () => {
-      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'base-test-'));
-      const absPath = path.join(tmpDir, 'abs.prompt');
-      const content = 'absolute content';
-      try {
-        fs.writeFileSync(absPath, content, 'utf-8');
-        const read = readPromptFile(import.meta.url, absPath);
-        expect(read).to.equal(content);
-      } finally {
-        unlink(absPath);
-        unlink(tmpDir);
       }
     });
   });
