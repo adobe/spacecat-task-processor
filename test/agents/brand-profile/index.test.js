@@ -145,7 +145,7 @@ describe('agents/brand-profile', () => {
     const mod = await esmock('../../../src/agents/brand-profile/index.js', {});
 
     await mod.default.persist(
-      { context: { siteId: 'invalid' } },
+      { siteId: 'invalid' },
       context,
       { ok: true },
     );
@@ -155,7 +155,7 @@ describe('agents/brand-profile', () => {
   it('persist() returns early for empty result', async () => {
     const mod = await esmock('../../../src/agents/brand-profile/index.js', {});
     await mod.default.persist(
-      { context: { siteId: '123e4567-e89b-12d3-a456-426614174000' } },
+      { siteId: '123e4567-e89b-12d3-a456-426614174000' },
       context,
       {},
     );
@@ -168,7 +168,7 @@ describe('agents/brand-profile', () => {
 
     const mod = await esmock('../../../src/agents/brand-profile/index.js', {});
     await mod.default.persist(
-      { context: { siteId: '123e4567-e89b-12d3-a456-426614174000' } },
+      { siteId: '123e4567-e89b-12d3-a456-426614174000' },
       context,
       { ok: true },
     );
@@ -202,7 +202,7 @@ describe('agents/brand-profile', () => {
     });
 
     await mod.default.persist(
-      { context: { siteId: '123e4567-e89b-12d3-a456-426614174000', baseURL: 'https://example.com' } },
+      { siteId: '123e4567-e89b-12d3-a456-426614174000', baseURL: 'https://example.com' },
       context,
       { any: 'result' },
     );
@@ -237,7 +237,7 @@ describe('agents/brand-profile', () => {
     });
 
     await mod.default.persist(
-      { context: { siteId: '123e4567-e89b-12d3-a456-426614174000', baseURL: 'https://example.com' } },
+      { siteId: '123e4567-e89b-12d3-a456-426614174000', baseURL: 'https://example.com' },
       context,
       { unchanged: true },
     );
@@ -274,7 +274,7 @@ describe('agents/brand-profile', () => {
     });
 
     await mod.default.persist(
-      { context: { siteId: '123e4567-e89b-12d3-a456-426614174000' } },
+      { siteId: '123e4567-e89b-12d3-a456-426614174000' },
       context,
       { foo: 'bar' },
     );

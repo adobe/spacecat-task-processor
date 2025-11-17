@@ -53,7 +53,7 @@ async function run(context, env, log) {
 
 async function persist(message, context, result) {
   const { log, dataAccess } = context;
-  const siteId = message?.context?.siteId;
+  const siteId = message?.siteId;
 
   if (!isValidUUID(siteId)) {
     log.warn(`brand-profile persist: invalid siteId ${siteId}`);
