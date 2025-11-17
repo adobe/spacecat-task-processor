@@ -10,13 +10,10 @@
  * governing permissions and limitations under the License.
  */
 import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
 import path from 'path';
 
 export function readPromptFile(importMetaUrl, relPath) {
-  const filename = fileURLToPath(importMetaUrl);
-  const dirname = path.dirname(filename);
-  const fullPath = path.resolve(dirname, relPath);
+  const fullPath = path.resolve(process.cwd(), 'static/prompts/', relPath);
   return readFileSync(fullPath, 'utf-8');
 }
 

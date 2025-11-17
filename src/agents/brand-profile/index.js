@@ -42,8 +42,8 @@ async function run(context, env, log) {
     throw new Error('brand-profile: context.baseURL is required');
   }
 
-  const systemPrompt = readPromptFile(import.meta.url, '../../../static/prompts/brand-profile/system.prompt');
-  const userTemplate = readPromptFile(import.meta.url, '../../../static/prompts/brand-profile/user.prompt');
+  const systemPrompt = readPromptFile('brand-profile/system.prompt');
+  const userTemplate = readPromptFile('brand-profile/user.prompt');
   const userPrompt = renderTemplate(userTemplate, { baseURL, params: JSON.stringify(params) });
 
   return callModel({
