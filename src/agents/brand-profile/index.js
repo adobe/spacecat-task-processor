@@ -138,14 +138,14 @@ async function persist(message, context, result) {
     { type: 'mrkdwn', text: `*Site ID:* ${siteId}` },
   ];
   if (version) {
-    contextElements.push({ type: 'mrkdwn', text: `\n*Version:* ${version}` });
+    contextElements.push({ type: 'mrkdwn', text: `*Version:* ${version}` });
   }
   if (afterHash) {
-    contextElements.push({ type: 'mrkdwn', text: `\n*Hash:* \`${afterHash}\`` });
+    contextElements.push({ type: 'mrkdwn', text: `*Hash:* \`${afterHash}\`` });
   }
   contextElements.push({
     type: 'mrkdwn',
-    text: `\nhttps://spacecat.experiencecloud.live/api/${isDev ? 'ci' : 'v1'}/sites/${siteId}/brand-profile`,
+    text: `https://spacecat.experiencecloud.live/api/${isDev ? 'ci' : 'v1'}/sites/${siteId}/brand-profile`,
   });
   blocks.push({
     type: 'context',
