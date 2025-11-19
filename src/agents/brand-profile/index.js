@@ -89,6 +89,7 @@ async function persist(message, context, result) {
 
   // Emit concise summary for observability/Slack step consumers via logs
   const version = after?.version;
+  const isDev = context.env.AWS_ENV === 'dev';
   const summary = changed
     ? `:white_check_mark: Brand profile updated to v${version} for ${baseURL}.`
     : `:information_source: Brand profile already up to date (v${version}) for ${baseURL}.`;
@@ -137,14 +138,14 @@ async function persist(message, context, result) {
     { type: 'mrkdwn', text: `*Site ID:* ${siteId}` },
   ];
   if (version) {
-    contextElements.push({ type: 'mrkdwn', text: `*Version:* ${version}` });
+    contextElements.push({ type: 'mrkdwn', text: `\n*Version:* ${version}` });
   }
   if (afterHash) {
-    contextElements.push({ type: 'mrkdwn', text: `*Hash:* \`${afterHash}\`` });
+    contextElements.push({ type: 'mrkdwn', text: `\n*Hash:* \`${afterHash}\`` });
   }
   contextElements.push({
     type: 'mrkdwn',
-    text: `\`GET /api/sites/${siteId}/brand-profile\``,
+    text: `\nhttps://spacecat.experiencecloud.live/api/${isDev ? 'ci' : 'v1'}/sites/${siteId}/brand-profile`,
   });
   blocks.push({
     type: 'context',
