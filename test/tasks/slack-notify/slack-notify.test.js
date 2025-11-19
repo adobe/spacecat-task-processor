@@ -45,6 +45,7 @@ describe('slack-notify handler', () => {
       },
       '@adobe/spacecat-shared-utils': {
         hasText: (s) => !!s && s.length > 0,
+        isNonEmptyObject: (obj) => !!obj && typeof obj === 'object' && Object.keys(obj).length > 0,
       },
     });
     runSlackNotify = handlerModule.runSlackNotify;
@@ -66,6 +67,7 @@ describe('slack-notify handler', () => {
       },
       '@adobe/spacecat-shared-utils': {
         hasText: () => true,
+        isNonEmptyObject: (obj) => !!obj && typeof obj === 'object' && Object.keys(obj).length > 0,
       },
     });
     runSlackNotify = handlerModule.runSlackNotify;
@@ -97,6 +99,7 @@ describe('slack-notify handler', () => {
       },
       '@adobe/spacecat-shared-utils': {
         hasText: () => true,
+        isNonEmptyObject: (obj) => !!obj && typeof obj === 'object' && Object.keys(obj).length > 0,
       },
     });
     runSlackNotify = handlerModule.runSlackNotify;
@@ -114,6 +117,193 @@ describe('slack-notify handler', () => {
       channel: 'C999',
       thread_ts: '999.000',
       text: 'fallback text',
+      blocks,
+    });
+  });
+
+  it('prefers message payloads for simple notifications', async () => {
+    const sayStub = sandbox.stub().resolves();
+    const handlerModule = await esmock('../../../src/tasks/slack-notify/handler.js', {
+      '@adobe/spacecat-shared-slack-client': {
+        BaseSlackClient: { createFrom: sandbox.stub() },
+        SLACK_TARGETS: { WORKSPACE_INTERNAL: 'workspace_internal' },
+      },
+      '../../../src/utils/slack-utils.js': {
+        say: sayStub,
+      },
+      '@adobe/spacecat-shared-utils': {
+        hasText: () => true,
+        isNonEmptyObject: (obj) => !!obj && typeof obj === 'object' && Object.keys(obj).length > 0,
+      },
+    });
+    runSlackNotify = handlerModule.runSlackNotify;
+
+    const resp = await runSlackNotify({
+      slackContext: { channelId: 'C123', threadTs: 'T1' },
+      message: { text: 'Inner message' },
+    }, context);
+
+    expect(resp.status).to.equal(200);
+    expect(sayStub).to.have.been.calledOnceWithExactly(
+      context.env,
+      context.log,
+      { channelId: 'C123', threadTs: 'T1' },
+      'Inner message',
+    );
+  });
+
+  it('uses payload blocks when provided inside message object', async () => {
+    const postMessage = sandbox.stub().resolves();
+    const baseCreateFrom = sandbox.stub().returns({ postMessage });
+    const handlerModule = await esmock('../../../src/tasks/slack-notify/handler.js', {
+      '@adobe/spacecat-shared-slack-client': {
+        BaseSlackClient: { createFrom: baseCreateFrom },
+        SLACK_TARGETS: { WORKSPACE_INTERNAL: 'workspace_internal' },
+      },
+      '../../../src/utils/slack-utils.js': {
+        say: sandbox.stub().resolves(),
+      },
+      '@adobe/spacecat-shared-utils': {
+        hasText: () => true,
+        isNonEmptyObject: (obj) => !!obj && typeof obj === 'object' && Object.keys(obj).length > 0,
+      },
+    });
+    runSlackNotify = handlerModule.runSlackNotify;
+
+    const blocks = [{ type: 'section', text: { type: 'mrkdwn', text: 'Payload block' } }];
+    const resp = await runSlackNotify({
+      slackContext: { channelId: 'C321', threadTs: '321.0' },
+      text: 'outer text',
+      message: {
+        text: 'payload text',
+        blocks,
+      },
+    }, context);
+
+    expect(resp.status).to.equal(200);
+    expect(postMessage).to.have.been.calledOnceWith({
+      channel: 'C321',
+      thread_ts: '321.0',
+      text: 'payload text',
+      blocks,
+    });
+  });
+
+  it('uses payload attachments when provided inside message object', async () => {
+    const postMessage = sandbox.stub().resolves();
+    const baseCreateFrom = sandbox.stub().returns({ postMessage });
+    const handlerModule = await esmock('../../../src/tasks/slack-notify/handler.js', {
+      '@adobe/spacecat-shared-slack-client': {
+        BaseSlackClient: { createFrom: baseCreateFrom },
+        SLACK_TARGETS: { WORKSPACE_INTERNAL: 'workspace_internal' },
+      },
+      '../../../src/utils/slack-utils.js': {
+        say: sandbox.stub().resolves(),
+      },
+      '@adobe/spacecat-shared-utils': {
+        hasText: () => true,
+        isNonEmptyObject: (obj) => !!obj && typeof obj === 'object' && Object.keys(obj).length > 0,
+      },
+    });
+    runSlackNotify = handlerModule.runSlackNotify;
+
+    const attachments = [{ text: 'payload attachment' }];
+    const resp = await runSlackNotify({
+      slackContext: { channelId: 'C654', threadTs: '654.0' },
+      text: 'outer',
+      message: {
+        text: 'payload',
+        attachments,
+      },
+    }, context);
+
+    expect(resp.status).to.equal(200);
+    expect(postMessage).to.have.been.calledOnceWith({
+      channel: 'C654',
+      thread_ts: '654.0',
+      text: 'payload',
+      attachments,
+    });
+  });
+
+  it('sends attachments even without blocks', async () => {
+    const postMessage = sandbox.stub().resolves();
+    const baseCreateFrom = sandbox.stub().returns({ postMessage });
+    const handlerModule = await esmock('../../../src/tasks/slack-notify/handler.js', {
+      '@adobe/spacecat-shared-slack-client': {
+        BaseSlackClient: { createFrom: baseCreateFrom },
+        SLACK_TARGETS: { WORKSPACE_INTERNAL: 'workspace_internal' },
+      },
+      '../../../src/utils/slack-utils.js': {
+        say: sandbox.stub().resolves(),
+      },
+      '@adobe/spacecat-shared-utils': {
+        hasText: () => true,
+        isNonEmptyObject: (obj) => !!obj && typeof obj === 'object' && Object.keys(obj).length > 0,
+      },
+    });
+    runSlackNotify = handlerModule.runSlackNotify;
+
+    const resp = await runSlackNotify({
+      slackContext: { channelId: 'C777', threadTs: '777.1' },
+      text: 'fallback',
+      attachments: [{ text: 'details' }],
+    }, context);
+
+    expect(resp.status).to.equal(200);
+    expect(postMessage).to.have.been.calledOnceWith({
+      channel: 'C777',
+      thread_ts: '777.1',
+      text: 'fallback',
+      attachments: [{ text: 'details' }],
+    });
+  });
+
+  it('returns badRequest when no text or structured content is provided', async () => {
+    const handlerModule = await esmock('../../../src/tasks/slack-notify/handler.js', {
+      '@adobe/spacecat-shared-slack-client': {
+        BaseSlackClient: { createFrom: sandbox.stub() },
+        SLACK_TARGETS: { WORKSPACE_INTERNAL: 'workspace_internal' },
+      },
+      '../../../src/utils/slack-utils.js': {
+        say: sandbox.stub().resolves(),
+      },
+    });
+    runSlackNotify = handlerModule.runSlackNotify;
+
+    const resp = await runSlackNotify({
+      slackContext: { channelId: 'C001', threadTs: 'T0' },
+      text: '',
+    }, context);
+
+    expect(resp.status).to.equal(400);
+  });
+
+  it('uses fallback text when sending blocks without explicit text', async () => {
+    const postMessage = sandbox.stub().resolves();
+    const baseCreateFrom = sandbox.stub().returns({ postMessage });
+    const handlerModule = await esmock('../../../src/tasks/slack-notify/handler.js', {
+      '@adobe/spacecat-shared-slack-client': {
+        BaseSlackClient: { createFrom: baseCreateFrom },
+        SLACK_TARGETS: { WORKSPACE_INTERNAL: 'workspace_internal' },
+      },
+      '../../../src/utils/slack-utils.js': {
+        say: sandbox.stub().resolves(),
+      },
+    });
+    runSlackNotify = handlerModule.runSlackNotify;
+
+    const blocks = [{ type: 'section', text: { type: 'mrkdwn', text: '*Hello*' } }];
+    const resp = await runSlackNotify({
+      slackContext: { channelId: 'C555', threadTs: '555.0' },
+      blocks,
+    }, context);
+
+    expect(resp.status).to.equal(200);
+    expect(postMessage).to.have.been.calledOnceWith({
+      channel: 'C555',
+      thread_ts: '555.0',
+      text: ' ',
       blocks,
     });
   });
