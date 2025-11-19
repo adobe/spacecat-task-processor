@@ -1,3 +1,10 @@
+## [1.6.3](https://github.com/adobe/spacecat-task-processor/compare/v1.6.2...v1.6.3) (2025-11-19)
+
+
+### Bug Fixes
+
+* agent executor slack notification ([#137](https://github.com/adobe/spacecat-task-processor/issues/137)) ([382ef79](https://github.com/adobe/spacecat-task-processor/commit/382ef7974a45a683fa5cef750ec03af605521c94))
+
 ## [1.6.2](https://github.com/adobe/spacecat-task-processor/compare/v1.6.1...v1.6.2) (2025-11-19)
 
 
