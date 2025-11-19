@@ -10,7 +10,7 @@
  * governing permissions and limitations under the License.
  */
 import { ok, badRequest } from '@adobe/spacecat-shared-http-utils';
-import { hasText, isNonEmptyObject } from '@adobe/spacecat-shared-utils';
+import { hasText, isNonEmptyArray, isNonEmptyObject } from '@adobe/spacecat-shared-utils';
 
 import { getAgent } from '../../agents/registry.js';
 
@@ -32,10 +32,10 @@ function normalizeNotifications(source) {
     if (hasText(value.text)) {
       entry.text = value.text;
     }
-    if (Array.isArray(value.blocks)) {
+    if (isNonEmptyArray(value.blocks)) {
       entry.blocks = value.blocks;
     }
-    if (Array.isArray(value.attachments)) {
+    if (isNonEmptyArray(value.attachments)) {
       entry.attachments = value.attachments;
     }
 
