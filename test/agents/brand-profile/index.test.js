@@ -191,6 +191,7 @@ describe('agents/brand-profile', () => {
       getConfig: () => cfg,
       setConfig,
       save,
+      getBaseURL: () => 'https://example.com',
     });
     context.dataAccess.Site = { findById };
 
@@ -226,6 +227,7 @@ describe('agents/brand-profile', () => {
       getConfig: () => cfg,
       setConfig,
       save,
+      getBaseURL: () => 'https://example.com',
     });
     context.dataAccess.Site = { findById };
 
@@ -248,7 +250,7 @@ describe('agents/brand-profile', () => {
     expect(save).to.have.been.calledOnce;
     expect(log.info).to.have.been.calledWith(
       'brand-profile persist:',
-      sinon.match.has('summary', sinon.match('Brand profile unchanged')),
+      sinon.match.has('summary', sinon.match(':information_source: Brand profile already up to date (v5) for https://example.com')),
     );
   });
 
@@ -263,6 +265,7 @@ describe('agents/brand-profile', () => {
       getConfig: () => cfg,
       setConfig,
       save,
+      getBaseURL: () => 'https://example.com',
     });
     context.dataAccess.Site = { findById };
 
@@ -286,5 +289,51 @@ describe('agents/brand-profile', () => {
       'brand-profile persist:',
       sinon.match.object,
     );
+  });
+
+  it('persist() includes highlight blocks when main profile data is present', async () => {
+    let currentProfile = { version: 1, contentHash: 'old' };
+    const cfg = {
+      getBrandProfile: () => currentProfile,
+      updateBrandProfile: (profile) => {
+        currentProfile = { ...profile, version: 2, contentHash: 'new' };
+      },
+    };
+    const setConfig = sinon.stub();
+    const save = sinon.stub().resolves();
+    const findById = sandbox.stub().resolves({
+      getConfig: () => cfg,
+      setConfig,
+      save,
+      getBaseURL: () => 'https://example.com',
+    });
+    context.dataAccess.Site = { findById };
+
+    const toDynamoItem = sandbox.stub().callsFake((c) => c);
+    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
+      '@adobe/spacecat-shared-data-access/src/models/site/config.js': {
+        Config: { toDynamoItem },
+      },
+    });
+
+    const result = await mod.default.persist(
+      { siteId: '123e4567-e89b-12d3-a456-426614174000' },
+      context,
+      {
+        main_profile: {
+          tone_attributes: { primary: ['confident', 'warm', 'pragmatic', 'extra'] },
+          communication_style: 'Conversational expert guidance',
+          target_audience: 'Digital leaders',
+        },
+      },
+    );
+
+    expect(result.notifications.success.blocks[1]).to.deep.equal({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: '*Primary voice:* confident, warm, pragmatic\n*Style:* Conversational expert guidance\n*Audience:* Digital leaders',
+      },
+    });
   });
 });

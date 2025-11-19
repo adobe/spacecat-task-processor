@@ -11,7 +11,7 @@
  */
 import { ok, badRequest } from '@adobe/spacecat-shared-http-utils';
 import { BaseSlackClient, SLACK_TARGETS } from '@adobe/spacecat-shared-slack-client';
-import { hasText } from '@adobe/spacecat-shared-utils';
+import { hasText, isNonEmptyObject } from '@adobe/spacecat-shared-utils';
 
 import { say } from '../../utils/slack-utils.js';
 
@@ -26,25 +26,46 @@ import { say } from '../../utils/slack-utils.js';
  */
 export async function runSlackNotify(message, context) {
   const slackContext = message?.slackContext;
-  const text = message?.text;
-  const blocks = message?.blocks || [];
+  const payload = isNonEmptyObject(message?.message) ? message.message : {};
+  const hasPayloadText = typeof payload.text === 'string' && payload.text.length > 0;
+  const rawText = hasPayloadText ? payload.text : message?.text;
+  const text = hasText(rawText) ? rawText : '';
+  const blocksSource = Array.isArray(payload?.blocks) && payload.blocks.length > 0
+    ? payload.blocks
+    : message?.blocks;
+  const attachmentsSource = Array.isArray(payload?.attachments) && payload.attachments.length > 0
+    ? payload.attachments
+    : message?.attachments;
+  const blocks = Array.isArray(blocksSource) ? blocksSource : [];
+  const attachments = Array.isArray(attachmentsSource) ? attachmentsSource : [];
+  const hasStructuredPayload = blocks.length > 0 || attachments.length > 0;
 
   if (!hasText(slackContext?.channelId)) {
     return badRequest('slackContext.channelId is required');
   }
 
+  if (!hasStructuredPayload && !hasText(text)) {
+    return badRequest('text is required when no blocks or attachments are provided');
+  }
+
   // Prefer the shared say() utility for simple text notifications
-  if (blocks.length === 0) {
+  if (!hasStructuredPayload) {
     await say(context.env, context.log, slackContext, text);
   } else {
     // Fallback for advanced block messages
     const client = BaseSlackClient.createFrom(context, SLACK_TARGETS.WORKSPACE_INTERNAL);
-    await client.postMessage({
+    const messageBody = {
       channel: slackContext.channelId,
       thread_ts: slackContext.threadTs,
-      text,
-      blocks,
-    });
+      text: hasText(text) ? text : ' ',
+    };
+    if (blocks.length > 0) {
+      messageBody.blocks = blocks;
+    }
+    if (attachments.length > 0) {
+      messageBody.attachments = attachments;
+    }
+    await client.postMessage(messageBody);
   }
   return ok({ status: 'sent' });
 }

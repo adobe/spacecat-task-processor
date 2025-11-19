@@ -202,4 +202,73 @@ describe('agent-executor handler', () => {
     expect(body.result).to.deep.equal({ ok: true });
     expect(body).to.not.have.property('persistMeta');
   });
+
+  it('normalizes notification payloads when provided', async () => {
+    const runStub = sandbox.stub().resolves({ ok: true });
+    const persistStub = sandbox.stub().resolves({
+      stored: true,
+      notifications: {
+        success: {
+          text: 'Success!',
+          blocks: [{ type: 'section', text: { type: 'mrkdwn', text: 'Success block' } }],
+        },
+        failure: {
+          text: 'Failure :(',
+          attachments: [{ text: 'details' }],
+        },
+        ignored: {},
+      },
+    });
+    const handlerModule = await esmock('../../../src/tasks/agent-executor/handler.js', {
+      '../../../src/agents/registry.js': {
+        getAgent: sandbox.stub().returns({ run: runStub, persist: persistStub }),
+      },
+      '@adobe/spacecat-shared-utils': {
+        hasText: (s) => typeof s === 'string' && s.length > 0,
+        isNonEmptyObject: (obj) => !!obj && typeof obj === 'object' && Object.keys(obj).length > 0,
+      },
+    });
+    runAgentExecutor = handlerModule.runAgentExecutor;
+
+    const message = { agentId: 'brand-profile', context: { baseURL: 'https://example.com' } };
+    const resp = await runAgentExecutor(message, context);
+    const body = await resp.json();
+    expect(body.notifications).to.deep.equal({
+      success: {
+        text: 'Success!',
+        blocks: [{ type: 'section', text: { type: 'mrkdwn', text: 'Success block' } }],
+      },
+      failure: {
+        text: 'Failure :(',
+        attachments: [{ text: 'details' }],
+      },
+    });
+    expect(body.persistMeta).to.deep.equal({ stored: true });
+  });
+
+  it('omits notifications when payload is empty or invalid', async () => {
+    const runStub = sandbox.stub().resolves({ ok: true });
+    const persistStub = sandbox.stub().resolves({
+      notifications: {
+        success: {},
+        failure: { blocks: 'invalid' },
+      },
+    });
+    const handlerModule = await esmock('../../../src/tasks/agent-executor/handler.js', {
+      '../../../src/agents/registry.js': {
+        getAgent: sandbox.stub().returns({ run: runStub, persist: persistStub }),
+      },
+      '@adobe/spacecat-shared-utils': {
+        hasText: (s) => typeof s === 'string' && s.length > 0,
+        isNonEmptyObject: (obj) => !!obj && typeof obj === 'object' && Object.keys(obj).length > 0,
+      },
+    });
+    runAgentExecutor = handlerModule.runAgentExecutor;
+
+    const message = { agentId: 'brand-profile', context: { baseURL: 'https://example.com' } };
+    const resp = await runAgentExecutor(message, context);
+    const body = await resp.json();
+    expect(body.result).to.deep.equal({ ok: true });
+    expect(body).to.not.have.property('notifications');
+  });
 });
