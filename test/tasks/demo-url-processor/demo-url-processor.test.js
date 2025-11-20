@@ -63,6 +63,7 @@ describe('Demo URL Processor', () => {
       organizationId: 'test-org-id',
       taskContext: {
         experienceUrl: 'https://example.com',
+        profile: 'demo',
         slackContext: {
           channelId: 'test-channel',
           threadTs: 'test-thread',
@@ -90,9 +91,13 @@ describe('Demo URL Processor', () => {
         imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
         experienceUrl: 'https://example.com',
         organizationId: 'test-org-id',
+        profile: 'demo',
       })).to.be.true;
-      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@adobe-sites-engineering/sites-optimizer/sites/test-site-id/home';
-      expect(context.log.info.calledWith(`Onboarding setup completed successfully for the site example.com! Access your environment here: ${expectedDemoUrl}`)).to.be.true;
+      expect(context.log.info.calledWith('Onboarding setup completed for site with profile:', {
+        siteId: 'test-site-id',
+        profile: 'demo',
+        organizationId: 'test-org-id',
+      })).to.be.true;
     });
 
     it('should handle organization not found error', async () => {
@@ -104,7 +109,7 @@ describe('Demo URL Processor', () => {
       // Should log error and return early
       expect(context.log.error.calledWith('Organization not found for organizationId: test-org-id')).to.be.true;
       // Should not log the success message
-      expect(context.log.info.calledWithMatch(sinon.match('Onboarding setup completed successfully for the site example.com!'))).to.be.false;
+      expect(context.log.info.calledWith('Onboarding setup completed for site with profile:', sinon.match.any)).to.be.false;
     });
 
     it('should use tenantId when available (highest priority)', async () => {
@@ -117,9 +122,12 @@ describe('Demo URL Processor', () => {
 
       await runDemoUrlProcessor(message, context);
 
-      // Should use the tenantId (highest priority)
-      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@adobe-sites-engineering/sites-optimizer/sites/test-site-id/home';
-      expect(context.log.info.calledWith(`Onboarding setup completed successfully for the site example.com! Access your environment here: ${expectedDemoUrl}`)).to.be.true;
+      // Should log the completion with profile
+      expect(context.log.info.calledWith('Onboarding setup completed for site with profile:', {
+        siteId: 'test-site-id',
+        profile: 'demo',
+        organizationId: 'test-org-id',
+      })).to.be.true;
     });
 
     it('should fallback to name when tenantId is missing (backward compatibility)', async () => {
@@ -135,9 +143,12 @@ describe('Demo URL Processor', () => {
 
       await runDemoUrlProcessor(message, context);
 
-      // Should use the name-based tenant (lowercase, no spaces) as fallback
-      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@adobesitesengineering/sites-optimizer/sites/test-site-id/home';
-      expect(context.log.info.calledWith(`Onboarding setup completed successfully for the site example.com! Access your environment here: ${expectedDemoUrl}`)).to.be.true;
+      // Should log the completion with profile
+      expect(context.log.info.calledWith('Onboarding setup completed for site with profile:', {
+        siteId: 'test-site-id',
+        profile: 'demo',
+        organizationId: 'test-org-id',
+      })).to.be.true;
     });
 
     it('should fallback to DEFAULT_TENANT_ID when both name and tenantId are missing', async () => {
@@ -157,8 +168,12 @@ describe('Demo URL Processor', () => {
 
       // Should log error about using default tenant ID
       expect(context.log.error.calledWith('Using default tenant ID')).to.be.true;
-      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@default-tenant/sites-optimizer/sites/test-site-id/home';
-      expect(context.log.info.calledWith(`Onboarding setup completed successfully for the site example.com! Access your environment here: ${expectedDemoUrl}`)).to.be.true;
+      // Should log the completion with profile
+      expect(context.log.info.calledWith('Onboarding setup completed for site with profile:', {
+        siteId: 'test-site-id',
+        profile: 'demo',
+        organizationId: 'test-org-id',
+      })).to.be.true;
     });
 
     it('should return success message when processing completes', async () => {
@@ -170,8 +185,12 @@ describe('Demo URL Processor', () => {
       // The function should complete without throwing an error
       await runDemoUrlProcessor(message, context);
 
-      // Verify that the success message was logged
-      expect(context.log.info.calledWithMatch(sinon.match('Onboarding setup completed successfully for the site example.com!'))).to.be.true;
+      // Verify that the completion log was created
+      expect(context.log.info.calledWith('Onboarding setup completed for site with profile:', {
+        siteId: 'test-site-id',
+        profile: 'demo',
+        organizationId: 'test-org-id',
+      })).to.be.true;
     });
 
     it('should handle error when Organization.findById throws an exception', async () => {
@@ -193,8 +212,12 @@ describe('Demo URL Processor', () => {
       // so the success message will still be logged. This test verifies that
       // the error handling works and the function completes successfully.
 
-      // Verify that the success message was still logged (since the function continues)
-      expect(context.log.info.calledWithMatch(sinon.match('Onboarding setup completed successfully for the site example.com!'))).to.be.true;
+      // Verify that the completion log was still created (since the function continues)
+      expect(context.log.info.calledWith('Onboarding setup completed for site with profile:', {
+        siteId: 'test-site-id',
+        profile: 'demo',
+        organizationId: 'test-org-id',
+      })).to.be.true;
 
       // Verify that the processing log was recorded
       expect(context.log.info.calledWith('Processing demo url for site:', {
@@ -204,6 +227,7 @@ describe('Demo URL Processor', () => {
         imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
         experienceUrl: 'https://example.com',
         organizationId: 'test-org-id',
+        profile: 'demo',
       })).to.be.true;
     });
   });

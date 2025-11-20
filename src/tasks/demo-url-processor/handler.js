@@ -63,8 +63,8 @@ export async function runDemoUrlProcessor(message, context) {
     siteId, siteUrl, imsOrgId, organizationId, taskContext,
   } = message;
   const {
-    experienceUrl, slackContext,
-  } = taskContext;
+    experienceUrl, profile, slackContext,
+  } = taskContext || {};
 
   log.info('Processing demo url for site:', {
     taskType: TASK_TYPE,
@@ -73,6 +73,7 @@ export async function runDemoUrlProcessor(message, context) {
     imsOrgId,
     experienceUrl,
     organizationId,
+    profile,
   });
 
   let imsTenantId = context.env.DEFAULT_TENANT_ID;
@@ -97,7 +98,12 @@ export async function runDemoUrlProcessor(message, context) {
     await say(env, log, slackContext, slackMessage);
   }
 
-  log.info(`Onboarding setup completed successfully for the site ${siteUrl}! Access your environment here: ${demoUrl}`);
+  // Log onboarding completion with profile for metrics tracking
+  log.info('Onboarding setup completed for site with profile:', {
+    siteId,
+    profile,
+    organizationId,
+  });
 
   return ok({ message: 'Demo URL processor completed' });
 }
