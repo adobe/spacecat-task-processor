@@ -297,6 +297,15 @@ export async function runCwvDemoSuggestionsProcessor(message, context) {
     profile,
   });
 
+  // Debug: Check if slackContext is present
+  log.info('cwv-demo-suggestions-processor slackContext check:', {
+    hasSlackContext: !!slackContext,
+    hasChannelId: !!slackContext?.channelId,
+    hasThreadTs: !!slackContext?.threadTs,
+    channelId: slackContext?.channelId,
+    threadTs: slackContext?.threadTs,
+  });
+
   try {
     if (!profile || profile !== DEMO) {
       return {

@@ -39,6 +39,15 @@ export async function runDisableImportAuditProcessor(message, context) {
     scheduledRun,
   });
 
+  // Debug: Check if slackContext is present
+  log.info('disable-import-audit-processor slackContext check:', {
+    hasSlackContext: !!slackContext,
+    hasChannelId: !!slackContext?.channelId,
+    hasThreadTs: !!slackContext?.threadTs,
+    channelId: slackContext?.channelId,
+    threadTs: slackContext?.threadTs,
+  });
+
   if (scheduledRun) {
     log.info(`Scheduled run detected - skipping disable of imports and audits for site: ${siteUrl}`);
     await say(env, log, slackContext, `:information_source: Scheduled run detected for site ${siteUrl} - skipping disable of imports and audits`);
