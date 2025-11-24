@@ -75,15 +75,6 @@ export async function runDemoUrlProcessor(message, context) {
     organizationId,
   });
 
-  // Debug: Check if slackContext is present
-  log.info('demo-url-processor slackContext check:', {
-    hasSlackContext: !!slackContext,
-    hasChannelId: !!slackContext?.channelId,
-    hasThreadTs: !!slackContext?.threadTs,
-    channelId: slackContext?.channelId,
-    threadTs: slackContext?.threadTs,
-  });
-
   let imsTenantId = context.env.DEFAULT_TENANT_ID;
   try {
     const organization = await Organization.findById(organizationId);
@@ -103,15 +94,7 @@ export async function runDemoUrlProcessor(message, context) {
   const slackMessage = `:white_check_mark: Onboarding setup completed successfully for the site ${siteUrl}!\nAccess your environment here: ${demoUrl}`;
 
   if (slackContext) {
-    log.info('Attempting to send Slack message:', {
-      channelId: slackContext.channelId,
-      threadTs: slackContext.threadTs,
-      messageLength: slackMessage.length,
-    });
     await say(env, log, slackContext, slackMessage);
-    log.info('Slack message sent successfully');
-  } else {
-    log.warn('Skipping Slack notification: slackContext is not defined');
   }
 
   log.info(`Onboarding setup completed successfully for the site ${siteUrl}! Access your environment here: ${demoUrl}`);

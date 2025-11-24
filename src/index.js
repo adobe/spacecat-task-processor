@@ -87,10 +87,10 @@ async function processTask(message, context) {
 
 const runSQS = wrap(processTask)
   .with(dataAccess)
-  .with(sqsEventAdapter)
   .with(imsClientWrapper)
   .with(secrets, { name: getSecretName })
-  .with(helixStatus);
+  .with(helixStatus)
+  .with(sqsEventAdapter);
 
 const runDirect = wrap(processTask)
   .with(dataAccess)

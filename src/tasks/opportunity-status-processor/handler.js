@@ -424,15 +424,6 @@ export async function runOpportunityStatusProcessor(message, context) {
     onboardStartTime: onboardStartTime ? new Date(onboardStartTime).toISOString() : undefined,
   });
 
-  // Debug: Check if slackContext is present
-  log.info('opportunity-status-processor slackContext check:', {
-    hasSlackContext: !!slackContext,
-    hasChannelId: !!slackContext?.channelId,
-    hasThreadTs: !!slackContext?.threadTs,
-    channelId: slackContext?.channelId,
-    threadTs: slackContext?.threadTs,
-  });
-
   try {
     // Get the site and its opportunities
     const site = await Site.findById(siteId);
