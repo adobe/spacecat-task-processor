@@ -99,6 +99,7 @@ const runDirect = wrap(processTask)
   .with(helixStatus);
 
 function isSqsEvent(event) {
+  // SQS events have a Records array at the top level
   return Array.isArray(event?.Records);
 }
 
