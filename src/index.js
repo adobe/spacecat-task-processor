@@ -97,10 +97,10 @@ async function processTask(message, context) {
 
 const runSQS = wrap(processTask)
   .with(dataAccess)
-  .with(sqsEventAdapter)
   .with(imsClientWrapper)
   .with(secrets, { name: getSecretName })
-  .with(helixStatus);
+  .with(helixStatus)
+  .with(sqsEventAdapter);
 
 const runDirect = wrap(processTask)
   .with(dataAccess)
@@ -108,8 +108,25 @@ const runDirect = wrap(processTask)
   .with(secrets, { name: getSecretName })
   .with(helixStatus);
 
-function isSqsEvent(event) {
-  return Array.isArray(event?.Records);
+function isSqsEvent(event, context) {
+  // Check top-level Records (unwrapped SQS events)
+  if (Array.isArray(event?.Records)) {
+    return true;
+  }
+
+  // Check context.invocation.event.Records (wrapped SQS events)
+  // SQS Records have a messageId field, direct invocations have a type field
+  const invocationEvent = context?.invocation?.event;
+  if (Array.isArray(invocationEvent?.Records) && invocationEvent.Records[0]?.messageId) {
+    return true; // It's an SQS event
+  }
+
+  // If invocationEvent has a 'type' field, it's a direct invocation, not SQS
+  if (invocationEvent?.type) {
+    return false;
+  }
+
+  return false;
 }
 
 export const main = async (event, context) => {
@@ -120,10 +137,12 @@ export const main = async (event, context) => {
     hasRecordsInEvent: !!event?.Records,
     invocationEventKeys: invocationEvent ? Object.keys(invocationEvent) : [],
     invocationEventType: invocationEvent?.type,
-    isSqsDetected: isSqsEvent(event),
+    invocationEventAgentId: invocationEvent?.agentId,
+    hasMessageId: !!invocationEvent?.Records?.[0]?.messageId,
+    isSqsDetected: isSqsEvent(event, context),
   });
 
-  if (isSqsEvent(event)) {
+  if (isSqsEvent(event, context)) {
     context?.log?.info?.('Routing to runSQS (SQS event detected)');
     return runSQS(event, context);
   }
