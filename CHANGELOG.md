@@ -1,3 +1,10 @@
+## [1.6.8](https://github.com/adobe/spacecat-task-processor/compare/v1.6.7...v1.6.8) (2025-11-26)
+
+
+### Bug Fixes
+
+* deploy lambda ([#145](https://github.com/adobe/spacecat-task-processor/issues/145)) ([d86d0af](https://github.com/adobe/spacecat-task-processor/commit/d86d0afec295c7baa02e9c9c5abf6881db7fe595))
+
 ## [1.6.7](https://github.com/adobe/spacecat-task-processor/compare/v1.6.6...v1.6.7) (2025-11-21)
 
 
