@@ -63,6 +63,14 @@ async function processTask(message, context) {
   const { log } = context;
   const { type, siteId } = message;
 
+  // Debug: Log the parsed message structure
+  log.info('processTask received message:', {
+    messageKeys: Object.keys(message || {}),
+    type,
+    siteId,
+    hasTaskContext: !!message?.taskContext,
+  });
+
   log.info(`Received message with type: ${type} for site: ${siteId}`);
 
   const handler = HANDLERS[type];
@@ -103,6 +111,16 @@ function isSqsEvent(event) {
 }
 
 export const main = async (event, context) => {
+  // Debug: Log what we're receiving
+  const firstRecord = event?.Records?.[0];
+  context?.log?.info?.('main invoked - event structure:', {
+    isSqsEvent: isSqsEvent(event),
+    hasRecords: !!event?.Records,
+    recordCount: event?.Records?.length,
+    firstRecordKeys: firstRecord ? Object.keys(firstRecord) : [],
+    bodyPreview: firstRecord?.body ? firstRecord.body.substring(0, 200) : undefined,
+  });
+
   if (isSqsEvent(event)) {
     return runSQS(event, context);
   }
