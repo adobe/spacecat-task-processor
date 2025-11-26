@@ -106,8 +106,9 @@ const runDirect = wrap(processTask)
   .with(secrets, { name: getSecretName })
   .with(helixStatus);
 
-function isSqsEvent(event) {
-  return Array.isArray(event?.Records);
+function isSqsEvent(event, context) {
+  // Check both locations where Records might be
+  return Array.isArray(event?.Records) || Array.isArray(context?.invocation?.event?.Records);
 }
 
 export const main = async (event, context) => {
@@ -122,14 +123,14 @@ export const main = async (event, context) => {
 
   const firstRecord = event?.Records?.[0];
   context?.log?.info?.('main invoked - event structure:', {
-    isSqsEvent: isSqsEvent(event),
+    isSqsEvent: isSqsEvent(event, context),
     hasRecords: !!event?.Records,
     recordCount: event?.Records?.length,
     firstRecordKeys: firstRecord ? Object.keys(firstRecord) : [],
     bodyPreview: firstRecord?.body ? firstRecord.body.substring(0, 200) : undefined,
   });
 
-  if (isSqsEvent(event)) {
+  if (isSqsEvent(event, context)) {
     return runSQS(event, context);
   }
 
