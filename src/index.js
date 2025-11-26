@@ -107,18 +107,34 @@ const runDirect = wrap(processTask)
   .with(helixStatus);
 
 function isSqsEvent(event, context) {
-  // Check both locations where Records might be
-  return Array.isArray(event?.Records) || Array.isArray(context?.invocation?.event?.Records);
+  // SQS events have Records array, direct invocations have a message with 'type' field
+  if (Array.isArray(event?.Records)) {
+    return true;
+  }
+  // For wrapped events, check context.invocation.event.Records
+  const invocationEvent = context?.invocation?.event;
+  if (Array.isArray(invocationEvent?.Records)) {
+    return true;
+  }
+  // Direct invocations have a 'type' field in the payload
+  if (invocationEvent && typeof invocationEvent.type === 'string') {
+    return false;
+  }
+  return false;
 }
 
 export const main = async (event, context) => {
   // Debug: Log what we're receiving
+  const invocationEvent = context?.invocation?.event;
   context?.log?.info?.('main invoked - full event:', {
     eventKeys: Object.keys(event || {}),
     eventType: typeof event,
     hasRecordsAtTop: !!event?.Records,
-    hasRecordsInInvocation: !!context?.invocation?.event?.Records,
-    invocationEventKeys: context?.invocation?.event ? Object.keys(context.invocation.event) : [],
+    hasRecordsInInvocation: !!invocationEvent?.Records,
+    invocationEventKeys: invocationEvent ? Object.keys(invocationEvent) : [],
+    recordsIsArray: Array.isArray(invocationEvent?.Records),
+    invocationEventType: invocationEvent?.type,
+    invocationEventAgentId: invocationEvent?.agentId,
   });
 
   const firstRecord = event?.Records?.[0];
