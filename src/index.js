@@ -107,19 +107,19 @@ const runDirect = wrap(processTask)
   .with(helixStatus);
 
 function isSqsEvent(event, context) {
-  // SQS events have Records array, direct invocations have a message with 'type' field
+  // Check if it's an SQS event at the top level
   if (Array.isArray(event?.Records)) {
     return true;
   }
-  // For wrapped events, check context.invocation.event.Records
+
+  // Check context.invocation.event for wrapped SQS events
+  // But ensure it's truly an SQS event by checking for messageId in Records[0]
   const invocationEvent = context?.invocation?.event;
-  if (Array.isArray(invocationEvent?.Records)) {
+  if (Array.isArray(invocationEvent?.Records) && invocationEvent.Records[0]?.messageId) {
     return true;
   }
-  // Direct invocations have a 'type' field in the payload
-  if (invocationEvent && typeof invocationEvent.type === 'string') {
-    return false;
-  }
+
+  // Direct invocations don't have Records array with messageId
   return false;
 }
 
