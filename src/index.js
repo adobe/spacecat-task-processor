@@ -112,6 +112,14 @@ function isSqsEvent(event) {
 
 export const main = async (event, context) => {
   // Debug: Log what we're receiving
+  context?.log?.info?.('main invoked - full event:', {
+    eventKeys: Object.keys(event || {}),
+    eventType: typeof event,
+    hasRecordsAtTop: !!event?.Records,
+    hasRecordsInInvocation: !!context?.invocation?.event?.Records,
+    invocationEventKeys: context?.invocation?.event ? Object.keys(context.invocation.event) : [],
+  });
+
   const firstRecord = event?.Records?.[0];
   context?.log?.info?.('main invoked - event structure:', {
     isSqsEvent: isSqsEvent(event),
