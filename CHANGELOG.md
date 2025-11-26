@@ -1,3 +1,10 @@
+## [1.6.10](https://github.com/adobe/spacecat-task-processor/compare/v1.6.9...v1.6.10) (2025-11-26)
+
+
+### Bug Fixes
+
+* deploy using helix webpack ([#146](https://github.com/adobe/spacecat-task-processor/issues/146)) ([eaa097b](https://github.com/adobe/spacecat-task-processor/commit/eaa097bbe043013e70042036dab64f8a00662920))
+
 ## [1.6.9](https://github.com/adobe/spacecat-task-processor/compare/v1.6.8...v1.6.9) (2025-11-26)
 
 
