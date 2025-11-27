@@ -63,16 +63,6 @@ async function processTask(message, context) {
   const { log } = context;
   const { type, siteId } = message;
 
-  // Debug: Log the message structure
-  log.info('processTask() received:', {
-    messageKeys: Object.keys(message || {}),
-    type,
-    siteId,
-    agentId: message?.agentId,
-    hasTaskContext: !!message?.taskContext,
-    hasSlackContext: !!message?.taskContext?.slackContext || !!message?.slackContext,
-  });
-
   log.info(`Received message with type: ${type} for site: ${siteId}`);
 
   const handler = HANDLERS[type];
@@ -81,7 +71,6 @@ async function processTask(message, context) {
     log.error(msg);
     return notFound();
   }
-  log.info(`Found task handler for type: ${type}`);
 
   const startTime = process.hrtime();
 
@@ -130,35 +119,14 @@ function isSqsEvent(event, context) {
 }
 
 export const main = async (event, context) => {
-  // Debug: Log what we're receiving
-  const invocationEvent = context?.invocation?.event;
-  context?.log?.info?.('main() invoked:', {
-    eventKeys: Object.keys(event || {}),
-    hasRecordsInEvent: !!event?.Records,
-    invocationEventKeys: invocationEvent ? Object.keys(invocationEvent) : [],
-    invocationEventType: invocationEvent?.type,
-    invocationEventAgentId: invocationEvent?.agentId,
-    hasMessageId: !!invocationEvent?.Records?.[0]?.messageId,
-    isSqsDetected: isSqsEvent(event, context),
-  });
-
   if (isSqsEvent(event, context)) {
-    context?.log?.info?.('Routing to runSQS (SQS event detected)');
     return runSQS(event, context);
   }
 
-  context?.log?.info?.('Routing to runDirect (direct invocation detected)');
   const payload = context?.invocation?.event;
   if (!isNonEmptyObject(payload)) {
-    context?.log?.warn?.('Direct invocation missing payload');
     return badRequest('Event does not contain a valid message body');
   }
-
-  context?.log?.info?.('runDirect payload:', {
-    payloadKeys: Object.keys(payload),
-    type: payload.type,
-    agentId: payload.agentId,
-  });
 
   return runDirect(payload, context);
 };
