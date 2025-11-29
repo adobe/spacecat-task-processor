@@ -16,7 +16,8 @@ import { expect, use } from 'chai';
 import sinon from 'sinon';
 import sinonChai from 'sinon-chai';
 import esmock from 'esmock';
-import { main, getSecretName } from '../src/index.js';
+import { main } from './utils.js';
+import { getSecretName } from '../src/index.js';
 
 use(sinonChai);
 

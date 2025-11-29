@@ -18,6 +18,7 @@ export default defineConfig([
         '.vscode/*',
         '.idea/*',
         'coverage/*',
+        'dist/*',
         'scripts/*',
         'test/*/fixtures/*'
     ]),
