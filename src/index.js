@@ -71,7 +71,6 @@ async function processTask(message, context) {
     log.error(msg);
     return notFound();
   }
-  log.info(`Found task handler for type: ${type}`);
 
   const startTime = process.hrtime();
 
@@ -87,10 +86,10 @@ async function processTask(message, context) {
 
 const runSQS = wrap(processTask)
   .with(dataAccess)
-  .with(sqsEventAdapter)
   .with(imsClientWrapper)
   .with(secrets, { name: getSecretName })
-  .with(helixStatus);
+  .with(helixStatus)
+  .with(sqsEventAdapter);
 
 const runDirect = wrap(processTask)
   .with(dataAccess)
@@ -98,18 +97,34 @@ const runDirect = wrap(processTask)
   .with(secrets, { name: getSecretName })
   .with(helixStatus);
 
-function isSqsEvent(event) {
-  return Array.isArray(event?.Records);
+function isSqsEvent(event, context) {
+  // Check top-level Records (unwrapped SQS events)
+  if (Array.isArray(event?.Records)) {
+    return true;
+  }
+
+  // Check context.invocation.event.Records (wrapped SQS events)
+  // SQS Records have a messageId field, direct invocations have a type field
+  const invocationEvent = context?.invocation?.event;
+  if (Array.isArray(invocationEvent?.Records) && invocationEvent.Records[0]?.messageId) {
+    return true; // It's an SQS event
+  }
+
+  // If invocationEvent has a 'type' field, it's a direct invocation, not SQS
+  if (invocationEvent?.type) {
+    return false;
+  }
+
+  return false;
 }
 
 export const main = async (event, context) => {
-  if (isSqsEvent(event)) {
+  if (isSqsEvent(event, context)) {
     return runSQS(event, context);
   }
 
   const payload = context?.invocation?.event;
   if (!isNonEmptyObject(payload)) {
-    context?.log?.warn?.('Direct invocation missing payload');
     return badRequest('Event does not contain a valid message body');
   }
 

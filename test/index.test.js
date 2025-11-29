@@ -122,15 +122,15 @@ describe('Index Tests', () => {
 
     const resp = await main(sqsEvent, context);
     expect(resp.status).to.equal(200); // Handler should handle the error gracefully
-    // Verify the task handler was found
-    expect(context.log.info.calledWith('Found task handler for type: demo-url-processor')).to.be.true;
+    // Verify the message was received
+    expect(context.log.info.calledWith(sinon.match(/Received message with type: demo-url-processor/))).to.be.true;
   });
 
   it('happy path', async () => {
     const resp = await main(sqsEvent, context);
     expect(resp.status).to.equal(200);
-    // Verify the task handler was found
-    expect(context.log.info.calledWith('Found task handler for type: dummy')).to.be.true;
+    // Verify the message was received
+    expect(context.log.info.calledWith(sinon.match(/Received message with type: dummy/))).to.be.true;
     // Print all log.info calls for debugging
     // eslint-disable-next-line no-console
     // Verify the task completion message (using partial match since timing varies)
@@ -158,8 +158,8 @@ describe('Index Tests', () => {
 
     const resp = await main(sqsEvent, context);
     expect(resp.status).to.equal(200); // Handler catches the error internally
-    // Verify the task handler was found
-    expect(context.log.info.calledWith('Found task handler for type: opportunity-status-processor')).to.be.true;
+    // Verify the message was received
+    expect(context.log.info.calledWith(sinon.match(/Received message with type: opportunity-status-processor/))).to.be.true;
   });
 
   it('should trigger catch block when handler throws', async () => {
@@ -200,7 +200,7 @@ describe('Index Tests', () => {
       };
       const resp = await main({}, directContext);
       expect(resp.status).to.equal(200);
-      expect(directContext.log.info.calledWith('Found task handler for type: dummy')).to.be.true;
+      expect(directContext.log.info.calledWith(sinon.match(/Received message with type: dummy/))).to.be.true;
     });
   });
 });
