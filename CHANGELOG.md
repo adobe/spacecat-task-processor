@@ -1,3 +1,10 @@
+## [1.6.16](https://github.com/adobe/spacecat-task-processor/compare/v1.6.15...v1.6.16) (2025-12-01)
+
+
+### Bug Fixes
+
+* dedupe data access ([#154](https://github.com/adobe/spacecat-task-processor/issues/154)) ([b6289c0](https://github.com/adobe/spacecat-task-processor/commit/b6289c01266ceb93b1a1ddea27a02cbc773f2636))
+
 ## [1.6.15](https://github.com/adobe/spacecat-task-processor/compare/v1.6.14...v1.6.15) (2025-11-30)
 
 
