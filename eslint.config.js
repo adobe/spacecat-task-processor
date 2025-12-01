@@ -11,32 +11,36 @@
  */
 
 import {recommended, source, test} from '@adobe/eslint-config-helix';
-import { defineConfig, globalIgnores } from '@eslint/config-helpers'
+import {defineConfig, globalIgnores} from '@eslint/config-helpers'
 
 export default defineConfig([
-    globalIgnores([
-        '.vscode/*',
-        '.idea/*',
-        'coverage/*',
-        'dist/*',
-        'scripts/*',
-        'test/*/fixtures/*'
-    ]),
-    {
-        extends: [ recommended ],
-        plugins: {
-            import: recommended.plugins.import,
-        },
-        rules: {
-            'no-unused-expressions': 'off',
-        },
+  globalIgnores([
+    '.vscode/*',
+    '.idea/*',
+    'coverage/*',
+    'dist/*',
+    'scripts/*',
+    'test/*/fixtures/*'
+  ]),
+  {
+    extends: [recommended],
+    plugins: {
+      import: recommended.plugins.import,
     },
-    {
-        ...source,
-        files: [...source.files],
+    rules: {
+      'no-unused-expressions': 'off',
     },
-    {
-        ...test,
-        files: [...test.files],
-    }
+  },
+  {
+    ...source,
+    files: [...source.files],
+  },
+  {
+    ...test,
+    files: [...test.files],
+    rules: {
+      'no-console': 'off',
+      'func-names': 'off',
+    },
+  }
 ]);
