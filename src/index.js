@@ -86,10 +86,10 @@ async function processTask(message, context) {
 
 const runSQS = wrap(processTask)
   .with(dataAccess)
+  .with(sqsEventAdapter)
   .with(imsClientWrapper)
   .with(secrets, { name: getSecretName })
-  .with(helixStatus)
-  .with(sqsEventAdapter);
+  .with(helixStatus);
 
 const runDirect = wrap(processTask)
   .with(dataAccess)
@@ -104,17 +104,14 @@ function isSqsEvent(event, context) {
   }
 
   // Check context.invocation.event.Records (wrapped SQS events)
-  // SQS Records have a messageId field, direct invocations have a type field
+  // The key difference: SQS events have Records with messageId,
+  // direct invocations do not have Records array
   const invocationEvent = context?.invocation?.event;
   if (Array.isArray(invocationEvent?.Records) && invocationEvent.Records[0]?.messageId) {
-    return true; // It's an SQS event
+    return true;
   }
 
-  // If invocationEvent has a 'type' field, it's a direct invocation, not SQS
-  if (invocationEvent?.type) {
-    return false;
-  }
-
+  // If no Records array found, it's a direct invocation
   return false;
 }
 
