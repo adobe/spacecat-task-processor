@@ -71,7 +71,6 @@ async function processTask(message, context) {
     log.error(msg);
     return notFound();
   }
-  log.info(`Found task handler for type: ${type}`);
 
   const startTime = process.hrtime();
 
@@ -98,12 +97,26 @@ const runDirect = wrap(processTask)
   .with(secrets, { name: getSecretName })
   .with(helixStatus);
 
-function isSqsEvent(event) {
-  return Array.isArray(event?.Records);
+function isSqsEvent(event, context) {
+  // Check top-level Records (unwrapped SQS events)
+  if (Array.isArray(event?.Records)) {
+    return true;
+  }
+
+  // Check context.invocation.event.Records (wrapped SQS events)
+  // The key difference: SQS events have Records with messageId,
+  // direct invocations do not have Records array
+  const invocationEvent = context?.invocation?.event;
+  if (Array.isArray(invocationEvent?.Records) && invocationEvent.Records[0]?.messageId) {
+    return true;
+  }
+
+  // If no Records array found, it's a direct invocation
+  return false;
 }
 
 export const main = async (event, context) => {
-  if (isSqsEvent(event)) {
+  if (isSqsEvent(event, context)) {
     return runSQS(event, context);
   }
 
