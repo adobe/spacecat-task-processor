@@ -44,11 +44,12 @@ describe('Opportunity Status Processor', () => {
 
     // Mock fetch for robots.txt and HEAD requests
     global.fetch = sandbox.stub();
-    global.fetch.resolves({
+    global.fetch.callsFake((url) => Promise.resolve({
       ok: true,
       status: 200,
+      url, // Include URL for resolveCanonicalUrl
       text: sandbox.stub().resolves('User-agent: *\nAllow: /'),
-    });
+    }));
 
     // Mock context
     context = new MockContextBuilder()
@@ -268,9 +269,9 @@ describe('Opportunity Status Processor', () => {
       mockSite.getOpportunities.resolves(mockOpportunities);
 
       // For this test, we'll just verify that the error is handled gracefully
-      // The actual resolveCanonicalUrl function will throw an error for invalid URLs
+      // resolveCanonicalUrl returns null for invalid URLs, triggering log.warn
       await runOpportunityStatusProcessor(message, context);
-      expect(context.log.warn.calledWith('Could not resolve canonical URL or parse siteUrl for data source checks: invalid-url', sinon.match.any)).to.be.true;
+      expect(context.log.warn.calledWith(sinon.match(/Could not resolve canonical URL for: invalid-url/))).to.be.true;
       expect(mockSite.getOpportunities.called).to.be.true;
     });
 
@@ -399,8 +400,8 @@ describe('Opportunity Status Processor', () => {
 
         await runOpportunityStatusProcessor(testMessage, testContext);
 
-        // Verify error handling for localhost URLs
-        expect(testContext.log.warn.calledWith(`Could not resolve canonical URL or parse siteUrl for data source checks: ${testCase.url}`, sinon.match.any)).to.be.true;
+        // Verify error handling for localhost URLs (now uses log.warn for null resolvedUrl)
+        expect(testContext.log.warn.calledWith(sinon.match(/Could not resolve canonical URL for.*Site may be unreachable/))).to.be.true;
       }));
     });
 
@@ -1028,7 +1029,7 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.log.warn.calledWithMatch('Could not resolve canonical URL')).to.be.true;
+      expect(context.log.warn.calledWithMatch('Could not resolve canonical URL for: not-a-valid-url')).to.be.true;
     });
 
     it('should handle opportunities with missing getData method', async () => {

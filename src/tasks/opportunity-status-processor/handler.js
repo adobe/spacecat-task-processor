@@ -470,46 +470,68 @@ export async function runOpportunityStatusProcessor(message, context) {
     const needsGSC = requiredDependencies.has('GSC');
 
     // Only check data sources that are needed
+    // Resolve canonical URL once (used by RUM, GSC, and scraping)
+    let resolvedUrl = null;
+    let domain = null;
+
     if (siteUrl && (needsRUM || needsGSC || needsScraping)) {
       try {
-        const resolvedUrl = await resolveCanonicalUrl(siteUrl);
+        resolvedUrl = await resolveCanonicalUrl(siteUrl);
         log.info(`Resolved URL: ${resolvedUrl}`);
-        const domain = new URL(resolvedUrl).hostname;
 
-        if (needsRUM) {
-          rumAvailable = await isRUMAvailable(domain, context);
+        if (!resolvedUrl) {
+          log.warn(`Could not resolve canonical URL for: ${siteUrl}. Site may be unreachable. Skipping data source checks.`);
+          if (slackContext) {
+            await say(env, log, slackContext, `:warning: Could not resolve canonical URL for \`${siteUrl}\`. Site may be unreachable. Skipping RUM, GSC, and scraping checks.`);
+          }
+        } else {
+          domain = new URL(resolvedUrl).hostname;
+          log.info(`Extracted domain: ${domain}`);
         }
-
-        if (needsGSC) {
-          gscConfigured = await isGSCConfigured(resolvedUrl, context);
+      /* c8 ignore start */
+      // URL parsing error is very rare (resolveCanonicalUrl returns null on failures)
+      } catch (error) {
+        log.error(`Failed to resolve URL or extract domain for ${siteUrl}:`, error);
+        if (slackContext) {
+          await say(env, log, slackContext, `:x: Failed to resolve URL for \`${siteUrl}\`: ${error.message}. Skipping RUM, GSC, and scraping checks.`);
         }
+      }
+      /* c8 ignore stop */
+    }
 
-        if (needsScraping) {
-          const scrapingCheck = await isScrapingAvailable(siteUrl, context);
-          scrapingAvailable = scrapingCheck.available;
+    // Only proceed with data source checks if we have a valid resolved URL
+    if (resolvedUrl && domain) {
+      if (needsRUM) {
+        rumAvailable = await isRUMAvailable(domain, context);
+      }
 
-          // Send Slack notification with scraping statistics if available
-          if (scrapingCheck.stats && slackContext) {
-            const { completed, failed, total } = scrapingCheck.stats;
-            const statsMessage = `:mag: *Scraping Statistics for ${siteUrl}*\n`
-              + `✅ Completed: ${completed}\n`
-              + `❌ Failed: ${failed}\n`
-              + `📊 Total: ${total}`;
+      if (needsGSC) {
+        gscConfigured = await isGSCConfigured(resolvedUrl, context);
+      }
 
-            if (failed > 0) {
-              await say(
-                env,
-                log,
-                slackContext,
-                `${statsMessage}\n:information_source: _${failed} failed URLs will be retried on re-onboarding._`,
-              );
-            } else {
-              await say(env, log, slackContext, statsMessage);
-            }
+      if (needsScraping) {
+        const scrapingCheck = await isScrapingAvailable(siteUrl, context);
+        scrapingAvailable = scrapingCheck.available;
+
+        // Send Slack notification with scraping statistics if available
+        if (scrapingCheck.stats && slackContext) {
+          const { completed, failed, total } = scrapingCheck.stats;
+          const statsMessage = `:mag: *Scraping Statistics for ${siteUrl}*\n`
+            + `✅ Completed: ${completed}\n`
+            + `❌ Failed: ${failed}\n`
+            + `📊 Total: ${total}`;
+
+          if (failed > 0) {
+            await say(
+              env,
+              log,
+              slackContext,
+              `${statsMessage}\n:information_source: _${failed} failed URLs will be retried on re-onboarding._`,
+            );
+          } else {
+            await say(env, log, slackContext, statsMessage);
           }
         }
-      } catch (error) {
-        log.warn(`Could not resolve canonical URL or parse siteUrl for data source checks: ${siteUrl}`, error);
       }
     }
 
