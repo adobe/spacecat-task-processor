@@ -122,6 +122,7 @@ export const main = async (event, context) => {
 
   const payload = context?.invocation?.event;
   if (!isNonEmptyObject(payload)) {
+    context?.log?.warn?.('Direct invocation missing payload');
     return badRequest('Event does not contain a valid message body');
   }
 
