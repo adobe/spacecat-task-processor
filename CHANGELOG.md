@@ -1,3 +1,10 @@
+## [1.6.19](https://github.com/adobe/spacecat-task-processor/compare/v1.6.18...v1.6.19) (2025-12-04)
+
+
+### Bug Fixes
+
+* onboard site not working issue related to brand profile ([#148](https://github.com/adobe/spacecat-task-processor/issues/148)) ([711cbc0](https://github.com/adobe/spacecat-task-processor/commit/711cbc00075329c7e851670a2a0e1182f6a125f0))
+
 ## [1.6.18](https://github.com/adobe/spacecat-task-processor/compare/v1.6.17...v1.6.18) (2025-12-04)
 
 

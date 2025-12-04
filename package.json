@@ -1,6 +1,6 @@
 {
   "name": "@adobe/spacecat-task-processor",
-  "version": "1.6.18",
+  "version": "1.6.19",
   "description": "SpaceCat Task Processor",
   "main": "src/index.js",
   "type": "module",
