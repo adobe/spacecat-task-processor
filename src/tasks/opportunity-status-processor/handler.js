@@ -469,46 +469,37 @@ export async function runOpportunityStatusProcessor(message, context) {
     const needsScraping = requiredDependencies.has('scraping');
     const needsGSC = requiredDependencies.has('GSC');
 
-    // Only check data sources that are needed
-    // Resolve canonical URL once (used by RUM, GSC, and scraping)
-    let resolvedUrl = null;
-    let domain = null;
-
-    if (siteUrl && (needsRUM || needsGSC || needsScraping)) {
-      try {
+    // Only check data sources that are needed (all require siteUrl)
+    if (!siteUrl) {
+      log.warn('No siteUrl provided, skipping RUM, GSC, and scraping checks');
+    } else {
+      // Resolve canonical URL (used by RUM and GSC - scraping uses siteUrl directly)
+      let resolvedUrl = null;
+      if (needsRUM || needsGSC) {
         resolvedUrl = await resolveCanonicalUrl(siteUrl);
-        log.info(`Resolved URL: ${resolvedUrl}`);
+        log.info(`Resolved URL: ${resolvedUrl || 'null'} for ${siteUrl}`);
 
         if (!resolvedUrl) {
-          log.warn(`Could not resolve canonical URL for: ${siteUrl}. Site may be unreachable. Skipping data source checks.`);
+          log.warn(`Could not resolve canonical URL for: ${siteUrl}. Site may be unreachable.`);
           if (slackContext) {
-            await say(env, log, slackContext, `:warning: Could not resolve canonical URL for \`${siteUrl}\`. Site may be unreachable. Skipping RUM, GSC, and scraping checks.`);
+            await say(env, log, slackContext, `:warning: Could not resolve canonical URL for \`${siteUrl}\`. Site may be unreachable.`);
           }
-        } else {
-          domain = new URL(resolvedUrl).hostname;
-          log.info(`Extracted domain: ${domain}`);
-        }
-      /* c8 ignore start */
-      // URL parsing error is very rare (resolveCanonicalUrl returns null on failures)
-      } catch (error) {
-        log.error(`Failed to resolve URL or extract domain for ${siteUrl}:`, error);
-        if (slackContext) {
-          await say(env, log, slackContext, `:x: Failed to resolve URL for \`${siteUrl}\`: ${error.message}. Skipping RUM, GSC, and scraping checks.`);
         }
       }
-      /* c8 ignore stop */
-    }
 
-    // Only proceed with data source checks if we have a valid resolved URL
-    if (resolvedUrl && domain) {
+      // Check RUM availability - use resolved URL if available, otherwise use base URL
       if (needsRUM) {
+        const urlToCheck = resolvedUrl || siteUrl;
+        const domain = new URL(urlToCheck).hostname;
         rumAvailable = await isRUMAvailable(domain, context);
       }
 
-      if (needsGSC) {
+      // Check GSC configuration - requires resolved URL
+      if (needsGSC && resolvedUrl) {
         gscConfigured = await isGSCConfigured(resolvedUrl, context);
       }
 
+      // Check scraping availability - uses siteUrl directly, independent of resolved URL
       if (needsScraping) {
         const scrapingCheck = await isScrapingAvailable(siteUrl, context);
         scrapingAvailable = scrapingCheck.available;
