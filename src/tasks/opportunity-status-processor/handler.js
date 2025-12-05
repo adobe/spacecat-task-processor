@@ -469,11 +469,9 @@ export async function runOpportunityStatusProcessor(message, context) {
     const needsScraping = requiredDependencies.has('scraping');
     const needsGSC = requiredDependencies.has('GSC');
 
-    // Only check data sources that are needed (all require siteUrl)
     if (!siteUrl) {
       log.warn('No siteUrl provided, skipping RUM, GSC, and scraping checks');
     } else {
-      // Resolve canonical URL (used by RUM and GSC - scraping uses siteUrl directly)
       let resolvedUrl = null;
       if (needsRUM || needsGSC) {
         resolvedUrl = await resolveCanonicalUrl(siteUrl);
@@ -487,19 +485,16 @@ export async function runOpportunityStatusProcessor(message, context) {
         }
       }
 
-      // Check RUM availability - use resolved URL if available, otherwise use base URL
       if (needsRUM) {
         const urlToCheck = resolvedUrl || siteUrl;
         const domain = new URL(urlToCheck).hostname;
         rumAvailable = await isRUMAvailable(domain, context);
       }
 
-      // Check GSC configuration - requires resolved URL
       if (needsGSC && resolvedUrl) {
         gscConfigured = await isGSCConfigured(resolvedUrl, context);
       }
 
-      // Check scraping availability - uses siteUrl directly, independent of resolved URL
       if (needsScraping) {
         const scrapingCheck = await isScrapingAvailable(siteUrl, context);
         scrapingAvailable = scrapingCheck.available;
