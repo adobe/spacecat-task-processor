@@ -43,6 +43,15 @@ async function isRUMAvailable(domain, context) {
   const { log } = context;
   const rumClient = RUMAPIClient.createFrom(context);
 
+  try {
+    await rumClient.retrieveDomainkey(domain);
+    log.info(`RUM is available for domain: ${domain}`);
+    return true;
+  } catch (error) {
+    log.warn(`RUM is not available for domain: ${domain}. Reason: ${error.message}`);
+  }
+
+  // Try with www-toggled domain
   const wwwToggledDomain = toggleWWWHostname(domain);
   try {
     await rumClient.retrieveDomainkey(wwwToggledDomain);
@@ -51,15 +60,7 @@ async function isRUMAvailable(domain, context) {
   } catch (error) {
     log.warn(`RUM not available for ${wwwToggledDomain}: ${error.message}`);
   }
-
-  try {
-    await rumClient.retrieveDomainkey(domain);
-    log.info(`RUM is available for domain: ${domain}`);
-    return true;
-  } catch (error) {
-    log.warn(`RUM is not available for domain: ${domain}. Reason: ${error.message}`);
-    return false;
-  }
+  return false;
 }
 
 /**

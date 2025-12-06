@@ -407,7 +407,7 @@ describe('Opportunity Status Processor', () => {
     });
 
     it('should handle RUM success scenarios', async () => {
-      // Test RUM available (success case) - tries www-toggled variant first
+      // Test RUM available (success case) - tries original domain first
       mockRUMClient.retrieveDomainkey.resolves('test-domain-key');
       const RUMAPIClient = await import('@adobe/spacecat-shared-rum-api-client');
       const createFromStub = sinon.stub(RUMAPIClient.default, 'createFrom').returns(mockRUMClient);
@@ -443,21 +443,21 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(testMessage, testContext);
 
-      // Verify RUM was checked successfully - now tries www-toggled variant first
+      // Verify RUM was checked successfully - now tries original domain first
       expect(createFromStub.calledWith(testContext)).to.be.true;
       expect(mockRUMClient.retrieveDomainkey.callCount).to.be.at.least(1);
-      expect(mockRUMClient.retrieveDomainkey.getCall(0).args[0]).to.equal('www.example.com');
-      expect(testContext.log.info.calledWith('RUM is available for domain: www.example.com')).to.be.true;
+      expect(mockRUMClient.retrieveDomainkey.getCall(0).args[0]).to.equal('example.com');
+      expect(testContext.log.info.calledWith('RUM is available for domain: example.com')).to.be.true;
 
       createFromStub.restore();
     });
 
-    it('should try original domain when www-toggled variant fails', async () => {
-      // Test fallback to original domain when www-toggled fails
+    it('should try toggled domain when original domain fails', async () => {
+      // Test fallback to toggled domain when original fails
       const mockRUMClientWithFallback = {
         retrieveDomainkey: sinon.stub(),
       };
-      // First call (www.example.com) fails, second call (example.com) succeeds
+      // First call (example.com) fails, second call (www.example.com) succeeds
       mockRUMClientWithFallback.retrieveDomainkey
         .onFirstCall().rejects(new Error('404 Not Found'))
         .onSecondCall().resolves('test-domain-key');
@@ -496,17 +496,17 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(testMessage, testContext);
 
-      // Verify both attempts were made and that lines 59-60 are covered
+      // Verify both attempts were made - original first, then toggled
       expect(mockRUMClientWithFallback.retrieveDomainkey.callCount).to.equal(2);
-      expect(mockRUMClientWithFallback.retrieveDomainkey.getCall(0).args[0]).to.equal('www.example.com');
-      expect(mockRUMClientWithFallback.retrieveDomainkey.getCall(1).args[0]).to.equal('example.com');
-      expect(testContext.log.info.calledWith('RUM is available for domain: example.com')).to.be.true;
+      expect(mockRUMClientWithFallback.retrieveDomainkey.getCall(0).args[0]).to.equal('example.com');
+      expect(mockRUMClientWithFallback.retrieveDomainkey.getCall(1).args[0]).to.equal('www.example.com');
+      expect(testContext.log.info.calledWith('RUM is available for domain: www.example.com')).to.be.true;
 
       createFromStub.restore();
     });
 
     it('should handle both domain variations failing', async () => {
-      // Test when both www-toggled and original domain fail
+      // Test when both original and toggled domain fail
       const mockRUMClientFailBoth = {
         retrieveDomainkey: sinon.stub().rejects(new Error('404 Not Found')),
       };
@@ -545,11 +545,11 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(testMessage, testContext);
 
-      // Verify both attempts were made
+      // Verify both attempts were made - original first, then toggled
       expect(mockRUMClientFailBoth.retrieveDomainkey.callCount).to.equal(2);
-      expect(mockRUMClientFailBoth.retrieveDomainkey.getCall(0).args[0]).to.equal('www.example.com');
-      expect(mockRUMClientFailBoth.retrieveDomainkey.getCall(1).args[0]).to.equal('example.com');
-      expect(testContext.log.warn.calledWith(sinon.match(/RUM is not available for domain: example.com/))).to.be.true;
+      expect(mockRUMClientFailBoth.retrieveDomainkey.getCall(0).args[0]).to.equal('example.com');
+      expect(mockRUMClientFailBoth.retrieveDomainkey.getCall(1).args[0]).to.equal('www.example.com');
+      expect(testContext.log.warn.calledWith(sinon.match(/RUM not available for www.example.com/))).to.be.true;
 
       createFromStub.restore();
     });
