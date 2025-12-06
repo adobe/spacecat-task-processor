@@ -24,24 +24,40 @@ const TASK_TYPE = 'opportunity-status-processor';
 const AUDIT_WORKER_LOG_GROUP = '/aws/lambda/spacecat-services--audit-worker';
 
 /**
+ * Toggles the www subdomain in a hostname
+ * @param {string} hostname - The hostname to toggle
+ * @returns {string} The hostname with www toggled
+ */
+function toggleWWWHostname(hostname) {
+  return hostname.startsWith('www.') ? hostname.replace('www.', '') : `www.${hostname}`;
+}
+
+/**
  * Checks if RUM is available for a domain by attempting to get a domainkey
+ * Tries both with and without www prefix
  * @param {string} domain - The domain to check
  * @param {object} context - The context object with env and log
  * @returns {Promise<boolean>} True if RUM is available, false otherwise
  */
 async function isRUMAvailable(domain, context) {
   const { log } = context;
+  const rumClient = RUMAPIClient.createFrom(context);
+
+  const wwwToggledDomain = toggleWWWHostname(domain);
+  try {
+    await rumClient.retrieveDomainkey(wwwToggledDomain);
+    log.info(`RUM is available for domain: ${wwwToggledDomain}`);
+    return true;
+  } catch (error) {
+    log.warn(`RUM not available for ${wwwToggledDomain}: ${error.message}`);
+  }
 
   try {
-    const rumClient = RUMAPIClient.createFrom(context);
-
-    // Attempt to get domainkey - if this succeeds, RUM is available
     await rumClient.retrieveDomainkey(domain);
-
     log.info(`RUM is available for domain: ${domain}`);
     return true;
   } catch (error) {
-    log.info(`RUM is not available for domain: ${domain}. Reason: ${error.message}`);
+    log.warn(`RUM is not available for domain: ${domain}. Reason: ${error.message}`);
     return false;
   }
 }

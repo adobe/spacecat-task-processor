@@ -349,6 +349,7 @@ describe('Opportunity Status Processor', () => {
           info: sinon.stub(),
           error: sinon.stub(),
           warn: sinon.stub(),
+          debug: sinon.stub(),
         },
         env: {
           RUM_ADMIN_KEY: 'test-admin-key',
@@ -406,7 +407,7 @@ describe('Opportunity Status Processor', () => {
     });
 
     it('should handle RUM success scenarios', async () => {
-      // Test RUM available (success case) - use a simple URL that should resolve quickly
+      // Test RUM available (success case) - tries www-toggled variant first
       mockRUMClient.retrieveDomainkey.resolves('test-domain-key');
       const RUMAPIClient = await import('@adobe/spacecat-shared-rum-api-client');
       const createFromStub = sinon.stub(RUMAPIClient.default, 'createFrom').returns(mockRUMClient);
@@ -421,26 +422,134 @@ describe('Opportunity Status Processor', () => {
         },
       };
 
+      const testMockSite = {
+        getOpportunities: sinon.stub().resolves([]),
+      };
+
       const testContext = {
         ...mockContext,
         dataAccess: {
           Site: {
-            findById: sinon.stub().resolves({
-              getOpportunities: sinon.stub().resolves([]),
-            }),
+            findById: sinon.stub().resolves(testMockSite),
           },
           SiteTopPage: {
             allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+          },
+          Configuration: {
+            findLatest: sinon.stub().resolves({}),
           },
         },
       };
 
       await runOpportunityStatusProcessor(testMessage, testContext);
 
-      // Verify RUM was checked successfully - this should cover lines 26-37
+      // Verify RUM was checked successfully - now tries www-toggled variant first
       expect(createFromStub.calledWith(testContext)).to.be.true;
-      expect(mockRUMClient.retrieveDomainkey.calledWith('example.com')).to.be.true;
+      expect(mockRUMClient.retrieveDomainkey.callCount).to.be.at.least(1);
+      expect(mockRUMClient.retrieveDomainkey.getCall(0).args[0]).to.equal('www.example.com');
+      expect(testContext.log.info.calledWith('RUM is available for domain: www.example.com')).to.be.true;
+
+      createFromStub.restore();
+    });
+
+    it('should try original domain when www-toggled variant fails', async () => {
+      // Test fallback to original domain when www-toggled fails
+      const mockRUMClientWithFallback = {
+        retrieveDomainkey: sinon.stub(),
+      };
+      // First call (www.example.com) fails, second call (example.com) succeeds
+      mockRUMClientWithFallback.retrieveDomainkey
+        .onFirstCall().rejects(new Error('404 Not Found'))
+        .onSecondCall().resolves('test-domain-key');
+
+      const RUMAPIClient = await import('@adobe/spacecat-shared-rum-api-client');
+      const createFromStub = sinon.stub(RUMAPIClient.default, 'createFrom').returns(mockRUMClientWithFallback);
+
+      const testMessage = {
+        siteId: 'test-site-id',
+        siteUrl: 'https://example.com',
+        organizationId: 'test-org-id',
+        taskContext: {
+          auditTypes: ['cwv'],
+          slackContext: null,
+        },
+      };
+
+      const testMockSite = {
+        getOpportunities: sinon.stub().resolves([]),
+      };
+
+      const testContext = {
+        ...mockContext,
+        dataAccess: {
+          Site: {
+            findById: sinon.stub().resolves(testMockSite),
+          },
+          SiteTopPage: {
+            allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+          },
+          Configuration: {
+            findLatest: sinon.stub().resolves({}),
+          },
+        },
+      };
+
+      await runOpportunityStatusProcessor(testMessage, testContext);
+
+      // Verify both attempts were made and that lines 59-60 are covered
+      expect(mockRUMClientWithFallback.retrieveDomainkey.callCount).to.equal(2);
+      expect(mockRUMClientWithFallback.retrieveDomainkey.getCall(0).args[0]).to.equal('www.example.com');
+      expect(mockRUMClientWithFallback.retrieveDomainkey.getCall(1).args[0]).to.equal('example.com');
       expect(testContext.log.info.calledWith('RUM is available for domain: example.com')).to.be.true;
+
+      createFromStub.restore();
+    });
+
+    it('should handle both domain variations failing', async () => {
+      // Test when both www-toggled and original domain fail
+      const mockRUMClientFailBoth = {
+        retrieveDomainkey: sinon.stub().rejects(new Error('404 Not Found')),
+      };
+
+      const RUMAPIClient = await import('@adobe/spacecat-shared-rum-api-client');
+      const createFromStub = sinon.stub(RUMAPIClient.default, 'createFrom').returns(mockRUMClientFailBoth);
+
+      const testMessage = {
+        siteId: 'test-site-id',
+        siteUrl: 'https://example.com',
+        organizationId: 'test-org-id',
+        taskContext: {
+          auditTypes: ['cwv'],
+          slackContext: null,
+        },
+      };
+
+      const testMockSite = {
+        getOpportunities: sinon.stub().resolves([]),
+      };
+
+      const testContext = {
+        ...mockContext,
+        dataAccess: {
+          Site: {
+            findById: sinon.stub().resolves(testMockSite),
+          },
+          SiteTopPage: {
+            allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+          },
+          Configuration: {
+            findLatest: sinon.stub().resolves({}),
+          },
+        },
+      };
+
+      await runOpportunityStatusProcessor(testMessage, testContext);
+
+      // Verify both attempts were made
+      expect(mockRUMClientFailBoth.retrieveDomainkey.callCount).to.equal(2);
+      expect(mockRUMClientFailBoth.retrieveDomainkey.getCall(0).args[0]).to.equal('www.example.com');
+      expect(mockRUMClientFailBoth.retrieveDomainkey.getCall(1).args[0]).to.equal('example.com');
+      expect(testContext.log.warn.calledWith(sinon.match(/RUM is not available for domain: example.com/))).to.be.true;
 
       createFromStub.restore();
     });
