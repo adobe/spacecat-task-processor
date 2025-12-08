@@ -28,6 +28,7 @@ import { runDemoUrlProcessor as demoUrlProcessor } from './tasks/demo-url-proces
 import { runCwvDemoSuggestionsProcessor as cwvDemoSuggestionsProcessor } from './tasks/cwv-demo-suggestions-processor/handler.js';
 import { runAgentExecutor as agentExecutor } from './tasks/agent-executor/handler.js';
 import { runSlackNotify as slackNotify } from './tasks/slack-notify/handler.js';
+import { runEnrichOpportunity as enrichOpportunity } from './tasks/enrich-opportunity/handler.js';
 
 const HANDLERS = {
   'opportunity-status-processor': opportunityStatusProcessor,
@@ -36,6 +37,7 @@ const HANDLERS = {
   'agent-executor': agentExecutor,
   'slack-notify': slackNotify,
   'cwv-demo-suggestions-processor': cwvDemoSuggestionsProcessor,
+  'enrich-opportunity': enrichOpportunity,
   dummy: (message) => ok(message), // for tests
 };
 
