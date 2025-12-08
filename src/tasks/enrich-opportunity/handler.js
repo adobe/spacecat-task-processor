@@ -160,7 +160,7 @@ export async function runEnrichOpportunity(message, context) {
 
     // Step 6: Send to Mystique inbound queue
     await sendToMystique(
-      env.MYSTIQUE_INBOUND_QUEUE_URL,
+      env.SPACECAT_TO_MYSTIQUE_SQS_URL,
       mystiquePayload,
       log,
     );
@@ -170,7 +170,7 @@ export async function runEnrichOpportunity(message, context) {
     log.info(`[${requestId}] Polling for Mystique response (max ${maxWaitSeconds}s)`);
 
     const enrichedResult = await pollMystiqueResponse(
-      env.MYSTIQUE_OUTBOUND_QUEUE_URL,
+      env.MYSTIQUE_TO_SPACECAT_SQS_URL,
       requestId,
       log,
       maxWaitSeconds,
