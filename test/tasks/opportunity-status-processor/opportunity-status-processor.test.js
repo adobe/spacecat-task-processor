@@ -44,11 +44,12 @@ describe('Opportunity Status Processor', () => {
 
     // Mock fetch for robots.txt and HEAD requests
     global.fetch = sandbox.stub();
-    global.fetch.resolves({
+    global.fetch.callsFake((url) => Promise.resolve({
       ok: true,
       status: 200,
+      url, // Include URL for resolveCanonicalUrl
       text: sandbox.stub().resolves('User-agent: *\nAllow: /'),
-    });
+    }));
 
     // Mock context
     context = new MockContextBuilder()
@@ -268,9 +269,9 @@ describe('Opportunity Status Processor', () => {
       mockSite.getOpportunities.resolves(mockOpportunities);
 
       // For this test, we'll just verify that the error is handled gracefully
-      // The actual resolveCanonicalUrl function will throw an error for invalid URLs
+      // resolveCanonicalUrl returns null for invalid URLs, triggering log.warn
       await runOpportunityStatusProcessor(message, context);
-      expect(context.log.warn.calledWith('Could not resolve canonical URL or parse siteUrl for data source checks: invalid-url', sinon.match.any)).to.be.true;
+      expect(context.log.warn.calledWith(sinon.match(/Could not resolve canonical URL for: invalid-url/))).to.be.true;
       expect(mockSite.getOpportunities.called).to.be.true;
     });
 
@@ -348,6 +349,7 @@ describe('Opportunity Status Processor', () => {
           info: sinon.stub(),
           error: sinon.stub(),
           warn: sinon.stub(),
+          debug: sinon.stub(),
         },
         env: {
           RUM_ADMIN_KEY: 'test-admin-key',
@@ -399,13 +401,13 @@ describe('Opportunity Status Processor', () => {
 
         await runOpportunityStatusProcessor(testMessage, testContext);
 
-        // Verify error handling for localhost URLs
-        expect(testContext.log.warn.calledWith(`Could not resolve canonical URL or parse siteUrl for data source checks: ${testCase.url}`, sinon.match.any)).to.be.true;
+        // Verify error handling for localhost URLs (now uses log.warn for null resolvedUrl)
+        expect(testContext.log.warn.calledWith(sinon.match(/Could not resolve canonical URL for.*Site may be unreachable/))).to.be.true;
       }));
     });
 
     it('should handle RUM success scenarios', async () => {
-      // Test RUM available (success case) - use a simple URL that should resolve quickly
+      // Test RUM available (success case) - tries original domain first
       mockRUMClient.retrieveDomainkey.resolves('test-domain-key');
       const RUMAPIClient = await import('@adobe/spacecat-shared-rum-api-client');
       const createFromStub = sinon.stub(RUMAPIClient.default, 'createFrom').returns(mockRUMClient);
@@ -420,26 +422,134 @@ describe('Opportunity Status Processor', () => {
         },
       };
 
+      const testMockSite = {
+        getOpportunities: sinon.stub().resolves([]),
+      };
+
       const testContext = {
         ...mockContext,
         dataAccess: {
           Site: {
-            findById: sinon.stub().resolves({
-              getOpportunities: sinon.stub().resolves([]),
-            }),
+            findById: sinon.stub().resolves(testMockSite),
           },
           SiteTopPage: {
             allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+          },
+          Configuration: {
+            findLatest: sinon.stub().resolves({}),
           },
         },
       };
 
       await runOpportunityStatusProcessor(testMessage, testContext);
 
-      // Verify RUM was checked successfully - this should cover lines 26-37
+      // Verify RUM was checked successfully - now tries original domain first
       expect(createFromStub.calledWith(testContext)).to.be.true;
-      expect(mockRUMClient.retrieveDomainkey.calledWith('example.com')).to.be.true;
+      expect(mockRUMClient.retrieveDomainkey.callCount).to.be.at.least(1);
+      expect(mockRUMClient.retrieveDomainkey.getCall(0).args[0]).to.equal('example.com');
       expect(testContext.log.info.calledWith('RUM is available for domain: example.com')).to.be.true;
+
+      createFromStub.restore();
+    });
+
+    it('should try toggled domain when original domain fails', async () => {
+      // Test fallback to toggled domain when original fails
+      const mockRUMClientWithFallback = {
+        retrieveDomainkey: sinon.stub(),
+      };
+      // First call (example.com) fails, second call (www.example.com) succeeds
+      mockRUMClientWithFallback.retrieveDomainkey
+        .onFirstCall().rejects(new Error('404 Not Found'))
+        .onSecondCall().resolves('test-domain-key');
+
+      const RUMAPIClient = await import('@adobe/spacecat-shared-rum-api-client');
+      const createFromStub = sinon.stub(RUMAPIClient.default, 'createFrom').returns(mockRUMClientWithFallback);
+
+      const testMessage = {
+        siteId: 'test-site-id',
+        siteUrl: 'https://example.com',
+        organizationId: 'test-org-id',
+        taskContext: {
+          auditTypes: ['cwv'],
+          slackContext: null,
+        },
+      };
+
+      const testMockSite = {
+        getOpportunities: sinon.stub().resolves([]),
+      };
+
+      const testContext = {
+        ...mockContext,
+        dataAccess: {
+          Site: {
+            findById: sinon.stub().resolves(testMockSite),
+          },
+          SiteTopPage: {
+            allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+          },
+          Configuration: {
+            findLatest: sinon.stub().resolves({}),
+          },
+        },
+      };
+
+      await runOpportunityStatusProcessor(testMessage, testContext);
+
+      // Verify both attempts were made - original first, then toggled
+      expect(mockRUMClientWithFallback.retrieveDomainkey.callCount).to.equal(2);
+      expect(mockRUMClientWithFallback.retrieveDomainkey.getCall(0).args[0]).to.equal('example.com');
+      expect(mockRUMClientWithFallback.retrieveDomainkey.getCall(1).args[0]).to.equal('www.example.com');
+      expect(testContext.log.info.calledWith('RUM is available for domain: www.example.com')).to.be.true;
+
+      createFromStub.restore();
+    });
+
+    it('should handle both domain variations failing', async () => {
+      // Test when both original and toggled domain fail
+      const mockRUMClientFailBoth = {
+        retrieveDomainkey: sinon.stub().rejects(new Error('404 Not Found')),
+      };
+
+      const RUMAPIClient = await import('@adobe/spacecat-shared-rum-api-client');
+      const createFromStub = sinon.stub(RUMAPIClient.default, 'createFrom').returns(mockRUMClientFailBoth);
+
+      const testMessage = {
+        siteId: 'test-site-id',
+        siteUrl: 'https://example.com',
+        organizationId: 'test-org-id',
+        taskContext: {
+          auditTypes: ['cwv'],
+          slackContext: null,
+        },
+      };
+
+      const testMockSite = {
+        getOpportunities: sinon.stub().resolves([]),
+      };
+
+      const testContext = {
+        ...mockContext,
+        dataAccess: {
+          Site: {
+            findById: sinon.stub().resolves(testMockSite),
+          },
+          SiteTopPage: {
+            allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+          },
+          Configuration: {
+            findLatest: sinon.stub().resolves({}),
+          },
+        },
+      };
+
+      await runOpportunityStatusProcessor(testMessage, testContext);
+
+      // Verify both attempts were made - original first, then toggled
+      expect(mockRUMClientFailBoth.retrieveDomainkey.callCount).to.equal(2);
+      expect(mockRUMClientFailBoth.retrieveDomainkey.getCall(0).args[0]).to.equal('example.com');
+      expect(mockRUMClientFailBoth.retrieveDomainkey.getCall(1).args[0]).to.equal('www.example.com');
+      expect(testContext.log.warn.calledWith(sinon.match(/RUM not available for www.example.com/))).to.be.true;
 
       createFromStub.restore();
     });
@@ -1028,7 +1138,7 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.log.warn.calledWithMatch('Could not resolve canonical URL')).to.be.true;
+      expect(context.log.warn.calledWithMatch('Could not resolve canonical URL for: not-a-valid-url')).to.be.true;
     });
 
     it('should handle opportunities with missing getData method', async () => {
