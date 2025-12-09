@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/adobe/spacecat-task-processor/compare/v1.6.22...v1.7.0) (2025-12-09)
+
+
+### Features
+
+* protect code coverage on main branch ([#156](https://github.com/adobe/spacecat-task-processor/issues/156)) ([f06049c](https://github.com/adobe/spacecat-task-processor/commit/f06049cc254069886aee110ee79825a45cc7cedf))
+
 ## [1.6.22](https://github.com/adobe/spacecat-task-processor/compare/v1.6.21...v1.6.22) (2025-12-09)
 
 
