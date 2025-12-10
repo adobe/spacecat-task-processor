@@ -1,3 +1,24 @@
+## [1.7.1](https://github.com/adobe/spacecat-task-processor/compare/v1.7.0...v1.7.1) (2025-12-09)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#164](https://github.com/adobe/spacecat-task-processor/issues/164)) ([28f40a5](https://github.com/adobe/spacecat-task-processor/commit/28f40a524e454e31d01c8aa7b34040fc2df27ec7))
+
+# [1.7.0](https://github.com/adobe/spacecat-task-processor/compare/v1.6.22...v1.7.0) (2025-12-09)
+
+
+### Features
+
+* protect code coverage on main branch ([#156](https://github.com/adobe/spacecat-task-processor/issues/156)) ([f06049c](https://github.com/adobe/spacecat-task-processor/commit/f06049cc254069886aee110ee79825a45cc7cedf))
+
+## [1.6.22](https://github.com/adobe/spacecat-task-processor/compare/v1.6.21...v1.6.22) (2025-12-09)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#162](https://github.com/adobe/spacecat-task-processor/issues/162)) ([b44a064](https://github.com/adobe/spacecat-task-processor/commit/b44a064d8080228e8df1b2ef219d7f280f08abd4))
+
 ## [1.6.21](https://github.com/adobe/spacecat-task-processor/compare/v1.6.20...v1.6.21) (2025-12-06)
 
 
