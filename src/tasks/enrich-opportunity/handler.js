@@ -17,6 +17,88 @@ import { sendToMystique, pollMystiqueResponse } from '../../utils/mystique-clien
 import { say } from '../../utils/slack-utils.js';
 
 /**
+ * Dependency map: What additional data each audit type needs for enrichment
+ *
+ * This map defines what context data to load from the database to provide
+ * the LLM with sufficient information for accurate business impact analysis.
+ */
+const AUDIT_DEPENDENCIES = {
+  cwv: {
+    // CWV needs top pages for traffic value and SEO context
+    topPages: { source: 'ahrefs', geo: 'global', limit: 100 },
+    // Could add: RUM data for real user metrics
+  },
+  'broken-backlinks': {
+    // Broken backlinks needs top pages for link equity context
+    topPages: { source: 'ahrefs', geo: 'global', limit: 50 },
+  },
+  'broken-internal-links': {
+    // Internal links needs site topology context
+    topPages: { source: 'ahrefs', geo: 'global', limit: 50 },
+  },
+  'meta-tags': {
+    // Meta tags needs top pages for SEO priority
+    topPages: { source: 'ahrefs', geo: 'global', limit: 100 },
+  },
+  accessibility: {
+    // Accessibility needs traffic context for impact sizing
+    topPages: { source: 'ahrefs', geo: 'global', limit: 50 },
+  },
+};
+
+/**
+ * Load additional context data for a specific audit type
+ *
+ * @param {string} auditType - The audit type being enriched
+ * @param {string} siteId - Site ID
+ * @param {Array} suggestions - Existing suggestions
+ * @param {object} dataAccess - Data access layer
+ * @param {object} log - Logger
+ * @returns {Promise<object>} Additional context data
+ */
+async function loadAuditContext(auditType, siteId, suggestions, dataAccess, log) {
+  const dependencies = AUDIT_DEPENDENCIES[auditType];
+  if (!dependencies) {
+    log.info(`No additional context needed for audit type: ${auditType}`);
+    return null;
+  }
+
+  const context = {};
+
+  try {
+    // Load top pages if needed
+    if (dependencies.topPages) {
+      const { SiteTopPage } = dataAccess;
+      const { source, geo, limit } = dependencies.topPages;
+
+      log.info(`Loading top ${limit} pages for ${auditType} enrichment`);
+      const topPages = await SiteTopPage.allBySiteIdAndSourceAndGeo(siteId, source, geo);
+
+      // Limit to requested count and map to plain objects with available fields
+      context.topPages = topPages.slice(0, limit).map((page, index) => ({
+        url: page.getURL(),
+        traffic: page.getTraffic(),
+        topKeyword: page.getTopKeyword(),
+        source: page.getSource(),
+        rank: index + 1, // Position in top pages list (1-indexed)
+      }));
+
+      log.info(`Loaded ${context.topPages.length} top pages for context`);
+    }
+
+    // Future: Add other dependency types here
+    // if (dependencies.rumData) { ... }
+    // if (dependencies.gscData) { ... }
+
+    return context;
+  } catch (error) {
+    log.error(`Failed to load audit context for ${auditType}: ${error.message}`, error);
+    // Don't fail enrichment if context loading fails
+    return null;
+  }
+}
+
+/**
  * Post error message to Slack
  */
 async function postErrorToSlack(slackContext, env, log, errorMessage) {
@@ -126,6 +208,19 @@ export async function runEnrichOpportunity(message, context) {
       return { status: 'no-suggestions', opportunityId: targetOpportunity.getId() };
     }
 
+    // Step 3.5: Load additional context data based on audit type
+    const additionalContext = await loadAuditContext(
+      auditType,
+      siteId,
+      suggestions,
+      dataAccess,
+      log,
+    );
+
+    if (additionalContext) {
+      log.info(`[${requestId}] Loaded additional context: ${Object.keys(additionalContext).join(', ')}`);
+    }
+
     // Step 4: Get audit context (latest audit results for additional context)
     const latestAudits = await site.getLatestAudits();
     const auditContext = latestAudits.find((a) => a.getAuditType() === auditType);
@@ -154,6 +249,8 @@ export async function runEnrichOpportunity(message, context) {
         auditResult: auditContext.getAuditResult(),
         scores: auditContext.getScores ? auditContext.getScores() : null,
       } : null,
+      // Additional context based on audit type (e.g., top pages for traffic value)
+      additionalContext,
     };
 
     log.info(`[${requestId}] Sending enrichment request to Mystique`);
