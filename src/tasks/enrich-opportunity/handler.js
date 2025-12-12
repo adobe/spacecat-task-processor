@@ -31,29 +31,29 @@ import { say } from '../../utils/slack-utils.js';
 const AUDIT_DEPENDENCIES = {
   cwv: {
     // CWV needs top pages for traffic value and SEO context
-    // Top 25 pages capture 85%+ of traffic - sufficient for impact analysis
-    topPages: { source: 'ahrefs', geo: 'global', limit: 25 },
+    // Top 10 pages capture 60-70% of traffic - optimal balance to avoid AI hallucination
+    topPages: { source: 'ahrefs', geo: 'global', limit: 10 },
     // Could add: RUM data for real user metrics
   },
   'broken-backlinks': {
     // Broken backlinks needs top pages for link equity context
-    // Top 20 pages provide sufficient topology for link distribution analysis
-    topPages: { source: 'ahrefs', geo: 'global', limit: 20 },
+    // Top 10 pages provide sufficient topology for link distribution analysis
+    topPages: { source: 'ahrefs', geo: 'global', limit: 10 },
   },
   'broken-internal-links': {
     // Internal links needs site topology context
-    // Top 20 pages capture main navigation structure
-    topPages: { source: 'ahrefs', geo: 'global', limit: 20 },
+    // Top 10 pages capture main navigation structure
+    topPages: { source: 'ahrefs', geo: 'global', limit: 10 },
   },
   'meta-tags': {
     // Meta tags needs top pages for SEO priority ranking
-    // Top 30 pages = sufficient for prioritizing which pages to fix first
-    topPages: { source: 'ahrefs', geo: 'global', limit: 30 },
+    // Top 15 pages = sufficient for prioritizing which pages to fix first (SEO needs slightly more)
+    topPages: { source: 'ahrefs', geo: 'global', limit: 15 },
   },
   accessibility: {
     // Accessibility needs traffic context for impact sizing
-    // Top 20 pages capture 80%+ of user impact for prioritization
-    topPages: { source: 'ahrefs', geo: 'global', limit: 20 },
+    // Top 10 pages capture 60-70% of user impact for prioritization
+    topPages: { source: 'ahrefs', geo: 'global', limit: 10 },
   },
 };
 
@@ -99,11 +99,12 @@ async function loadAuditContext(auditType, siteId, suggestions, dataAccess, log)
       }
 
       // Limit to requested count and map to plain objects with available fields
+      // Optimize: truncate keywords, remove redundant 'source' field to reduce payload size
       context.topPages = topPages.slice(0, limit).map((page, index) => ({
         url: page.getUrl(),
         traffic: page.getTraffic(),
-        topKeyword: page.getTopKeyword(),
-        source: page.getSource(),
+        topKeyword: (page.getTopKeyword() || '').substring(0, 80), // Truncate to 80 chars
+        // source removed: always 'ahrefs', redundant
         rank: index + 1, // Position in top pages list (1-indexed)
       }));
 
@@ -220,10 +221,10 @@ export async function runEnrichOpportunity(message, context) {
     log.info(`[${requestId}] Found opportunity: ${targetOpportunity.getId()}`);
 
     // Step 3: Load suggestions for this opportunity
-    const suggestions = await targetOpportunity.getSuggestions();
-    log.info(`[${requestId}] Found ${suggestions.length} suggestions`);
+    const allSuggestions = await targetOpportunity.getSuggestions();
+    log.info(`[${requestId}] Found ${allSuggestions.length} total suggestions`);
 
-    if (suggestions.length === 0) {
+    if (allSuggestions.length === 0) {
       await say(
         env,
         log,
@@ -232,6 +233,17 @@ export async function runEnrichOpportunity(message, context) {
         + 'The opportunity exists but has no actionable suggestions yet.',
       );
       return { status: 'no-suggestions', opportunityId: targetOpportunity.getId() };
+    }
+
+    // Limit to top 20 suggestions to reduce payload size and avoid AI hallucination
+    // Sort by rank (descending) and take top 20
+    const MAX_SUGGESTIONS = 20;
+    const suggestions = allSuggestions
+      .sort((a, b) => (b.getRank() || 0) - (a.getRank() || 0))
+      .slice(0, MAX_SUGGESTIONS);
+
+    if (allSuggestions.length > MAX_SUGGESTIONS) {
+      log.info(`[${requestId}] Limited to top ${MAX_SUGGESTIONS} suggestions (from ${allSuggestions.length}) to optimize payload`);
     }
 
     // Step 3.5: Load additional context data based on audit type
