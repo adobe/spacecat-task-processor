@@ -71,8 +71,15 @@ async function loadAuditContext(auditType, siteId, suggestions, dataAccess, log)
       const { SiteTopPage } = dataAccess;
       const { source, geo, limit } = dependencies.topPages;
 
-      log.info(`Loading top ${limit} pages for ${auditType} enrichment`);
+      log.info(`Loading top ${limit} pages for ${auditType} enrichment from siteId: ${siteId}, source: ${source}, geo: ${geo}`);
       const topPages = await SiteTopPage.allBySiteIdAndSourceAndGeo(siteId, source, geo);
+
+      log.info(`Query returned ${topPages ? topPages.length : 0} top pages from DynamoDB`);
+
+      if (!topPages || topPages.length === 0) {
+        log.warn(`No top pages found in database for siteId: ${siteId}. Import may not have run yet.`);
+        return null; // Return null if no data, not empty context
+      }
 
       // Limit to requested count and map to plain objects with available fields
       context.topPages = topPages.slice(0, limit).map((page, index) => ({
@@ -90,7 +97,8 @@ async function loadAuditContext(auditType, siteId, suggestions, dataAccess, log)
     // if (dependencies.rumData) { ... }
     // if (dependencies.gscData) { ... }
 
-    return context;
+    // Only return context if it has data
+    return Object.keys(context).length > 0 ? context : null;
   } catch (error) {
     log.error(`Failed to load audit context for ${auditType}: ${error.message}`, error);
     // Don't fail enrichment if context loading fails
