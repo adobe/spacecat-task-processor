@@ -71,13 +71,19 @@ async function loadAuditContext(auditType, siteId, suggestions, dataAccess, log)
       const { SiteTopPage } = dataAccess;
       const { source, geo, limit } = dependencies.topPages;
 
-      log.info(`Loading top ${limit} pages for ${auditType} enrichment from siteId: ${siteId}, source: ${source}, geo: ${geo}`);
+      log.info(`[ENRICH] Loading top ${limit} pages for ${auditType} enrichment from siteId: ${siteId}, source: ${source}, geo: ${geo}`);
+      log.info(`[ENRICH] SiteTopPage type: ${typeof SiteTopPage}, has allBySiteIdAndSourceAndGeo: ${typeof SiteTopPage?.allBySiteIdAndSourceAndGeo}`);
+
       const topPages = await SiteTopPage.allBySiteIdAndSourceAndGeo(siteId, source, geo);
 
-      log.info(`Query returned ${topPages ? topPages.length : 0} top pages from DynamoDB`);
+      log.info(`[ENRICH] Query returned ${topPages ? topPages.length : 0} top pages from DynamoDB`);
+
+      if (topPages && topPages.length > 0) {
+        log.info(`[ENRICH] First page URL: ${topPages[0].getURL ? topPages[0].getURL() : 'N/A'}`);
+      }
 
       if (!topPages || topPages.length === 0) {
-        log.warn(`No top pages found in database for siteId: ${siteId}. Import may not have run yet.`);
+        log.warn(`[ENRICH] No top pages found in database for siteId: ${siteId}. Import may not have run yet.`);
         return null; // Return null if no data, not empty context
       }
 
@@ -90,7 +96,7 @@ async function loadAuditContext(auditType, siteId, suggestions, dataAccess, log)
         rank: index + 1, // Position in top pages list (1-indexed)
       }));
 
-      log.info(`Loaded ${context.topPages.length} top pages for context`);
+      log.info(`[ENRICH] Successfully loaded ${context.topPages.length} top pages for context`);
     }
 
     // Future: Add other dependency types here
@@ -100,7 +106,8 @@ async function loadAuditContext(auditType, siteId, suggestions, dataAccess, log)
     // Only return context if it has data
     return Object.keys(context).length > 0 ? context : null;
   } catch (error) {
-    log.error(`Failed to load audit context for ${auditType}: ${error.message}`, error);
+    log.error(`[ENRICH] Failed to load audit context for ${auditType}: ${error.message}`, error);
+    log.error(`[ENRICH] Error stack: ${error.stack}`);
     // Don't fail enrichment if context loading fails
     return null;
   }
