@@ -79,7 +79,7 @@ async function loadAuditContext(auditType, siteId, suggestions, dataAccess, log)
       log.info(`[ENRICH] Query returned ${topPages ? topPages.length : 0} top pages from DynamoDB`);
 
       if (topPages && topPages.length > 0) {
-        log.info(`[ENRICH] First page URL: ${topPages[0].getURL ? topPages[0].getURL() : 'N/A'}`);
+        log.info(`[ENRICH] First page URL: ${topPages[0].getUrl ? topPages[0].getUrl() : 'N/A'}`);
       }
 
       if (!topPages || topPages.length === 0) {
@@ -89,7 +89,7 @@ async function loadAuditContext(auditType, siteId, suggestions, dataAccess, log)
 
       // Limit to requested count and map to plain objects with available fields
       context.topPages = topPages.slice(0, limit).map((page, index) => ({
-        url: page.getURL(),
+        url: page.getUrl(),
         traffic: page.getTraffic(),
         topKeyword: page.getTopKeyword(),
         source: page.getSource(),
