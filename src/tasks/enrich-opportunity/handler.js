@@ -55,6 +55,11 @@ const AUDIT_DEPENDENCIES = {
     // Top 10 pages capture 60-70% of user impact for prioritization
     topPages: { source: 'ahrefs', geo: 'global', limit: 10 },
   },
+  'alt-text': {
+    // Alt-text needs top pages for prioritizing high-traffic images
+    // Top 15 pages capture the most visible images for accessibility and SEO impact
+    topPages: { source: 'ahrefs', geo: 'global', limit: 15 },
+  },
 };
 
 /**
