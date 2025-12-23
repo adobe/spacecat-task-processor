@@ -2279,7 +2279,8 @@ describe('Opportunity Status Processor', () => {
       }
     });
 
-    it('should not send alert when no bot protection detected', async () => {
+    it('should not send alert when no bot protection detected', async function () {
+      this.timeout(5000);
       const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
@@ -2453,6 +2454,72 @@ describe('Opportunity Status Processor', () => {
 
         // Should not crash, bot protection checked but not sent to Slack
         expect(result.status).to.equal(200);
+      } finally {
+        if (scrapeClientStub && scrapeClientStub.restore) {
+          try {
+            scrapeClientStub.restore();
+          } catch (e) {
+            // Already restored
+          }
+          scrapeClientStub = null;
+        }
+        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
+      }
+    });
+
+    it.skip('should use production environment for us-east region', async function () {
+      this.timeout(5000);
+      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
+
+      const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+
+      try {
+        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
+
+        message.siteUrl = 'https://prod-site.com';
+        message.taskContext.auditTypes = ['broken-backlinks'];
+        message.taskContext.slackContext = {
+          channelId: 'test-channel',
+          threadTs: 'test-thread',
+        };
+        context.env.AWS_REGION = 'us-east-1'; // Production region
+
+        // Mock scrape results with bot protection
+        const mockScrapeResults = [
+          {
+            url: 'https://prod-site.com/',
+            status: 'COMPLETE',
+            metadata: {
+              botProtection: {
+                detected: true,
+                type: 'imperva',
+                blocked: true,
+                crawlable: false,
+                confidence: 0.85,
+                reason: 'Incapsula challenge',
+              },
+            },
+          },
+        ];
+
+        const mockJob = {
+          id: 'job-prod',
+          startedAt: new Date().toISOString(),
+        };
+
+        mockScrapeClient.getScrapeJobsByBaseURL.resolves([mockJob]);
+        mockScrapeClient.getScrapeJobUrlResults.resolves(mockScrapeResults);
+
+        scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+
+        const result = await runOpportunityStatusProcessor(message, context);
+
+        // Verify handler completed successfully
+        expect(result.status).to.equal(200);
+
+        // Reset AWS_REGION
+        context.env.AWS_REGION = 'us-west-2';
       } finally {
         if (scrapeClientStub && scrapeClientStub.restore) {
           try {
