@@ -2467,6 +2467,96 @@ describe('Opportunity Status Processor', () => {
       }
     });
 
+    it('should handle empty scrape results gracefully', async () => {
+      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
+
+      const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+
+      try {
+        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
+
+        message.siteUrl = 'https://empty-scrapes.com';
+        message.taskContext.auditTypes = ['broken-backlinks'];
+        message.taskContext.slackContext = {
+          channelId: 'test-channel',
+          threadTs: 'test-thread',
+        };
+
+        // Mock empty scrape results
+        const mockScrapeResults = [];
+
+        const mockJob = {
+          id: 'job-empty',
+          startedAt: new Date().toISOString(),
+        };
+
+        mockScrapeClient.getScrapeJobsByBaseURL.resolves([mockJob]);
+        mockScrapeClient.getScrapeJobUrlResults.resolves(mockScrapeResults);
+
+        scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+
+        const result = await runOpportunityStatusProcessor(message, context);
+
+        // Should complete successfully with empty results
+        expect(result.status).to.equal(200);
+      } finally {
+        if (scrapeClientStub && scrapeClientStub.restore) {
+          try {
+            scrapeClientStub.restore();
+          } catch (e) {
+            // Already restored
+          }
+          scrapeClientStub = null;
+        }
+        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
+      }
+    });
+
+    it('should handle null scrape results gracefully', async () => {
+      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
+
+      const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+
+      try {
+        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
+
+        message.siteUrl = 'https://null-scrapes.com';
+        message.taskContext.auditTypes = ['broken-backlinks'];
+        message.taskContext.slackContext = {
+          channelId: 'test-channel',
+          threadTs: 'test-thread',
+        };
+
+        // Mock null scrape results
+        const mockJob = {
+          id: 'job-null',
+          startedAt: new Date().toISOString(),
+        };
+
+        mockScrapeClient.getScrapeJobsByBaseURL.resolves([mockJob]);
+        mockScrapeClient.getScrapeJobUrlResults.resolves(null);
+
+        scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+
+        const result = await runOpportunityStatusProcessor(message, context);
+
+        // Should complete successfully with null results
+        expect(result.status).to.equal(200);
+      } finally {
+        if (scrapeClientStub && scrapeClientStub.restore) {
+          try {
+            scrapeClientStub.restore();
+          } catch (e) {
+            // Already restored
+          }
+          scrapeClientStub = null;
+        }
+        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
+      }
+    });
+
     it.skip('should use production environment for us-east region', async function () {
       this.timeout(5000);
       const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
