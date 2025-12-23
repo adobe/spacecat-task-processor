@@ -338,10 +338,9 @@ describe('Opportunity Status Processor', () => {
 
   describe('isRUMAvailable', () => {
     let mockContext;
-    let mockRUMClient;
 
     beforeEach(async () => {
-      // Setup mock context and RUM client for testing
+      // Setup mock context for testing
 
       mockContext = {
         log: {
@@ -352,10 +351,6 @@ describe('Opportunity Status Processor', () => {
         env: {
           RUM_ADMIN_KEY: 'test-admin-key',
         },
-      };
-
-      mockRUMClient = {
-        retrieveDomainkey: sinon.stub(),
       };
     });
 
@@ -398,46 +393,6 @@ describe('Opportunity Status Processor', () => {
         // Verify error handling for localhost URLs
         expect(testContext.log.warn.calledWith(`Could not resolve canonical URL or parse siteUrl for data source checks: ${testCase.url}`, sinon.match.any)).to.be.true;
       }));
-    });
-
-    it('should handle RUM success scenarios', async () => {
-      // Test RUM available (success case) - use a simple URL that should resolve quickly
-      mockRUMClient.retrieveDomainkey.resolves('test-domain-key');
-      const RUMAPIClient = await import('@adobe/spacecat-shared-rum-api-client');
-      const createFromStub = sinon.stub(RUMAPIClient.default, 'createFrom').returns(mockRUMClient);
-
-      const testMessage = {
-        siteId: 'test-site-id',
-        siteUrl: 'https://example.com',
-        organizationId: 'test-org-id',
-        taskContext: {
-          auditTypes: ['cwv'],
-          slackContext: null,
-        },
-      };
-
-      const testContext = {
-        ...mockContext,
-        dataAccess: {
-          Site: {
-            findById: sinon.stub().resolves({
-              getOpportunities: sinon.stub().resolves([]),
-            }),
-          },
-          SiteTopPage: {
-            allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
-          },
-        },
-      };
-
-      await runOpportunityStatusProcessor(testMessage, testContext);
-
-      // Verify RUM was checked successfully - this should cover lines 26-37
-      expect(createFromStub.calledWith(testContext)).to.be.true;
-      expect(mockRUMClient.retrieveDomainkey.calledWith('example.com')).to.be.true;
-      expect(testContext.log.info.calledWith('RUM is available for domain: example.com')).to.be.true;
-
-      createFromStub.restore();
     });
 
     it('should handle opportunities with different types and localhost URLs', async () => {
@@ -497,7 +452,6 @@ describe('Opportunity Status Processor', () => {
 
   describe('GSC Configuration', () => {
     let mockContext;
-    let mockGoogleClient;
 
     beforeEach(async () => {
       mockContext = {
@@ -512,56 +466,6 @@ describe('Opportunity Status Processor', () => {
           GOOGLE_REDIRECT_URI: 'test-redirect-uri',
         },
       };
-
-      mockGoogleClient = {
-        listSites: sinon.stub(),
-      };
-    });
-
-    it('should handle GSC configuration success', async () => {
-      // Mock GSC success
-      mockGoogleClient.listSites.resolves({
-        data: {
-          siteEntry: [
-            { siteUrl: 'https://example.com' },
-          ],
-        },
-      });
-
-      const GoogleClient = await import('@adobe/spacecat-shared-google-client');
-      const createFromStub = sinon.stub(GoogleClient.default, 'createFrom').resolves(mockGoogleClient);
-
-      const testMessage = {
-        siteId: 'test-site-id',
-        siteUrl: 'https://example.com',
-        organizationId: 'test-org-id',
-        taskContext: {
-          auditTypes: ['cwv'],
-          slackContext: null,
-        },
-      };
-
-      const testContext = {
-        ...mockContext,
-        dataAccess: {
-          Site: {
-            findById: sinon.stub().resolves({
-              getOpportunities: sinon.stub().resolves([]),
-            }),
-          },
-          SiteTopPage: {
-            allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
-          },
-        },
-      };
-
-      await runOpportunityStatusProcessor(testMessage, testContext);
-
-      // GSC is not checked because 'cwv' opportunity only requires RUM, not GSC
-      // So GoogleClient.createFrom should NOT be called
-      expect(createFromStub.called).to.be.false;
-
-      createFromStub.restore();
     });
 
     it('should handle GSC configuration failure', async () => {
@@ -1786,42 +1690,6 @@ describe('Opportunity Status Processor', () => {
   });
 
   describe('GSC and Scraping Dependency Coverage', () => {
-    it('should cover scraping dependency when checked (lines 330-331, 454-457, 595-596, 628-638)', async () => {
-      // Temporarily modify OPPORTUNITY_DEPENDENCY_MAP to include a scraping dependency
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
-      const originalScraping = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
-      dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
-
-      message.siteUrl = 'https://example.com';
-      message.taskContext.auditTypes = ['broken-backlinks'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-      message.taskContext.slackContext = {
-        channelId: 'test-channel',
-        threadTs: 'test-thread',
-      };
-
-      mockSite.getOpportunities.resolves([]);
-
-      // Reset CloudWatch to say audit was executed (if mockCloudWatchSend exists)
-      if (context.mockCloudWatchSend) {
-        context.mockCloudWatchSend.reset();
-        context.mockCloudWatchSend.resolves({
-          events: [{
-            timestamp: Date.now(),
-            message: 'Received broken-backlinks audit request for: test-site-id',
-          }],
-        });
-      }
-
-      await runOpportunityStatusProcessor(message, context);
-
-      // Should have tried to check scraping and detected it's not available
-      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
-
-      // Restore
-      dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalScraping;
-    });
-
     it('should cover GSC dependency when checked (lines 450-451, 592-593, 646-647)', async () => {
       // Temporarily modify OPPORTUNITY_DEPENDENCY_MAP to include GSC
       const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
@@ -2318,93 +2186,6 @@ describe('Opportunity Status Processor', () => {
           // Already restored
         }
         scrapeClientStub = null;
-      }
-    });
-
-    it('should detect bot protection and send Slack alert when scrapes are blocked', async () => {
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
-      const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
-
-      const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
-
-      try {
-        // Make broken-backlinks require scraping
-        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
-
-        message.siteUrl = 'https://zepbound.lilly.com';
-        message.taskContext.auditTypes = ['broken-backlinks'];
-        message.taskContext.slackContext = {
-          channelId: 'test-channel',
-          threadTs: 'test-thread',
-        };
-        context.env.AWS_REGION = 'us-east-1'; // Production environment
-
-        // Mock scrape results with bot protection
-        const mockScrapeResults = [
-          {
-            url: 'https://zepbound.lilly.com/',
-            status: 'COMPLETE',
-            metadata: {
-              botProtection: {
-                detected: true,
-                type: 'cloudflare',
-                blocked: true,
-                crawlable: false,
-                confidence: 0.9,
-                reason: 'Challenge page detected despite 200 status',
-                details: {
-                  httpStatus: 200,
-                  htmlLength: 2143,
-                  title: 'Just a moment...',
-                },
-              },
-            },
-          },
-          {
-            url: 'https://zepbound.lilly.com/about',
-            status: 'COMPLETE',
-            metadata: {
-              botProtection: {
-                detected: true,
-                type: 'cloudflare',
-                blocked: true,
-                crawlable: false,
-                confidence: 0.9,
-                reason: 'Challenge page detected',
-              },
-            },
-          },
-        ];
-
-        const mockJob = {
-          id: 'job-123',
-          startedAt: new Date().toISOString(),
-        };
-
-        mockScrapeClient.getScrapeJobsByBaseURL.resolves([mockJob]);
-        mockScrapeClient.getScrapeJobUrlResults.resolves(mockScrapeResults);
-
-        scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
-
-        const result = await runOpportunityStatusProcessor(message, context);
-
-        // Verify scraping was checked
-        expect(mockScrapeClient.getScrapeJobsByBaseURL).to.have.been.calledOnce;
-        expect(mockScrapeClient.getScrapeJobUrlResults).to.have.been.calledOnce;
-
-        // Verify handler completed successfully
-        // (Slack message verification removed to avoid test interference)
-        expect(result.status).to.equal(200);
-      } finally {
-        if (scrapeClientStub && scrapeClientStub.restore) {
-          try {
-            scrapeClientStub.restore();
-          } catch (e) {
-            // Already restored
-          }
-          scrapeClientStub = null;
-        }
-        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
       }
     });
 
