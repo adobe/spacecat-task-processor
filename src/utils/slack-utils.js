@@ -11,7 +11,7 @@
  */
 
 // eslint-disable-next-line import/no-unresolved
-import { hasText } from '@adobe/spacecat-shared-utils';
+import { hasText, SPACECAT_BOT_USER_AGENT, SPACECAT_BOT_IPS } from '@adobe/spacecat-shared-utils';
 import { BaseSlackClient, SLACK_TARGETS } from '@adobe/spacecat-shared-slack-client';
 /**
  * Sends a message to Slack using the provided client and context
@@ -49,4 +49,66 @@ export async function say(env, log, slackContext, message) {
       errorType: error.name,
     });
   }
+}
+
+/**
+ * Formats bot protection details for Slack notifications
+ * @param {Object} options - Options
+ * @param {string} options.siteUrl - Site URL
+ * @param {Object} options.botProtection - Bot protection details
+ * @param {string} [options.auditType] - Audit type (optional, for context)
+ * @param {string} [options.environment='prod'] - Environment ('prod' or 'dev')
+ * @param {number} [options.blockedCount] - Number of blocked URLs (optional)
+ * @param {number} [options.totalCount] - Total number of URLs (optional)
+ * @returns {string} Formatted Slack message
+ */
+export function formatBotProtectionSlackMessage({
+  siteUrl,
+  botProtection,
+  auditType,
+  environment = 'prod',
+  blockedCount,
+  totalCount,
+}) {
+  const ips = environment === 'prod'
+    ? SPACECAT_BOT_IPS.production
+    : SPACECAT_BOT_IPS.development;
+  const ipList = ips.map((ip) => `• \`${ip}\``).join('\n');
+
+  const auditInfo = auditType ? ` during ${auditType} audit` : '';
+  const envLabel = environment === 'prod' ? 'Production' : 'Development';
+
+  let message = `:warning: *Bot Protection Detected${auditInfo}*\n\n`
+    + `*Site:* ${siteUrl}\n`
+    + `*Protection Type:* ${botProtection.type}\n`
+    + `*Confidence:* ${(botProtection.confidence * 100).toFixed(0)}%\n`;
+
+  // Add blocked count if provided
+  if (blockedCount !== undefined && totalCount !== undefined) {
+    const blockedPercent = ((blockedCount / totalCount) * 100).toFixed(0);
+    message += `*Blocked URLs:* ${blockedCount}/${totalCount} (${blockedPercent}%)\n`;
+  }
+
+  if (botProtection.reason) {
+    message += `*Reason:* ${botProtection.reason}\n`;
+  }
+
+  message += '\n'
+    + '*Impact on Audit Results:*\n'
+    + '• Scraper received challenge pages instead of real content\n'
+    + '• Audit results may be incorrect or incomplete\n'
+    + '• Opportunities may be inaccurate or missing\n'
+    + '\n'
+    + '*Action Required:*\n'
+    + `Customer must allowlist SpaceCat in their ${botProtection.type} configuration:\n`
+    + '\n'
+    + '*User-Agent to allowlist:*\n'
+    + `\`${SPACECAT_BOT_USER_AGENT}\`\n`
+    + '\n'
+    + `*${envLabel} IPs to allowlist:*\n`
+    + `${ipList}\n`
+    + '\n'
+    + '_After allowlisting, re-run audits to get accurate results._';
+
+  return message;
 }

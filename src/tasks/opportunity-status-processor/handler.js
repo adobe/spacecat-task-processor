@@ -16,7 +16,7 @@ import RUMAPIClient from '@adobe/spacecat-shared-rum-api-client';
 import GoogleClient from '@adobe/spacecat-shared-google-client';
 import { ScrapeClient } from '@adobe/spacecat-shared-scrape-client';
 import { resolveCanonicalUrl } from '@adobe/spacecat-shared-utils';
-import { say } from '../../utils/slack-utils.js';
+import { say, formatBotProtectionSlackMessage } from '../../utils/slack-utils.js';
 import { getOpportunitiesForAudit } from './audit-opportunity-map.js';
 import { OPPORTUNITY_DEPENDENCY_MAP } from './opportunity-dependency-map.js';
 
@@ -200,6 +200,49 @@ async function isScrapingAvailable(baseUrl, context) {
     log.error(`Scraping check failed for ${baseUrl}:`, error);
     return { available: false, results: [] };
   }
+}
+
+/**
+ * Checks scrape results for bot protection blocking
+ * @param {Array} scrapeResults - Array of scrape URL results
+ * @param {object} context - The context object with log
+ * @returns {object|null} Bot protection details if detected, null otherwise
+ */
+async function checkBotProtectionInScrapes(scrapeResults, context) {
+  const { log } = context;
+
+  if (!scrapeResults || scrapeResults.length === 0) {
+    return null;
+  }
+
+  // Count URLs with bot protection
+  const blockedResults = scrapeResults.filter((result) => {
+    const metadata = result.metadata || {};
+    const { botProtection } = metadata;
+
+    return botProtection && (botProtection.blocked || !botProtection.crawlable);
+  });
+
+  if (blockedResults.length === 0) {
+    return null;
+  }
+
+  // Get details from first blocked result
+  const firstBlocked = blockedResults[0];
+  const { botProtection } = firstBlocked.metadata;
+
+  log.warn(`Bot protection detected: ${blockedResults.length}/${scrapeResults.length} URLs blocked`);
+  log.warn(`Type: ${botProtection.type}, Confidence: ${(botProtection.confidence * 100).toFixed(0)}%`);
+
+  return {
+    detected: true,
+    type: botProtection.type,
+    confidence: botProtection.confidence,
+    blockedCount: blockedResults.length,
+    totalCount: scrapeResults.length,
+    reason: botProtection.reason,
+    details: botProtection.details,
+  };
 }
 
 /**
@@ -505,6 +548,35 @@ export async function runOpportunityStatusProcessor(message, context) {
               );
             } else {
               await say(env, log, slackContext, statsMessage);
+            }
+          }
+
+          // Check for bot protection in scrape results
+          if (scrapingCheck.results && scrapingCheck.results.length > 0 && slackContext) {
+            const botProtection = await checkBotProtectionInScrapes(
+              scrapingCheck.results,
+              context,
+            );
+
+            if (botProtection) {
+              log.warn(`Bot protection blocking scrapes for ${siteUrl}`);
+
+              // Determine environment from AWS_REGION or env variable
+              const environment = env.AWS_REGION?.includes('us-east') ? 'prod' : 'dev';
+
+              // Send detailed bot protection alert
+              await say(
+                env,
+                log,
+                slackContext,
+                formatBotProtectionSlackMessage({
+                  siteUrl,
+                  botProtection,
+                  environment,
+                  blockedCount: botProtection.blockedCount,
+                  totalCount: botProtection.totalCount,
+                }),
+              );
             }
           }
         }
