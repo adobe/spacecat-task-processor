@@ -2557,6 +2557,70 @@ describe('Opportunity Status Processor', () => {
       }
     });
 
+    it('should detect development environment from AWS_REGION', async function () {
+      this.timeout(5000);
+      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
+
+      const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+
+      try {
+        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
+
+        message.siteUrl = 'https://dev-site.com';
+        message.taskContext.auditTypes = ['broken-backlinks'];
+        message.taskContext.slackContext = {
+          channelId: 'test-channel',
+          threadTs: 'test-thread',
+        };
+        context.env.AWS_REGION = 'us-west-2'; // Development region
+
+        // Mock scrape results with bot protection
+        const mockScrapeResults = [
+          {
+            url: 'https://dev-site.com/',
+            status: 'COMPLETE',
+            metadata: {
+              botProtection: {
+                detected: true,
+                type: 'cloudflare',
+                blocked: true,
+                crawlable: false,
+                confidence: 0.95,
+                reason: 'Cloudflare challenge detected',
+              },
+            },
+          },
+        ];
+
+        const mockJob = {
+          id: 'job-dev',
+          startedAt: new Date().toISOString(),
+        };
+
+        mockScrapeClient.getScrapeJobsByBaseURL.resolves([mockJob]);
+        mockScrapeClient.getScrapeJobUrlResults.resolves(mockScrapeResults);
+
+        scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+
+        const result = await runOpportunityStatusProcessor(message, context);
+
+        // Verify handler completed successfully
+        expect(result.status).to.equal(200);
+      } finally {
+        if (scrapeClientStub && scrapeClientStub.restore) {
+          try {
+            scrapeClientStub.restore();
+          } catch (e) {
+            // Already restored
+          }
+          scrapeClientStub = null;
+        }
+        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
+        delete context.env.AWS_REGION;
+      }
+    });
+
     it.skip('should use production environment for us-east region', async function () {
       this.timeout(5000);
       const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');

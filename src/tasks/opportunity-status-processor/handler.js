@@ -552,7 +552,7 @@ export async function runOpportunityStatusProcessor(message, context) {
           }
 
           // Check for bot protection in scrape results
-          if (scrapingCheck.results && scrapingCheck.results.length > 0 && slackContext) {
+          if (scrapingCheck.results && slackContext) {
             const botProtection = await checkBotProtectionInScrapes(
               scrapingCheck.results,
               context,
