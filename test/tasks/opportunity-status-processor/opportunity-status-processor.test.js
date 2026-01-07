@@ -50,6 +50,16 @@ describe('Opportunity Status Processor', () => {
       text: sandbox.stub().resolves('User-agent: *\nAllow: /'),
     });
 
+    // Mock S3 client
+    const mockS3Client = {
+      send: sandbox.stub().resolves({
+        Body: {
+          transformToString: sandbox.stub().resolves('{}'),
+        },
+        ContentType: 'application/json',
+      }),
+    };
+
     // Mock context
     context = new MockContextBuilder()
       .withSandbox(sandbox)
@@ -60,6 +70,9 @@ describe('Opportunity Status Processor', () => {
         SiteTopPage: {
           allBySiteIdAndSourceAndGeo: sandbox.stub().resolves([]),
         },
+      })
+      .withOverrides({
+        s3Client: mockS3Client,
       })
       .build();
 
@@ -758,23 +771,6 @@ describe('Opportunity Status Processor', () => {
       expect(mockSite.getOpportunities.called).to.be.true;
       expect(mockOpportunities[0].getSuggestions.called).to.be.true;
       expect(mockOpportunities[1].getSuggestions.called).to.be.true;
-    });
-
-    it('should check scraping for site with URL', async () => {
-      message.siteUrl = 'https://www.example.com';
-
-      const mockOpportunities = [
-        {
-          getType: () => 'alt-text',
-          getSuggestions: sinon.stub().resolves([]),
-        },
-      ];
-      mockSite.getOpportunities.resolves(mockOpportunities);
-
-      await runOpportunityStatusProcessor(message, context);
-
-      // Scraping check should be performed
-      expect(mockSite.getOpportunities.called).to.be.true;
     });
 
     it('should handle when auditTypes is empty array', async () => {
@@ -2236,6 +2232,16 @@ describe('Opportunity Status Processor', () => {
       // Reset mock site
       mockSite.getOpportunities.resolves([]);
 
+      // Recreate S3 client stub (it was restored by afterEach sinon.restore())
+      context.s3Client = {
+        send: sinon.stub().resolves({
+          Body: {
+            transformToString: sinon.stub().resolves('{}'),
+          },
+          ContentType: 'application/json',
+        }),
+      };
+
       // Reset AWS_REGION to ensure each test starts fresh
       delete context.env.AWS_REGION;
     });
@@ -2274,14 +2280,35 @@ describe('Opportunity Status Processor', () => {
           channelId: 'test-channel',
           threadTs: 'test-thread',
         };
+        // Set onboard time to trigger analysis
+        message.taskContext.onboardStartTime = Date.now() - 3600000;
         context.env.AWS_REGION = 'us-east-1'; // Production environment
+        context.env.S3_SCRAPER_BUCKET_NAME = 'test-bucket';
 
-        // Mock scrape results with bot protection
+        // Ensure mockSite returns empty opportunities
+        mockSite.getOpportunities.resolves([]);
+
+        // Mock scrape results WITHOUT metadata (to trigger S3 fetch)
         const mockScrapeResults = [
           {
             url: 'https://zepbound.lilly.com/',
             status: 'COMPLETE',
-            metadata: {
+            path: 'scrapes/job-123/url-1/scrape.json',
+            // No metadata - will be fetched from S3
+          },
+          {
+            url: 'https://zepbound.lilly.com/about',
+            status: 'COMPLETE',
+            path: 'scrapes/job-123/url-2/scrape.json',
+            // No metadata - will be fetched from S3
+          },
+        ];
+
+        // Mock S3 client to return bot protection data
+        const mockS3Response1 = {
+          Body: {
+            transformToString: sinon.stub().resolves(JSON.stringify({
+              url: 'https://zepbound.lilly.com/',
               botProtection: {
                 detected: true,
                 type: 'cloudflare',
@@ -2295,12 +2322,15 @@ describe('Opportunity Status Processor', () => {
                   title: 'Just a moment...',
                 },
               },
-            },
+            })),
           },
-          {
-            url: 'https://zepbound.lilly.com/about',
-            status: 'COMPLETE',
-            metadata: {
+          ContentType: 'application/json',
+        };
+
+        const mockS3Response2 = {
+          Body: {
+            transformToString: sinon.stub().resolves(JSON.stringify({
+              url: 'https://zepbound.lilly.com/about',
               botProtection: {
                 detected: true,
                 type: 'cloudflare',
@@ -2309,9 +2339,15 @@ describe('Opportunity Status Processor', () => {
                 confidence: 0.9,
                 reason: 'Challenge page detected',
               },
-            },
+            })),
           },
-        ];
+          ContentType: 'application/json',
+        };
+
+        // Mock S3 send to return bot protection data
+        context.s3Client.send.reset();
+        context.s3Client.send.onFirstCall().resolves(mockS3Response1);
+        context.s3Client.send.onSecondCall().resolves(mockS3Response2);
 
         const mockJob = {
           id: 'job-123',
@@ -2347,6 +2383,83 @@ describe('Opportunity Status Processor', () => {
         expect(slackMessage).to.include('Spacecat/1.0');
         expect(slackMessage).to.include('3.218.16.42'); // Production IP
         expect(slackMessage).to.include('Action Required');
+
+        expect(result.status).to.equal(200);
+      } finally {
+        if (scrapeClientStub && scrapeClientStub.restore) {
+          try {
+            scrapeClientStub.restore();
+          } catch (e) {
+            // Already restored
+          }
+          scrapeClientStub = null;
+        }
+        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
+      }
+    });
+
+    it('should handle scrape results without S3 path', async function () {
+      this.timeout(5000);
+      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
+
+      const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+
+      try {
+        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
+
+        message.siteUrl = 'https://no-path.com';
+        message.taskContext.auditTypes = ['broken-backlinks'];
+        message.taskContext.slackContext = {
+          channelId: 'test-channel',
+          threadTs: 'test-thread',
+        };
+        // Set onboard time to trigger analysis
+        message.taskContext.onboardStartTime = Date.now() - 3600000;
+
+        // Ensure S3 bucket name is set
+        context.env.S3_SCRAPER_BUCKET_NAME = 'test-bucket';
+        context.env.AWS_REGION = 'us-east-1';
+
+        // Ensure mockSite returns empty opportunities
+        mockSite.getOpportunities.resolves([]);
+
+        // Mock scrape results WITHOUT path and WITHOUT metadata
+        const mockScrapeResults = [
+          {
+            url: 'https://no-path.com/',
+            status: 'COMPLETE',
+            // No path property - should return empty metadata
+          },
+        ];
+
+        const mockJob = {
+          id: 'job-no-path',
+          startedAt: new Date().toISOString(),
+        };
+
+        mockScrapeClient.getScrapeJobsByBaseURL.resolves([mockJob]);
+        mockScrapeClient.getScrapeJobUrlResults.resolves(mockScrapeResults);
+
+        scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+
+        // Reset S3 stub to ensure we can verify it wasn't called
+        context.s3Client.send.reset();
+
+        const result = await runOpportunityStatusProcessor(message, context);
+
+        // Verify S3 was NOT attempted (no path to fetch)
+        expect(context.s3Client.send).to.not.have.been.called;
+
+        // Should not send bot protection alert (no bot protection data available)
+        const botProtectionCall = mockSlackClient.postMessage
+          && mockSlackClient.postMessage.getCalls
+          ? mockSlackClient.postMessage.getCalls().find((call) => {
+            const args = call.args[0];
+            return args && args.text && args.text.includes('Bot Protection Detected');
+          })
+          : undefined;
+        expect(botProtectionCall).to.not.exist;
 
         expect(result.status).to.equal(200);
       } finally {
