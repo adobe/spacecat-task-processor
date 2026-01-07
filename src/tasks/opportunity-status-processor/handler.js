@@ -192,25 +192,20 @@ async function isScrapingAvailable(baseUrl, context) {
         return { ...result, metadata: {} };
       }
 
-      try {
-      // Fetch scrape.json from S3
-        const scrapeData = await getObjectFromKey(
-          s3Client,
-          env.S3_SCRAPER_BUCKET_NAME,
-          result.path,
-          log,
-        );
+      // Fetch scrape.json from S3 (getObjectFromKey handles errors internally)
+      const scrapeData = await getObjectFromKey(
+        s3Client,
+        env.S3_SCRAPER_BUCKET_NAME,
+        result.path,
+        log,
+      );
 
-        // Extract bot protection if present
-        const metadata = {
-          botProtection: scrapeData?.botProtection || null,
-        };
+      // Extract bot protection if present
+      const metadata = {
+        botProtection: scrapeData?.botProtection || null,
+      };
 
-        return { ...result, metadata };
-      } catch (error) {
-        log.warn(`Could not fetch S3 data for ${result.url}: ${error.message}`);
-        return { ...result, metadata: {} };
-      }
+      return { ...result, metadata };
     }));
 
     // Count successful and failed scrapes

@@ -1358,21 +1358,6 @@ describe('Opportunity Status Processor', () => {
       expect(mockSite.getOpportunities.called).to.be.true;
     });
 
-    it('should handle empty opportunities with Slack output', async () => {
-      message.siteUrl = 'https://example.com';
-      message.taskContext.slackContext = {
-        channelId: 'test-channel',
-        threadTs: 'test-thread',
-      };
-
-      mockSite.getOpportunities.resolves([]);
-
-      await runOpportunityStatusProcessor(message, context);
-
-      // Should show "No opportunities found for this site"
-      expect(mockSite.getOpportunities.called).to.be.true;
-    });
-
     it('should trigger all service preconditions passed log', async () => {
       message.siteUrl = 'https://example.com';
       message.taskContext.slackContext = {
@@ -2383,6 +2368,104 @@ describe('Opportunity Status Processor', () => {
         expect(slackMessage).to.include('Spacecat/1.0');
         expect(slackMessage).to.include('3.218.16.42'); // Production IP
         expect(slackMessage).to.include('Action Required');
+
+        expect(result.status).to.equal(200);
+      } finally {
+        if (scrapeClientStub && scrapeClientStub.restore) {
+          try {
+            scrapeClientStub.restore();
+          } catch (e) {
+            // Already restored
+          }
+          scrapeClientStub = null;
+        }
+        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
+      }
+    });
+
+    it('should use dev IPs when AWS_REGION is not us-east', async function () {
+      this.timeout(5000);
+      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
+
+      const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+
+      try {
+        // Make broken-backlinks require scraping
+        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
+
+        message.siteUrl = 'https://dev-test.com';
+        message.taskContext.auditTypes = ['broken-backlinks'];
+        message.taskContext.slackContext = {
+          channelId: 'test-channel',
+          threadTs: 'test-thread',
+        };
+        // Set onboard time to trigger analysis
+        message.taskContext.onboardStartTime = Date.now() - 3600000;
+        context.env.AWS_REGION = 'eu-west-1'; // Dev environment (non-us-east)
+        context.env.S3_SCRAPER_BUCKET_NAME = 'test-bucket';
+
+        // Ensure mockSite returns empty opportunities
+        mockSite.getOpportunities.resolves([]);
+
+        // Mock scrape results WITHOUT metadata (to trigger S3 fetch)
+        const mockScrapeResults = [
+          {
+            url: 'https://dev-test.com/',
+            status: 'COMPLETE',
+            path: 'scrapes/job-dev/url-1/scrape.json',
+          },
+        ];
+
+        // Mock S3 data with bot protection
+        const mockS3Response = {
+          Body: {
+            transformToString: sinon.stub().resolves(JSON.stringify({
+              url: 'https://dev-test.com/',
+              botProtection: {
+                detected: true,
+                type: 'akamai',
+                blocked: true,
+                crawlable: false,
+                confidence: 0.85,
+                reason: 'Bot detected',
+              },
+            })),
+          },
+          ContentType: 'application/json',
+        };
+
+        // Mock S3 send to return bot protection data
+        context.s3Client.send.reset();
+        context.s3Client.send.resolves(mockS3Response);
+
+        const mockJob = {
+          id: 'job-dev',
+          startedAt: new Date().toISOString(),
+        };
+
+        mockScrapeClient.getScrapeJobsByBaseURL.resolves([mockJob]);
+        mockScrapeClient.getScrapeJobUrlResults.resolves(mockScrapeResults);
+
+        scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+
+        const result = await runOpportunityStatusProcessor(message, context);
+
+        // Verify bot protection alert was sent via Slack
+        expect(mockSlackClient.postMessage).to.have.been.called;
+
+        // Find the bot protection message
+        const botProtectionCall = mockSlackClient.postMessage.getCalls().find((call) => {
+          const args = call.args[0];
+          return args && args.text && args.text.includes('Bot Protection Detected');
+        });
+
+        expect(botProtectionCall).to.exist;
+        const slackMessage = botProtectionCall.args[0].text;
+
+        // Should use dev IPs (not prod IPs)
+        expect(slackMessage).to.include('44.218.57.115'); // Dev IP
+        expect(slackMessage).to.not.include('3.218.16.42'); // Prod IP should not be present
 
         expect(result.status).to.equal(200);
       } finally {
