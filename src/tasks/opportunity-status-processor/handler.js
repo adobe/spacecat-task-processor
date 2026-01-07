@@ -17,6 +17,7 @@ import GoogleClient from '@adobe/spacecat-shared-google-client';
 import { ScrapeClient } from '@adobe/spacecat-shared-scrape-client';
 import { resolveCanonicalUrl } from '@adobe/spacecat-shared-utils';
 import { say, formatBotProtectionSlackMessage } from '../../utils/slack-utils.js';
+import { getObjectFromKey } from '../../utils/s3-utils.js';
 import { getOpportunitiesForAudit } from './audit-opportunity-map.js';
 import { OPPORTUNITY_DEPENDENCY_MAP } from './opportunity-dependency-map.js';
 
@@ -178,17 +179,51 @@ async function isScrapingAvailable(baseUrl, context) {
       return { available: false, results: [] };
     }
 
+    // Enrich results with S3 metadata (including bot protection)
+    const { s3Client, env } = context;
+    const enrichedResults = await Promise.all(urlResults.map(async (result) => {
+    // If metadata already exists (e.g., from tests), use it as-is
+      if (result.metadata) {
+        return result;
+      }
+
+      // If no S3 path, return with empty metadata
+      if (!result.path) {
+        return { ...result, metadata: {} };
+      }
+
+      try {
+      // Fetch scrape.json from S3
+        const scrapeData = await getObjectFromKey(
+          s3Client,
+          env.S3_SCRAPER_BUCKET_NAME,
+          result.path,
+          log,
+        );
+
+        // Extract bot protection if present
+        const metadata = {
+          botProtection: scrapeData?.botProtection || null,
+        };
+
+        return { ...result, metadata };
+      } catch (error) {
+        log.warn(`Could not fetch S3 data for ${result.url}: ${error.message}`);
+        return { ...result, metadata: {} };
+      }
+    }));
+
     // Count successful and failed scrapes
-    const completedCount = urlResults.filter((result) => result.status === 'COMPLETE').length;
-    const failedCount = urlResults.filter((result) => result.status === 'FAILED').length;
-    const totalCount = urlResults.length;
+    const completedCount = enrichedResults.filter((result) => result.status === 'COMPLETE').length;
+    const failedCount = enrichedResults.filter((result) => result.status === 'FAILED').length;
+    const totalCount = enrichedResults.length;
 
     // Check if at least one URL was successfully scraped (status === 'COMPLETE')
     const hasSuccessfulScrape = completedCount > 0;
 
     return {
       available: hasSuccessfulScrape,
-      results: urlResults,
+      results: enrichedResults,
       jobId: jobWithResults.id,
       stats: {
         completed: completedCount,

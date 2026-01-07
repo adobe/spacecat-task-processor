@@ -85,6 +85,7 @@
     "@adobe/spacecat-shared-scrape-client": "2.3.6",
     "@adobe/spacecat-shared-slack-client": "1.5.32",
     "@adobe/spacecat-shared-utils": "https://gist.github.com/tkotthakota-adobe/5bf2bb6d3a6e019de5d641c405710e53/raw/f8fcec6eb09880c29f3b1d6444dcd71be978066f/adobe-spacecat-shared-utils-1.86.0.tgz",
+    "@aws-sdk/client-s3": "3.940.0",
     "@aws-sdk/client-cloudwatch-logs": "3.962.0",
     "@aws-sdk/client-lambda": "3.962.0",
     "@aws-sdk/client-sqs": "3.962.0",
