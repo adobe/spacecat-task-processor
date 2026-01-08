@@ -11,8 +11,9 @@
  */
 
 // eslint-disable-next-line import/no-unresolved
-import { hasText, SPACECAT_BOT_USER_AGENT, SPACECAT_BOT_IPS } from '@adobe/spacecat-shared-utils';
+import { hasText } from '@adobe/spacecat-shared-utils';
 import { BaseSlackClient, SLACK_TARGETS } from '@adobe/spacecat-shared-slack-client';
+import { formatHttpStatus, formatBlockerType } from './cloudwatch-utils.js';
 /**
  * Sends a message to Slack using the provided client and context
  * @param {object} slackClient - The Slack client instance
@@ -52,63 +53,81 @@ export async function say(env, log, slackContext, message) {
 }
 
 /**
- * Formats bot protection details for Slack notifications
+ * Formats bot protection details for Slack notifications with detailed statistics
  * @param {Object} options - Options
  * @param {string} options.siteUrl - Site URL
- * @param {Object} options.botProtection - Bot protection details
- * @param {string} [options.auditType] - Audit type (optional, for context)
- * @param {string} [options.environment='prod'] - Environment ('prod' or 'dev')
- * @param {number} [options.blockedCount] - Number of blocked URLs (optional)
- * @param {number} [options.totalCount] - Total number of URLs (optional)
+ * @param {Object} options.stats - Bot protection statistics (from aggregateBotProtectionStats)
+ * @param {number} options.totalUrlCount - Total number of URLs scraped
+ * @param {Array<string>} options.allowlistIps - Array of IPs to allowlist
+ * @param {string} options.allowlistUserAgent - User-Agent to allowlist
  * @returns {string} Formatted Slack message
  */
 export function formatBotProtectionSlackMessage({
   siteUrl,
-  botProtection,
-  auditType,
-  environment = 'prod',
-  blockedCount,
-  totalCount,
+  stats,
+  totalUrlCount,
+  allowlistIps = [],
+  allowlistUserAgent,
 }) {
-  const ips = environment === 'prod'
-    ? SPACECAT_BOT_IPS.production
-    : SPACECAT_BOT_IPS.development;
-  const ipList = ips.map((ip) => `• \`${ip}\``).join('\n');
+  const {
+    totalCount,
+    byHttpStatus,
+    byBlockerType,
+    urls,
+    highConfidenceCount,
+  } = stats;
 
-  const auditInfo = auditType ? ` during ${auditType} audit` : '';
-  const envLabel = environment === 'prod' ? 'Production' : 'Development';
+  const percentage = ((totalCount / totalUrlCount) * 100).toFixed(0);
 
-  let message = `:warning: *Bot Protection Detected${auditInfo}*\n\n`
-    + `*Site:* ${siteUrl}\n`
-    + `*Protection Type:* ${botProtection.type}\n`
-    + `*Confidence:* ${(botProtection.confidence * 100).toFixed(0)}%\n`;
+  // Format HTTP status breakdown
+  const statusBreakdown = Object.entries(byHttpStatus)
+    .sort((a, b) => b[1] - a[1]) // Sort by count descending
+    .map(([status, count]) => `  • ${formatHttpStatus(status)}: ${count} URL${count > 1 ? 's' : ''}`)
+    .join('\n');
 
-  // Add blocked count if provided
-  if (blockedCount !== undefined && totalCount !== undefined) {
-    const blockedPercent = ((blockedCount / totalCount) * 100).toFixed(0);
-    message += `*Blocked URLs:* ${blockedCount}/${totalCount} (${blockedPercent}%)\n`;
-  }
+  // Format blocker type breakdown
+  const blockerBreakdown = Object.entries(byBlockerType)
+    .sort((a, b) => b[1] - a[1])
+    .map(([type, count]) => `  • ${formatBlockerType(type)}: ${count} URL${count > 1 ? 's' : ''}`)
+    .join('\n');
 
-  if (botProtection.reason) {
-    message += `*Reason:* ${botProtection.reason}\n`;
+  // Sample URLs (show up to 3, prioritize high confidence)
+  const sampleUrls = urls
+    .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
+    .slice(0, 3)
+    .map((u) => {
+      const confidenceLabel = u.confidence >= 0.95 ? '(high confidence)' : '';
+      return `  • ${u.url}\n    ${formatHttpStatus(u.httpStatus)} · ${formatBlockerType(u.blockerType)} ${confidenceLabel}`;
+    })
+    .join('\n');
+
+  const ipList = allowlistIps.map((ip) => `  • \`${ip}\``).join('\n');
+
+  let message = ':warning: *Bot Protection Detected*\n\n'
+    + `*Summary:* ${totalCount} of ${totalUrlCount} URLs (${percentage}%) are blocked\n\n`
+    + '*📊 Detection Statistics*\n'
+    + `• *Total Blocked:* ${totalCount} URLs\n`
+    + `• *High Confidence:* ${highConfidenceCount} URLs\n\n`
+    + '*By HTTP Status:*\n'
+    + `${statusBreakdown || '  • No status data available'}\n\n`
+    + '*By Blocker Type:*\n'
+    + `${blockerBreakdown || '  • No blocker data available'}\n\n`
+    + '*🔍 Sample Blocked URLs*\n'
+    + `${sampleUrls || '  • No URL details available'}\n`;
+
+  if (totalCount > 3) {
+    message += `  ... and ${totalCount - 3} more URLs\n`;
   }
 
   message += '\n'
-    + '*Impact on Audit Results:*\n'
-    + '• Scraper received challenge pages instead of real content\n'
-    + '• Audit results may be incorrect or incomplete\n'
-    + '• Opportunities may be inaccurate or missing\n'
-    + '\n'
-    + '*Action Required:*\n'
-    + `Customer must allowlist SpaceCat in their ${botProtection.type} configuration:\n`
-    + '\n'
-    + '*User-Agent to allowlist:*\n'
-    + `\`${SPACECAT_BOT_USER_AGENT}\`\n`
-    + '\n'
-    + `*${envLabel} IPs to allowlist:*\n`
-    + `${ipList}\n`
-    + '\n'
-    + '_After allowlisting, re-run audits to get accurate results._';
+    + '*✅ How to Resolve*\n'
+    + 'Allowlist SpaceCat Bot in your CDN/WAF:\n\n'
+    + '*User-Agent:*\n'
+    + `  • \`${allowlistUserAgent}\`\n\n`
+    + '*IP Addresses:*\n'
+    + `${ipList}\n\n`
+    + `*Site:* ${siteUrl}\n\n`
+    + ':bulb: _After allowlisting, re-run onboarding or trigger a new scrape._';
 
   return message;
 }

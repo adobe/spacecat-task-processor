@@ -15,9 +15,9 @@ import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cl
 import RUMAPIClient from '@adobe/spacecat-shared-rum-api-client';
 import GoogleClient from '@adobe/spacecat-shared-google-client';
 import { ScrapeClient } from '@adobe/spacecat-shared-scrape-client';
-import { resolveCanonicalUrl } from '@adobe/spacecat-shared-utils';
+import { resolveCanonicalUrl, formatAllowlistMessage } from '@adobe/spacecat-shared-utils';
 import { say, formatBotProtectionSlackMessage } from '../../utils/slack-utils.js';
-import { getObjectFromKey } from '../../utils/s3-utils.js';
+import { queryBotProtectionLogs, aggregateBotProtectionStats } from '../../utils/cloudwatch-utils.js';
 import { getOpportunitiesForAudit } from './audit-opportunity-map.js';
 import { OPPORTUNITY_DEPENDENCY_MAP } from './opportunity-dependency-map.js';
 
@@ -178,47 +178,17 @@ async function isScrapingAvailable(baseUrl, context) {
       log.info(`Scraping check: No jobs with URL results found for ${baseUrl}`);
       return { available: false, results: [] };
     }
-
-    // Enrich results with S3 metadata (including bot protection)
-    const { s3Client, env } = context;
-    const enrichedResults = await Promise.all(urlResults.map(async (result) => {
-    // If metadata already exists (e.g., from tests), use it as-is
-      if (result.metadata) {
-        return result;
-      }
-
-      // If no S3 path, return with empty metadata
-      if (!result.path) {
-        return { ...result, metadata: {} };
-      }
-
-      // Fetch scrape.json from S3 (getObjectFromKey handles errors internally)
-      const scrapeData = await getObjectFromKey(
-        s3Client,
-        env.S3_SCRAPER_BUCKET_NAME,
-        result.path,
-        log,
-      );
-
-      // Extract bot protection if present
-      const metadata = {
-        botProtection: scrapeData?.botProtection || null,
-      };
-
-      return { ...result, metadata };
-    }));
-
     // Count successful and failed scrapes
-    const completedCount = enrichedResults.filter((result) => result.status === 'COMPLETE').length;
-    const failedCount = enrichedResults.filter((result) => result.status === 'FAILED').length;
-    const totalCount = enrichedResults.length;
+    const completedCount = urlResults.filter((result) => result.status === 'COMPLETE').length;
+    const failedCount = urlResults.filter((result) => result.status === 'FAILED').length;
+    const totalCount = urlResults.length;
 
     // Check if at least one URL was successfully scraped (status === 'COMPLETE')
     const hasSuccessfulScrape = completedCount > 0;
 
     return {
       available: hasSuccessfulScrape,
-      results: enrichedResults,
+      results: urlResults,
       jobId: jobWithResults.id,
       stats: {
         completed: completedCount,
@@ -238,41 +208,85 @@ async function isScrapingAvailable(baseUrl, context) {
  * @param {object} context - The context object with log
  * @returns {object|null} Bot protection details if detected, null otherwise
  */
-async function checkBotProtectionInScrapes(scrapeResults, context) {
-  const { log } = context;
+/**
+ * Detects bot protection by checking for missing scrape.json files and querying CloudWatch logs
+ * @param {Array} scrapeResults - Array of scrape URL results with paths
+ * @param {object} context - The context object with s3Client, env, log
+ * @param {string} scrapeJobId - The scrape job ID for CloudWatch log querying
+ * @returns {Promise<object|null>} Bot protection statistics or null
+ */
+async function checkBotProtectionInScrapes(scrapeResults, context, scrapeJobId = null) {
+  const { log, s3Client, env } = context;
 
   if (!scrapeResults || scrapeResults.length === 0) {
     return null;
   }
 
-  // Count URLs with bot protection
-  const blockedResults = scrapeResults.filter((result) => {
-    const metadata = result.metadata || {};
-    const { botProtection } = metadata;
+  // Step 1: Detect missing scrape.json files (fast check)
+  const resultsWithPath = scrapeResults.filter((r) => r.path);
 
-    return botProtection && (botProtection.blocked || !botProtection.crawlable);
+  const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
+
+  const fileCheckPromises = resultsWithPath.map(async (result) => {
+    try {
+      const command = new HeadObjectCommand({
+        Bucket: env.S3_SCRAPER_BUCKET_NAME,
+        Key: result.path,
+      });
+      await s3Client.send(command);
+      // File exists
+      return null;
+    } catch (error) {
+      if (error.name === 'NotFound' || error.name === 'NoSuchKey') {
+        log.warn(`Bot protection suspected: scrape.json missing at ${result.path}`);
+        return result.url;
+      }
+      return null;
+    }
   });
 
-  if (blockedResults.length === 0) {
+  const fileCheckResults = await Promise.all(fileCheckPromises);
+  const missingFileUrls = fileCheckResults.filter((url) => url !== null);
+
+  // If no missing files, no bot protection
+  if (missingFileUrls.length === 0) {
     return null;
   }
 
-  // Get details from first blocked result
-  const firstBlocked = blockedResults[0];
-  const { botProtection } = firstBlocked.metadata;
+  // Step 2: Query CloudWatch logs for detailed bot protection info
+  let botProtectionStats = null;
 
-  log.warn(`Bot protection detected: ${blockedResults.length}/${scrapeResults.length} URLs blocked`);
-  log.warn(`Type: ${botProtection.type}, Confidence: ${(botProtection.confidence * 100).toFixed(0)}%`);
+  if (scrapeJobId) {
+    log.info(`Found ${missingFileUrls.length} missing scrape.json files, querying CloudWatch logs...`);
 
-  return {
-    detected: true,
-    type: botProtection.type,
-    confidence: botProtection.confidence,
-    blockedCount: blockedResults.length,
-    totalCount: scrapeResults.length,
-    reason: botProtection.reason,
-    details: botProtection.details,
-  };
+    const logEvents = await queryBotProtectionLogs(scrapeJobId, context);
+
+    if (logEvents.length > 0) {
+      botProtectionStats = aggregateBotProtectionStats(logEvents);
+      log.info('Bot protection statistics:', botProtectionStats);
+    } else {
+      log.warn('No CloudWatch logs found, using missing file count only');
+      // Fallback: just count missing files
+      botProtectionStats = {
+        totalCount: missingFileUrls.length,
+        byHttpStatus: { unknown: missingFileUrls.length },
+        byBlockerType: { unknown: missingFileUrls.length },
+        urls: missingFileUrls.map((url) => ({ url, httpStatus: 'unknown', blockerType: 'unknown' })),
+        highConfidenceCount: 0,
+      };
+    }
+  } else {
+    // No job ID, use fallback
+    botProtectionStats = {
+      totalCount: missingFileUrls.length,
+      byHttpStatus: { unknown: missingFileUrls.length },
+      byBlockerType: { unknown: missingFileUrls.length },
+      urls: missingFileUrls.map((url) => ({ url, httpStatus: 'unknown', blockerType: 'unknown' })),
+      highConfidenceCount: 0,
+    };
+  }
+
+  return botProtectionStats;
 }
 
 /**
@@ -521,10 +535,10 @@ export async function runOpportunityStatusProcessor(message, context) {
       auditTypes.forEach((auditType) => {
         const opportunitiesForAudit = getOpportunitiesForAudit(auditType);
         if (opportunitiesForAudit.length === 0) {
-          // This audit type doesn't map to any known opportunities
           hasUnknownAuditTypes = true;
+        } else {
+          expectedOpportunityTypes = [...expectedOpportunityTypes, ...opportunitiesForAudit];
         }
-        expectedOpportunityTypes = [...expectedOpportunityTypes, ...opportunitiesForAudit];
       });
       // Remove duplicates
       expectedOpportunityTypes = [...new Set(expectedOpportunityTypes)];
@@ -583,28 +597,29 @@ export async function runOpportunityStatusProcessor(message, context) {
 
           // Check for bot protection in scrape results
           if (scrapingCheck.results && slackContext) {
-            const botProtection = await checkBotProtectionInScrapes(
+            const botProtectionStats = await checkBotProtectionInScrapes(
               scrapingCheck.results,
               context,
+              scrapingCheck.jobId, // Pass job ID for CloudWatch log querying
             );
 
-            if (botProtection) {
+            if (botProtectionStats && botProtectionStats.totalCount > 0) {
               log.warn(`Bot protection blocking scrapes for ${siteUrl}`);
 
-              // Determine environment from AWS_REGION or env variable
-              const environment = env.AWS_REGION?.includes('us-east') ? 'prod' : 'dev';
+              // Get bot IPs from environment and send alert
+              const botIps = env.SPACECAT_BOT_IPS || '';
+              const allowlistInfo = formatAllowlistMessage(botIps);
 
-              // Send detailed bot protection alert
               await say(
                 env,
                 log,
                 slackContext,
                 formatBotProtectionSlackMessage({
                   siteUrl,
-                  botProtection,
-                  environment,
-                  blockedCount: botProtection.blockedCount,
-                  totalCount: botProtection.totalCount,
+                  stats: botProtectionStats,
+                  totalUrlCount: scrapingCheck.results.length,
+                  allowlistIps: allowlistInfo.ips,
+                  allowlistUserAgent: allowlistInfo.userAgent,
                 }),
               );
             }
