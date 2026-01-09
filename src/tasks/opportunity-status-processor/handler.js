@@ -209,55 +209,36 @@ async function isScrapingAvailable(baseUrl, context) {
  * @returns {object|null} Bot protection details if detected, null otherwise
  */
 /**
- * Detects bot protection by checking for missing scrape.json files and querying CloudWatch logs
- * @param {Array} scrapeResults - Array of scrape URL results with paths
- * @param {object} context - The context object with s3Client, env, log
+ * Detects bot protection by checking the botProtectionDetected flag in scrape results
+ * @param {Array} scrapeResults - Array of scrape URL results from DynamoDB
+ * @param {object} context - The context object with env, log
  * @param {string} scrapeJobId - The scrape job ID for CloudWatch log querying
  * @returns {Promise<object|null>} Bot protection statistics or null
  */
 async function checkBotProtectionInScrapes(scrapeResults, context, scrapeJobId = null) {
-  const { log, s3Client, env } = context;
+  const { log } = context;
 
   if (!scrapeResults || scrapeResults.length === 0) {
     return null;
   }
 
-  // Step 1: Detect missing scrape.json files (fast check)
-  const resultsWithPath = scrapeResults.filter((r) => r.path);
+  // Step 1: Check for botProtectionDetected flag in scrape results
+  const botProtectedUrls = scrapeResults
+    .filter((r) => r.metadata?.botProtectionDetected === true)
+    .map((r) => r.url || r.metadata?.url);
 
-  const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
-
-  const fileCheckPromises = resultsWithPath.map(async (result) => {
-    try {
-      const command = new HeadObjectCommand({
-        Bucket: env.S3_SCRAPER_BUCKET_NAME,
-        Key: result.path,
-      });
-      await s3Client.send(command);
-      // File exists
-      return null;
-    } catch (error) {
-      if (error.name === 'NotFound' || error.name === 'NoSuchKey') {
-        log.warn(`Bot protection suspected: scrape.json missing at ${result.path}`);
-        return result.url;
-      }
-      return null;
-    }
-  });
-
-  const fileCheckResults = await Promise.all(fileCheckPromises);
-  const missingFileUrls = fileCheckResults.filter((url) => url !== null);
-
-  // If no missing files, no bot protection
-  if (missingFileUrls.length === 0) {
+  // If no bot protection detected, return null
+  if (botProtectedUrls.length === 0) {
     return null;
   }
+
+  log.warn(`Found ${botProtectedUrls.length} bot-protected URLs in scrape results`);
 
   // Step 2: Query CloudWatch logs for detailed bot protection info
   let botProtectionStats = null;
 
   if (scrapeJobId) {
-    log.info(`Found ${missingFileUrls.length} missing scrape.json files, querying CloudWatch logs...`);
+    log.info(`Querying CloudWatch logs for bot protection details for job ${scrapeJobId}...`);
 
     const logEvents = await queryBotProtectionLogs(scrapeJobId, context);
 
@@ -265,23 +246,23 @@ async function checkBotProtectionInScrapes(scrapeResults, context, scrapeJobId =
       botProtectionStats = aggregateBotProtectionStats(logEvents);
       log.info('Bot protection statistics:', botProtectionStats);
     } else {
-      log.warn('No CloudWatch logs found, using missing file count only');
-      // Fallback: just count missing files
+      log.warn('No CloudWatch logs found, using bot protection flag count only');
+      // Fallback: just count bot-protected URLs from DynamoDB
       botProtectionStats = {
-        totalCount: missingFileUrls.length,
-        byHttpStatus: { unknown: missingFileUrls.length },
-        byBlockerType: { unknown: missingFileUrls.length },
-        urls: missingFileUrls.map((url) => ({ url, httpStatus: 'unknown', blockerType: 'unknown' })),
+        totalCount: botProtectedUrls.length,
+        byHttpStatus: { unknown: botProtectedUrls.length },
+        byBlockerType: { unknown: botProtectedUrls.length },
+        urls: botProtectedUrls.map((url) => ({ url, httpStatus: 'unknown', blockerType: 'unknown' })),
         highConfidenceCount: 0,
       };
     }
   } else {
     // No job ID, use fallback
     botProtectionStats = {
-      totalCount: missingFileUrls.length,
-      byHttpStatus: { unknown: missingFileUrls.length },
-      byBlockerType: { unknown: missingFileUrls.length },
-      urls: missingFileUrls.map((url) => ({ url, httpStatus: 'unknown', blockerType: 'unknown' })),
+      totalCount: botProtectedUrls.length,
+      byHttpStatus: { unknown: botProtectedUrls.length },
+      byBlockerType: { unknown: botProtectedUrls.length },
+      urls: botProtectedUrls.map((url) => ({ url, httpStatus: 'unknown', blockerType: 'unknown' })),
       highConfidenceCount: 0,
     };
   }

@@ -61,8 +61,8 @@ describe('CloudWatch Utils', () => {
       cloudWatchStub.resolves({
         events: [
           { message: 'INVALID_LOG_FORMAT no json here' }, // Doesn't match pattern
-          { message: 'BOT_PROTECTION_DETECTED { invalid: json }' }, // Matches pattern but invalid JSON, logs warning
-          { message: `BOT_PROTECTION_DETECTED ${JSON.stringify({ jobId: 'test', httpStatus: 403 })}` },
+          { message: 'Bot Protection Detection in Scraper: { invalid: json }' }, // Matches pattern but invalid JSON, logs warning
+          { message: `Bot Protection Detection in Scraper: ${JSON.stringify({ jobId: 'test', httpStatus: 403 })}` },
         ],
       });
 

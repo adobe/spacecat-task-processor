@@ -2325,17 +2325,23 @@ describe('Opportunity Status Processor', () => {
         // Ensure mockSite returns empty opportunities
         mockSite.getOpportunities.resolves([]);
 
-        // Mock scrape results WITHOUT metadata (to trigger S3 fetch)
+        // Mock scrape results WITH bot protection metadata
         const mockScrapeResults = [
           {
             url: 'https://zepbound.lilly.com/',
             status: 'COMPLETE',
             path: 'scrapes/job-123/url-1/scrape.json',
+            metadata: {
+              botProtectionDetected: true,
+            },
           },
           {
             url: 'https://zepbound.lilly.com/about',
             status: 'COMPLETE',
             path: 'scrapes/job-123/url-2/scrape.json',
+            metadata: {
+              botProtectionDetected: true,
+            },
           },
         ];
 
@@ -2351,7 +2357,7 @@ describe('Opportunity Status Processor', () => {
         cloudWatchStub.resolves({
           events: [
             {
-              message: `BOT_PROTECTION_DETECTED ${JSON.stringify({
+              message: `Bot Protection Detection in Scraper: ${JSON.stringify({
                 jobId: 'job-123',
                 errorCategory: 'bot-protection',
                 url: 'https://zepbound.lilly.com/',
@@ -2361,7 +2367,7 @@ describe('Opportunity Status Processor', () => {
               })}`,
             },
             {
-              message: `BOT_PROTECTION_DETECTED ${JSON.stringify({
+              message: `Bot Protection Detection in Scraper: ${JSON.stringify({
                 jobId: 'job-123',
                 errorCategory: 'bot-protection',
                 url: 'https://zepbound.lilly.com/about',
@@ -2452,12 +2458,15 @@ describe('Opportunity Status Processor', () => {
         // Ensure mockSite returns empty opportunities
         mockSite.getOpportunities.resolves([]);
 
-        // Mock scrape results
+        // Mock scrape results WITH bot protection metadata
         const mockScrapeResults = [
           {
             url: 'https://dev-test.com/',
             status: 'COMPLETE',
             path: 'scrapes/job-dev/url-1/scrape.json',
+            metadata: {
+              botProtectionDetected: true,
+            },
           },
         ];
 
@@ -2473,7 +2482,7 @@ describe('Opportunity Status Processor', () => {
         cloudWatchStub.resolves({
           events: [
             {
-              message: `BOT_PROTECTION_DETECTED ${JSON.stringify({
+              message: `Bot Protection Detection in Scraper: ${JSON.stringify({
                 jobId: 'job-dev',
                 errorCategory: 'bot-protection',
                 url: 'https://dev-test.com/',
@@ -2635,16 +2644,25 @@ describe('Opportunity Status Processor', () => {
             url: 'https://example.com/',
             status: 'COMPLETE',
             path: 'scrapes/job-456/url-1/scrape.json',
+            metadata: {
+              botProtectionDetected: false,
+            },
           },
           {
             url: 'https://example.com/blocked',
             status: 'COMPLETE',
             path: 'scrapes/job-456/url-2/scrape.json',
+            metadata: {
+              botProtectionDetected: true,
+            },
           },
           {
             url: 'https://example.com/also-blocked',
             status: 'COMPLETE',
             path: 'scrapes/job-456/url-3/scrape.json',
+            metadata: {
+              botProtectionDetected: true,
+            },
           },
         ];
 
@@ -2664,7 +2682,7 @@ describe('Opportunity Status Processor', () => {
         cloudWatchStub.resolves({
           events: [
             {
-              message: `BOT_PROTECTION_DETECTED ${JSON.stringify({
+              message: `Bot Protection Detection in Scraper: ${JSON.stringify({
                 jobId: 'job-456',
                 errorCategory: 'bot-protection',
                 url: 'https://example.com/blocked',
@@ -2674,7 +2692,7 @@ describe('Opportunity Status Processor', () => {
               })}`,
             },
             {
-              message: `BOT_PROTECTION_DETECTED ${JSON.stringify({
+              message: `Bot Protection Detection in Scraper: ${JSON.stringify({
                 jobId: 'job-456',
                 errorCategory: 'bot-protection',
                 url: 'https://example.com/also-blocked',
