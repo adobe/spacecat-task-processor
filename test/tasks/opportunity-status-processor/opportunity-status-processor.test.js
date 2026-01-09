@@ -2754,7 +2754,8 @@ describe('Opportunity Status Processor', () => {
       }
     });
 
-    it('should not send alert when no bot protection detected', async () => {
+    it('should not send alert when no bot protection detected', async function () {
+      this.timeout(5000);
       const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 

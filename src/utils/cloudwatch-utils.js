@@ -16,9 +16,10 @@ import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cl
  * Queries CloudWatch logs for bot protection errors from content scraper
  * @param {string} jobId - The scrape job ID
  * @param {object} context - Context with env and log
+ * @param {number} onboardStartTime - Onboard start timestamp (ms) to limit search window
  * @returns {Promise<Array>} Array of bot protection events
  */
-export async function queryBotProtectionLogs(jobId, context) {
+export async function queryBotProtectionLogs(jobId, context, onboardStartTime = null) {
   const { env, log } = context;
 
   const cloudwatchClient = new CloudWatchLogsClient({
@@ -27,9 +28,12 @@ export async function queryBotProtectionLogs(jobId, context) {
 
   const logGroupName = env.CONTENT_SCRAPER_LOG_GROUP || '/aws/lambda/spacecat-services--content-scraper';
 
-  // Query logs from last 1 hour (scraper typically runs within this window)
-  const startTime = Date.now() - (60 * 60 * 1000);
+  // Query logs from onboard start time, or fallback to last 1 hour
+  const startTime = onboardStartTime || (Date.now() - (60 * 60 * 1000));
   const endTime = Date.now();
+
+  const timeWindowMinutes = Math.round((endTime - startTime) / 60000);
+  log.debug(`Querying CloudWatch logs for bot protection from last ${timeWindowMinutes} minutes (since onboard: ${!!onboardStartTime})`);
 
   try {
     log.debug(`Querying CloudWatch logs for bot protection in job ${jobId}`);

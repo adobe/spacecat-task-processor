@@ -18,6 +18,7 @@ import { ScrapeClient } from '@adobe/spacecat-shared-scrape-client';
 import { resolveCanonicalUrl, formatAllowlistMessage } from '@adobe/spacecat-shared-utils';
 import { say, formatBotProtectionSlackMessage } from '../../utils/slack-utils.js';
 import { queryBotProtectionLogs, aggregateBotProtectionStats } from '../../utils/cloudwatch-utils.js';
+import { getObjectFromKey } from '../../utils/s3-utils.js';
 import { getOpportunitiesForAudit } from './audit-opportunity-map.js';
 import { OPPORTUNITY_DEPENDENCY_MAP } from './opportunity-dependency-map.js';
 
@@ -209,30 +210,58 @@ async function isScrapingAvailable(baseUrl, context) {
  * @returns {object|null} Bot protection details if detected, null otherwise
  */
 /**
- * Detects bot protection by checking the botProtectionDetected flag in scrape results
+ * Detects bot protection by checking if scrape.json files are empty/minimal
  * @param {Array} scrapeResults - Array of scrape URL results from DynamoDB
- * @param {object} context - The context object with env, log
+ * @param {object} context - The context object with env, log, s3Client
  * @param {string} scrapeJobId - The scrape job ID for CloudWatch log querying
+ * @param {number} onboardStartTime - Onboarding start timestamp for time-bound log queries
  * @returns {Promise<object|null>} Bot protection statistics or null
  */
-async function checkBotProtectionInScrapes(scrapeResults, context, scrapeJobId = null) {
+async function checkBotProtectionInScrapes(
+  scrapeResults,
+  context,
+  scrapeJobId = null,
+  onboardStartTime = null,
+) {
   const { log } = context;
 
   if (!scrapeResults || scrapeResults.length === 0) {
     return null;
   }
 
-  // Step 1: Check for botProtectionDetected flag in scrape results
-  const botProtectedUrls = scrapeResults
-    .filter((r) => r.metadata?.botProtectionDetected === true)
-    .map((r) => r.url || r.metadata?.url);
+  // Step 1: Check S3 scrape.json files - if empty or minimal, it indicates bot protection
+  const botProtectedUrls = [];
+
+  /* eslint-disable no-await-in-loop */
+  for (const result of scrapeResults) {
+    if (result.path) {
+      // Fetch scrape.json from S3 (getObjectFromKey returns null on error)
+      const scrapeData = await getObjectFromKey(
+        context.s3Client,
+        context.env.S3_SCRAPER_BUCKET_NAME,
+        result.path,
+        log,
+      );
+
+      // Check if file is missing, empty, or has minimal content (bot protection markers)
+      if (!scrapeData || scrapeData === '{}' || (typeof scrapeData === 'object' && Object.keys(scrapeData).length === 0)) {
+        log.debug(`Empty or missing scrape file for ${result.url}, treating as bot protection`);
+        botProtectedUrls.push(result.url);
+      } else if (typeof scrapeData === 'object' && scrapeData.status === 'FAILED' && !scrapeData.hasServerSideHtml && !scrapeData.hasClientSideHtml) {
+        // Prerender-handler stores minimal metadata on bot protection
+        log.debug(`Minimal scrape metadata for ${result.url}, treating as bot protection`);
+        botProtectedUrls.push(result.url);
+      }
+    }
+  }
+  /* eslint-enable no-await-in-loop */
 
   // If no bot protection detected, return null
   if (botProtectedUrls.length === 0) {
     return null;
   }
 
-  log.warn(`Found ${botProtectedUrls.length} bot-protected URLs in scrape results`);
+  log.warn(`Found ${botProtectedUrls.length} bot-protected URLs (empty scrape.json files)`);
 
   // Step 2: Query CloudWatch logs for detailed bot protection info
   let botProtectionStats = null;
@@ -240,7 +269,7 @@ async function checkBotProtectionInScrapes(scrapeResults, context, scrapeJobId =
   if (scrapeJobId) {
     log.info(`Querying CloudWatch logs for bot protection details for job ${scrapeJobId}...`);
 
-    const logEvents = await queryBotProtectionLogs(scrapeJobId, context);
+    const logEvents = await queryBotProtectionLogs(scrapeJobId, context, onboardStartTime);
 
     if (logEvents.length > 0) {
       botProtectionStats = aggregateBotProtectionStats(logEvents);
@@ -586,6 +615,7 @@ export async function runOpportunityStatusProcessor(message, context) {
               scrapingCheck.results,
               context,
               scrapingCheck.jobId, // Pass job ID for CloudWatch log querying
+              onboardStartTime, // Pass onboard start time to limit CloudWatch search window
             );
 
             if (botProtectionStats && botProtectionStats.totalCount > 0) {
