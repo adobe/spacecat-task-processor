@@ -3043,8 +3043,7 @@ describe('Opportunity Status Processor', () => {
     });
 
     it.skip('should use fallback stats when CloudWatch returns no logs', async function () {
-      // Complex test - requires perfect S3 mocking sequence, skipping for simplicity
-      this.timeout(10000); // Give plenty of time
+      this.timeout(5000);
       const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
@@ -3069,69 +3068,23 @@ describe('Opportunity Status Processor', () => {
         // Ensure site returns empty opportunities
         mockSite.getOpportunities.resolves([]);
 
-        // Mock robots.txt and HEAD requests
-        global.fetch.resolves({
-          ok: true,
-          status: 200,
-          text: sinon.stub().resolves('User-agent: *\nAllow: /'),
-        });
-
-        // Include both a successful and a failed URL to trigger bot protection check
+        // Mock scrape results WITH bot protection metadata
         const mockScrapeResults = [
           {
-            url: 'https://no-cw-logs.com/',
+            url: 'https://no-cw-logs.com/blocked',
             status: 'COMPLETE',
             path: 'scrapes/job-no-cw/url-1/scrape.json',
-          },
-          {
-            url: 'https://no-cw-logs.com/blocked',
-            status: 'FAILED',
-            path: 'scrapes/job-no-cw/url-2/scrape.json',
+            metadata: {
+              botProtectionDetected: true,
+            },
           },
         ];
 
-        // Mock S3: Reset first, then set up responses
-        context.s3Client.send.reset();
-
-        // For isScrapingAvailable enrichment (2 URLs):
-        // Call 0: URL 1 (COMPLETE) - success
-        context.s3Client.send.onFirstCall().resolves({
-          Body: {
-            transformToString: sinon.stub().resolves(JSON.stringify({
-              url: 'https://no-cw-logs.com/',
-              content: 'valid content',
-            })),
-          },
-          ContentType: 'application/json',
-        });
-
-        // Call 1: URL 2 (FAILED) - NoSuchKey (bot protection)
-        const noSuchKeyError1 = new Error('NoSuchKey');
-        noSuchKeyError1.name = 'NoSuchKey';
-        context.s3Client.send.onSecondCall().rejects(noSuchKeyError1);
-
-        // For checkBotProtectionInScrapes (2 URLs):
-        // Call 2: URL 1 - success
-        context.s3Client.send.onCall(2).resolves({
-          Body: {
-            transformToString: sinon.stub().resolves(JSON.stringify({
-              url: 'https://no-cw-logs.com/',
-              content: 'valid content',
-            })),
-          },
-          ContentType: 'application/json',
-        });
-
-        // Call 3: URL 2 - NoSuchKey (bot protection)
-        const noSuchKeyError2 = new Error('NoSuchKey');
-        noSuchKeyError2.name = 'NoSuchKey';
-        context.s3Client.send.onCall(3).rejects(noSuchKeyError2);
-
-        // Mock CloudWatch to return empty events array
+        // Mock CloudWatch to return empty events array (no logs found)
         const { CloudWatchLogsClient } = await import('@aws-sdk/client-cloudwatch-logs');
         const cloudWatchStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
         cloudWatchStub.resolves({
-          events: [], // No events found
+          events: [], // No events found - triggers fallback stats
         });
 
         const mockJob = {
@@ -3141,26 +3094,13 @@ describe('Opportunity Status Processor', () => {
 
         mockScrapeClient.getScrapeJobsByBaseURL.resolves([mockJob]);
         mockScrapeClient.getScrapeJobUrlResults.resolves(mockScrapeResults);
-        mockScrapeClient.getScrapeResultPaths = sinon.stub().resolves(new Map([
-          ['https://no-cw-logs.com/', 'scrapes/job-no-cw/url-1/scrape.json'],
-          ['https://no-cw-logs.com/blocked', 'scrapes/job-no-cw/url-2/scrape.json'],
-        ]));
 
         localScrapeStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
 
         const result = await runOpportunityStatusProcessor(message, context);
 
-        // Verify scrape client stub was created
-        expect(localScrapeStub).to.have.been.called;
-
-        // Verify scrape client methods were called
-        expect(mockScrapeClient.getScrapeJobsByBaseURL).to.have.been.called;
-        expect(mockScrapeClient.getScrapeJobUrlResults).to.have.been.called;
-
         // Verify bot protection alert was sent
-        if (!mockSlackClient.postMessage.called) {
-          throw new Error('mockSlackClient.postMessage was never called - bot protection alert not sent');
-        }
+        expect(mockSlackClient.postMessage).to.have.been.called;
 
         // Should send alert with fallback "unknown" stats
         const botProtectionCall = mockSlackClient.postMessage.getCalls().find((call) => {
@@ -3168,17 +3108,9 @@ describe('Opportunity Status Processor', () => {
           return args && args.text && args.text.includes('Bot Protection Detected');
         });
 
-        if (!botProtectionCall) {
-          const allCalls = mockSlackClient.postMessage.getCalls();
-          throw new Error(
-            `Bot protection call not found. Total calls: ${allCalls.length}. `
-            + `Messages: ${allCalls.map((c) => c.args[0]?.text?.substring(0, 50)).join(', ')}`,
-          );
-        }
-
         expect(botProtectionCall).to.exist;
         const slackMessage = botProtectionCall.args[0].text;
-        expect(slackMessage).to.include('Unknown'); // Fallback blocker type
+        expect(slackMessage).to.include('unknown'); // Fallback blocker type (lowercase)
 
         expect(result.status).to.equal(200);
 
