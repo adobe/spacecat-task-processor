@@ -447,6 +447,13 @@ describe('Opportunity Status Processor', () => {
         },
       };
 
+      // Mock ScrapeClient to prevent hanging
+      const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+      const mockScrapeClientLocal = {
+        getScrapeJobsByBaseURL: sinon.stub().resolves([]),
+      };
+      const scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
+
       await runOpportunityStatusProcessor(testMessage, testContext);
 
       // Verify RUM was checked successfully - this should cover lines 26-37
@@ -454,6 +461,7 @@ describe('Opportunity Status Processor', () => {
       expect(mockRUMClient.retrieveDomainkey.calledWith('example.com')).to.be.true;
       expect(testContext.log.info.calledWith('RUM is available for domain: example.com')).to.be.true;
 
+      scrapeClientStub.restore();
       createFromStub.restore();
     });
 
@@ -759,10 +767,19 @@ describe('Opportunity Status Processor', () => {
       // Mock site with no opportunities
       mockSite.getOpportunities.resolves([]);
 
+      // Mock ScrapeClient to prevent hanging
+      const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+      const mockScrapeClientLocal = {
+        getScrapeJobsByBaseURL: sinon.stub().resolves([]),
+      };
+      const scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
+
       await runOpportunityStatusProcessor(message, context);
 
       // Should detect missing cwv opportunity
       expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
+
+      scrapeClientStub.restore();
     });
 
     it('should log all expected opportunities when present', async () => {
@@ -2299,7 +2316,7 @@ describe('Opportunity Status Processor', () => {
       }
     });
 
-    it('should detect bot protection and send Slack alert when scrapes are blocked', async function () {
+    it('should detect bot protection from CloudWatch logs and send Slack alert', async function () {
       this.timeout(5000);
       const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
@@ -2316,42 +2333,15 @@ describe('Opportunity Status Processor', () => {
           channelId: 'test-channel',
           threadTs: 'test-thread',
         };
-        // Set onboard time to trigger analysis
+        // Set onboard time to trigger bot protection check
         message.taskContext.onboardStartTime = Date.now() - 3600000;
         context.env.AWS_REGION = 'us-east-1'; // Production environment
-        context.env.S3_SCRAPER_BUCKET_NAME = 'test-bucket';
         context.env.SPACECAT_BOT_IPS = '3.218.16.42,52.55.82.37,54.172.145.38';
 
         // Ensure mockSite returns empty opportunities
         mockSite.getOpportunities.resolves([]);
 
-        // Mock scrape results WITH bot protection metadata
-        const mockScrapeResults = [
-          {
-            url: 'https://zepbound.lilly.com/',
-            status: 'COMPLETE',
-            path: 'scrapes/job-123/url-1/scrape.json',
-            metadata: {
-              botProtectionDetected: true,
-            },
-          },
-          {
-            url: 'https://zepbound.lilly.com/about',
-            status: 'COMPLETE',
-            path: 'scrapes/job-123/url-2/scrape.json',
-            metadata: {
-              botProtectionDetected: true,
-            },
-          },
-        ];
-
-        // Mock S3 HeadObject to reject with NotFound (missing files = bot protection)
-        context.s3Client.send.reset();
-        const notFoundError = new Error('Not Found');
-        notFoundError.name = 'NotFound';
-        context.s3Client.send.rejects(notFoundError);
-
-        // Mock CloudWatch to return bot protection events
+        // Mock CloudWatch to return bot protection log events
         const { CloudWatchLogsClient } = await import('@aws-sdk/client-cloudwatch-logs');
         const cloudWatchStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
         cloudWatchStub.resolves({
@@ -2385,7 +2375,11 @@ describe('Opportunity Status Processor', () => {
         };
 
         mockScrapeClient.getScrapeJobsByBaseURL.resolves([mockJob]);
-        mockScrapeClient.getScrapeJobUrlResults.resolves(mockScrapeResults);
+        // Mock URL results so isScrapingAvailable returns jobId for bot protection check
+        mockScrapeClient.getScrapeJobUrlResults.resolves([
+          { url: 'https://zepbound.lilly.com/', status: 'COMPLETE', path: '/path1' },
+          { url: 'https://zepbound.lilly.com/about', status: 'COMPLETE', path: '/path2' },
+        ]);
 
         scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
 
@@ -2393,7 +2387,6 @@ describe('Opportunity Status Processor', () => {
 
         // Verify scraping was checked
         expect(mockScrapeClient.getScrapeJobsByBaseURL).to.have.been.calledOnce;
-        expect(mockScrapeClient.getScrapeJobUrlResults).to.have.been.calledOnce;
 
         // Verify bot protection alert was sent via Slack
         expect(mockSlackClient.postMessage).to.have.been.called;
@@ -2458,25 +2451,7 @@ describe('Opportunity Status Processor', () => {
         // Ensure mockSite returns empty opportunities
         mockSite.getOpportunities.resolves([]);
 
-        // Mock scrape results WITH bot protection metadata
-        const mockScrapeResults = [
-          {
-            url: 'https://dev-test.com/',
-            status: 'COMPLETE',
-            path: 'scrapes/job-dev/url-1/scrape.json',
-            metadata: {
-              botProtectionDetected: true,
-            },
-          },
-        ];
-
-        // Mock S3 HeadObject to reject with NotFound (missing files = bot protection)
-        context.s3Client.send.reset();
-        const notFoundError2 = new Error('Not Found');
-        notFoundError2.name = 'NotFound';
-        context.s3Client.send.rejects(notFoundError2);
-
-        // Mock CloudWatch to return bot protection events
+        // Mock CloudWatch to return bot protection log events
         const { CloudWatchLogsClient } = await import('@aws-sdk/client-cloudwatch-logs');
         const cloudWatchStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
         cloudWatchStub.resolves({
@@ -2500,7 +2475,10 @@ describe('Opportunity Status Processor', () => {
         };
 
         mockScrapeClient.getScrapeJobsByBaseURL.resolves([mockJob]);
-        mockScrapeClient.getScrapeJobUrlResults.resolves(mockScrapeResults);
+        // Mock URL results so isScrapingAvailable returns jobId for bot protection check
+        mockScrapeClient.getScrapeJobUrlResults.resolves([
+          { url: 'https://dev-test.com/', status: 'COMPLETE', path: '/path1' },
+        ]);
 
         scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
 
@@ -2541,7 +2519,7 @@ describe('Opportunity Status Processor', () => {
       }
     });
 
-    it('should handle scrape results without S3 path', async function () {
+    it('should not send bot protection alert when no bot protection logs found', async function () {
       this.timeout(5000);
       const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
@@ -2551,50 +2529,38 @@ describe('Opportunity Status Processor', () => {
       try {
         dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
 
-        message.siteUrl = 'https://no-path.com';
+        message.siteUrl = 'https://no-bot-protection.com';
         message.taskContext.auditTypes = ['broken-backlinks'];
         message.taskContext.slackContext = {
           channelId: 'test-channel',
           threadTs: 'test-thread',
         };
-        // Set onboard time to trigger analysis
+        // Set onboard time to trigger bot protection check
         message.taskContext.onboardStartTime = Date.now() - 3600000;
-
-        // Ensure S3 bucket name is set
-        context.env.S3_SCRAPER_BUCKET_NAME = 'test-bucket';
         context.env.AWS_REGION = 'us-east-1';
 
         // Ensure mockSite returns empty opportunities
         mockSite.getOpportunities.resolves([]);
 
-        // Mock scrape results WITHOUT path and WITHOUT metadata
-        const mockScrapeResults = [
-          {
-            url: 'https://no-path.com/',
-            status: 'COMPLETE',
-            // No path property - should return empty metadata
-          },
-        ];
+        // Mock CloudWatch to return EMPTY events (no bot protection)
+        const { CloudWatchLogsClient } = await import('@aws-sdk/client-cloudwatch-logs');
+        const cloudWatchStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
+        cloudWatchStub.resolves({
+          events: [], // No bot protection events
+        });
 
         const mockJob = {
-          id: 'job-no-path',
+          id: 'job-no-bot',
           startedAt: new Date().toISOString(),
         };
 
         mockScrapeClient.getScrapeJobsByBaseURL.resolves([mockJob]);
-        mockScrapeClient.getScrapeJobUrlResults.resolves(mockScrapeResults);
 
         scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
 
-        // Reset S3 stub to ensure we can verify it wasn't called
-        context.s3Client.send.reset();
-
         const result = await runOpportunityStatusProcessor(message, context);
 
-        // Verify S3 was NOT attempted (no path to fetch)
-        expect(context.s3Client.send).to.not.have.been.called;
-
-        // Should not send bot protection alert (no bot protection data available)
+        // Should not send bot protection alert (no bot protection logs)
         const botProtectionCall = mockSlackClient.postMessage
           && mockSlackClient.postMessage.getCalls
           ? mockSlackClient.postMessage.getCalls().find((call) => {
@@ -2605,6 +2571,9 @@ describe('Opportunity Status Processor', () => {
         expect(botProtectionCall).to.not.exist;
 
         expect(result.status).to.equal(200);
+
+        // Cleanup CloudWatch stub
+        cloudWatchStub.restore();
       } finally {
         if (scrapeClientStub && scrapeClientStub.restore) {
           try {
@@ -2638,45 +2607,7 @@ describe('Opportunity Status Processor', () => {
         context.env.AWS_REGION = 'us-east-1';
         context.env.SPACECAT_BOT_IPS = '3.218.16.42,52.55.82.37,54.172.145.38';
 
-        // Mock scrape results - some with files, some without (bot protection)
-        const mockScrapeResults = [
-          {
-            url: 'https://example.com/',
-            status: 'COMPLETE',
-            path: 'scrapes/job-456/url-1/scrape.json',
-            metadata: {
-              botProtectionDetected: false,
-            },
-          },
-          {
-            url: 'https://example.com/blocked',
-            status: 'COMPLETE',
-            path: 'scrapes/job-456/url-2/scrape.json',
-            metadata: {
-              botProtectionDetected: true,
-            },
-          },
-          {
-            url: 'https://example.com/also-blocked',
-            status: 'COMPLETE',
-            path: 'scrapes/job-456/url-3/scrape.json',
-            metadata: {
-              botProtectionDetected: true,
-            },
-          },
-        ];
-
-        // Mock S3 HeadObject: first URL exists (resolves), others missing (reject with NotFound)
-        context.s3Client.send.reset();
-        context.s3Client.send.onFirstCall().resolves({}); // File exists
-        const notFoundError3 = new Error('Not Found');
-        notFoundError3.name = 'NotFound';
-        context.s3Client.send.onSecondCall().rejects(notFoundError3);
-        const notFoundError4 = new Error('Not Found');
-        notFoundError4.name = 'NotFound';
-        context.s3Client.send.onThirdCall().rejects(notFoundError4);
-
-        // Mock CloudWatch to return bot protection events for the 2 blocked URLs
+        // Mock CloudWatch to return bot protection events for 2 out of 3 URLs
         const { CloudWatchLogsClient } = await import('@aws-sdk/client-cloudwatch-logs');
         const cloudWatchStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
         cloudWatchStub.resolves({
@@ -2710,15 +2641,19 @@ describe('Opportunity Status Processor', () => {
         };
 
         mockScrapeClient.getScrapeJobsByBaseURL.resolves([mockJob]);
-        mockScrapeClient.getScrapeJobUrlResults.resolves(mockScrapeResults);
+        // Mock URL results so isScrapingAvailable returns jobId for bot protection check
+        mockScrapeClient.getScrapeJobUrlResults.resolves([
+          { url: 'https://example.com/page1', status: 'COMPLETE', path: '/path1' },
+          { url: 'https://example.com/blocked', status: 'FAILED', reason: 'Bot protection' },
+          { url: 'https://example.com/also-blocked', status: 'FAILED', reason: 'Bot protection' },
+        ]);
 
         scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
 
         const result = await runOpportunityStatusProcessor(message, context);
 
-        // Verify scraping was checked exactly once
+        // Verify scraping was checked
         expect(mockScrapeClient.getScrapeJobsByBaseURL).to.have.been.calledOnce;
-        expect(mockScrapeClient.getScrapeJobUrlResults).to.have.been.calledOnce;
 
         // Verify bot protection alert was sent via Slack
         expect(mockSlackClient.postMessage).to.have.been.called;
