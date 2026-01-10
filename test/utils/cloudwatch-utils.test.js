@@ -42,7 +42,8 @@ describe('CloudWatch Utils', () => {
     it('should return empty array when CloudWatch returns no events', async () => {
       cloudWatchStub.resolves({ events: [] });
 
-      const result = await queryBotProtectionLogs('test-job-id', mockContext);
+      const onboardStartTime = Date.now() - 3600000; // 1 hour ago
+      const result = await queryBotProtectionLogs('test-job-id', mockContext, onboardStartTime);
 
       expect(result).to.deep.equal([]);
       expect(mockContext.log.debug).to.have.been.calledWithMatch(/No bot protection logs found/);
@@ -51,7 +52,8 @@ describe('CloudWatch Utils', () => {
     it('should handle CloudWatch query errors gracefully', async () => {
       cloudWatchStub.rejects(new Error('CloudWatch error'));
 
-      const result = await queryBotProtectionLogs('test-job-id', mockContext);
+      const onboardStartTime = Date.now() - 3600000; // 1 hour ago
+      const result = await queryBotProtectionLogs('test-job-id', mockContext, onboardStartTime);
 
       expect(result).to.deep.equal([]);
       expect(mockContext.log.error).to.have.been.calledWithMatch(/Failed to query CloudWatch logs/);
@@ -66,7 +68,8 @@ describe('CloudWatch Utils', () => {
         ],
       });
 
-      const result = await queryBotProtectionLogs('test-job-id', mockContext);
+      const onboardStartTime = Date.now() - 3600000; // 1 hour ago
+      const result = await queryBotProtectionLogs('test-job-id', mockContext, onboardStartTime);
 
       expect(result).to.have.lengthOf(1);
       expect(result[0]).to.deep.equal({ jobId: 'test', httpStatus: 403 });

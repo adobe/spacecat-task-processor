@@ -229,7 +229,7 @@ async function checkBotProtectionInScrapes(
     return null;
   }
 
-  // Step 1: Check S3 scrape.json files - if empty or minimal, it indicates bot protection
+  // Step 1: Check S3 scrape.json files - if empty, content scraper marked it as bot protected
   const botProtectedUrls = [];
 
   /* eslint-disable no-await-in-loop */
@@ -243,13 +243,8 @@ async function checkBotProtectionInScrapes(
         log,
       );
 
-      // Check if file is missing, empty, or has minimal content (bot protection markers)
+      // Check if file is missing or empty (bot protection marker from content scraper)
       if (!scrapeData || scrapeData === '{}' || (typeof scrapeData === 'object' && Object.keys(scrapeData).length === 0)) {
-        log.debug(`Empty or missing scrape file for ${result.url}, treating as bot protection`);
-        botProtectedUrls.push(result.url);
-      } else if (typeof scrapeData === 'object' && scrapeData.status === 'FAILED' && !scrapeData.hasServerSideHtml && !scrapeData.hasClientSideHtml) {
-        // Prerender-handler stores minimal metadata on bot protection
-        log.debug(`Minimal scrape metadata for ${result.url}, treating as bot protection`);
         botProtectedUrls.push(result.url);
       }
     }
@@ -267,17 +262,13 @@ async function checkBotProtectionInScrapes(
   let botProtectionStats = null;
 
   if (scrapeJobId) {
-    log.info(`Querying CloudWatch logs for bot protection details for job ${scrapeJobId}...`);
-
     const logEvents = await queryBotProtectionLogs(scrapeJobId, context, onboardStartTime);
 
     if (logEvents.length > 0) {
       botProtectionStats = aggregateBotProtectionStats(logEvents);
-      log.info('Bot protection statistics:', botProtectionStats);
     /* c8 ignore start */
     } else {
-      log.warn('No CloudWatch logs found, using bot protection flag count only');
-      // Fallback: just count bot-protected URLs from DynamoDB
+      // Fallback: just count bot-protected URLs from S3 checks
       botProtectionStats = {
         totalCount: botProtectedUrls.length,
         byHttpStatus: { unknown: botProtectedUrls.length },
