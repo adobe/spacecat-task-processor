@@ -236,4 +236,67 @@ describe('slack-utils', () => {
       })).to.be.true;
     });
   });
+
+  describe('formatBotProtectionSlackMessage', () => {
+    let formatBotProtectionSlackMessage;
+
+    beforeEach(async () => {
+      const slackUtilsModule = await import('../../src/utils/slack-utils.js');
+      formatBotProtectionSlackMessage = slackUtilsModule.formatBotProtectionSlackMessage;
+    });
+
+    it('should format message with sample URLs when count <= 3', () => {
+      const stats = {
+        totalCount: 3,
+        highConfidenceCount: 2,
+        byHttpStatus: { 403: 3 },
+        byBlockerType: { cloudflare: 3 },
+        urls: [
+          { url: 'https://test.com/1', httpStatus: 403, blockerType: 'cloudflare' },
+          { url: 'https://test.com/2', httpStatus: 403, blockerType: 'cloudflare' },
+          { url: 'https://test.com/3', httpStatus: 403, blockerType: 'cloudflare' },
+        ],
+      };
+
+      const result = formatBotProtectionSlackMessage({
+        siteUrl: 'https://test.com',
+        stats,
+        totalUrlCount: 10,
+        allowlistIps: ['1.2.3.4', '5.6.7.8'],
+        allowlistUserAgent: 'TestBot/1.0',
+      });
+
+      expect(result).to.be.a('string');
+      expect(result).to.include('3 of 10 URLs');
+      expect(result).to.not.include('... and');
+    });
+
+    it('should format message with "and X more" when count > 3', () => {
+      const stats = {
+        totalCount: 5,
+        highConfidenceCount: 4,
+        byHttpStatus: { 403: 5 },
+        byBlockerType: { cloudflare: 5 },
+        urls: [
+          { url: 'https://test.com/1', httpStatus: 403, blockerType: 'cloudflare' },
+          { url: 'https://test.com/2', httpStatus: 403, blockerType: 'cloudflare' },
+          { url: 'https://test.com/3', httpStatus: 403, blockerType: 'cloudflare' },
+          { url: 'https://test.com/4', httpStatus: 403, blockerType: 'cloudflare' },
+          { url: 'https://test.com/5', httpStatus: 403, blockerType: 'cloudflare' },
+        ],
+      };
+
+      const result = formatBotProtectionSlackMessage({
+        siteUrl: 'https://test.com',
+        stats,
+        totalUrlCount: 10,
+        allowlistIps: ['1.2.3.4', '5.6.7.8'],
+        allowlistUserAgent: 'TestBot/1.0',
+      });
+
+      expect(result).to.be.a('string');
+      expect(result).to.include('5 of 10 URLs');
+      expect(result).to.include('... and 2 more URLs');
+    });
+  });
 });

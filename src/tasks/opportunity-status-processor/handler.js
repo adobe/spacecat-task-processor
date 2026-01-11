@@ -15,8 +15,9 @@ import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cl
 import RUMAPIClient from '@adobe/spacecat-shared-rum-api-client';
 import GoogleClient from '@adobe/spacecat-shared-google-client';
 import { ScrapeClient } from '@adobe/spacecat-shared-scrape-client';
-import { resolveCanonicalUrl } from '@adobe/spacecat-shared-utils';
-import { say } from '../../utils/slack-utils.js';
+import { resolveCanonicalUrl, formatAllowlistMessage } from '@adobe/spacecat-shared-utils';
+import { say, formatBotProtectionSlackMessage } from '../../utils/slack-utils.js';
+import { queryBotProtectionLogs, aggregateBotProtectionStats } from '../../utils/cloudwatch-utils.js';
 import { getOpportunitiesForAudit } from './audit-opportunity-map.js';
 import { OPPORTUNITY_DEPENDENCY_MAP } from './opportunity-dependency-map.js';
 
@@ -177,7 +178,6 @@ async function isScrapingAvailable(baseUrl, context) {
       log.info(`Scraping check: No jobs with URL results found for ${baseUrl}`);
       return { available: false, results: [] };
     }
-
     // Count successful and failed scrapes
     const completedCount = urlResults.filter((result) => result.status === 'COMPLETE').length;
     const failedCount = urlResults.filter((result) => result.status === 'FAILED').length;
@@ -200,6 +200,50 @@ async function isScrapingAvailable(baseUrl, context) {
     log.error(`Scraping check failed for ${baseUrl}:`, error);
     return { available: false, results: [] };
   }
+}
+
+/**
+ * Checks scrape results for bot protection blocking
+ * @param {Array} scrapeResults - Array of scrape URL results
+ * @param {object} context - The context object with log
+ * @returns {object|null} Bot protection details if detected, null otherwise
+ */
+/**
+ * Detects bot protection by checking CloudWatch logs for bot protection events.
+ *
+ * Content Scraper logs bot protection events to CloudWatch, making logs the source of truth.
+ * This function uses searchStartTime to query CloudWatch logs.
+ *
+ * @param {string} scrapeJobId - The scrape job ID for CloudWatch log querying
+ * @param {number} searchStartTime - Search start timestamp (ms) to limit CloudWatch query window
+ * @param {object} context - The context object with env, log
+ * @returns {Promise<object|null>} Bot protection statistics or null
+ */
+async function checkBotProtectionInScrapes(
+  scrapeJobId,
+  searchStartTime,
+  context,
+) {
+  const { log } = context;
+
+  if (!scrapeJobId || !searchStartTime) {
+    log.debug('[BOT-BLOCKED] Skipping bot protection check: missing scrapeJobId or searchStartTime');
+    return null;
+  }
+
+  log.info(`[BOT-BLOCKED] Querying CloudWatch logs for bot protection from ${new Date(searchStartTime).toISOString()}`);
+  const logEvents = await queryBotProtectionLogs(scrapeJobId, context, searchStartTime);
+
+  if (logEvents.length === 0) {
+    // No bot protection detected in logs
+    return null;
+  }
+
+  // Parse and aggregate bot protection statistics from logs
+  const botProtectionStats = aggregateBotProtectionStats(logEvents);
+  log.warn(`[BOT-BLOCKED] Bot protection detected: ${botProtectionStats.totalCount} URLs blocked (from CloudWatch logs) for job ${scrapeJobId}`);
+
+  return botProtectionStats;
 }
 
 /**
@@ -448,10 +492,10 @@ export async function runOpportunityStatusProcessor(message, context) {
       auditTypes.forEach((auditType) => {
         const opportunitiesForAudit = getOpportunitiesForAudit(auditType);
         if (opportunitiesForAudit.length === 0) {
-          // This audit type doesn't map to any known opportunities
           hasUnknownAuditTypes = true;
+        } else {
+          expectedOpportunityTypes = [...expectedOpportunityTypes, ...opportunitiesForAudit];
         }
-        expectedOpportunityTypes = [...expectedOpportunityTypes, ...opportunitiesForAudit];
       });
       // Remove duplicates
       expectedOpportunityTypes = [...new Set(expectedOpportunityTypes)];
@@ -505,6 +549,48 @@ export async function runOpportunityStatusProcessor(message, context) {
               );
             } else {
               await say(env, log, slackContext, statsMessage);
+            }
+          }
+
+          // Check for bot protection via CloudWatch logs
+          log.info(`[BOT-BLOCKED] Bot protection check conditions: jobId=${!!scrapingCheck.jobId}, slackContext=${!!slackContext}, onboardStartTime=${!!onboardStartTime}`);
+
+          if (scrapingCheck.jobId && slackContext) {
+            // Use onboardStartTime if available, otherwise use a reasonable fallback (24 hours ago)
+            const searchStartTime = onboardStartTime || (Date.now() - (24 * 60 * 60 * 1000));
+            log.info(`[BOT-BLOCKED] Checking bot protection for scrape job: ${scrapingCheck.jobId}, searchStartTime: ${new Date(searchStartTime).toISOString()}`);
+            const botProtectionStats = await checkBotProtectionInScrapes(
+              scrapingCheck.jobId, // Scrape job ID for CloudWatch log querying
+              searchStartTime, // Search start time (onboard time or 24h ago)
+              context,
+            );
+
+            if (botProtectionStats && botProtectionStats.totalCount > 0) {
+              log.warn(`[BOT-BLOCKED] Bot protection blocking scrapes for ${siteUrl} - aborting task processing`);
+
+              // Get bot IPs from environment and send alert
+              const botIps = env.SPACECAT_BOT_IPS || '';
+              const allowlistInfo = formatAllowlistMessage(botIps);
+
+              await say(
+                env,
+                log,
+                slackContext,
+                formatBotProtectionSlackMessage({
+                  siteUrl,
+                  stats: botProtectionStats,
+                  totalUrlCount: scrapingCheck.results.length,
+                  allowlistIps: allowlistInfo.ips,
+                  allowlistUserAgent: allowlistInfo.userAgent,
+                }),
+              );
+
+              // Abort processing when bot protection detected
+              return ok({
+                message: `Task processing aborted: Bot protection detected for ${siteUrl}`,
+                botProtectionDetected: true,
+                blockedUrlCount: botProtectionStats.totalCount,
+              });
             }
           }
         }
