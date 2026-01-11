@@ -212,27 +212,27 @@ async function isScrapingAvailable(baseUrl, context) {
  * Detects bot protection by checking CloudWatch logs for bot protection events.
  *
  * Content Scraper logs bot protection events to CloudWatch, making logs the source of truth.
- * This function uses onboardStartTime as the search start time.
+ * This function uses searchStartTime to query CloudWatch logs.
  *
  * @param {string} scrapeJobId - The scrape job ID for CloudWatch log querying
- * @param {number} onboardStartTime - Onboarding start timestamp (ms) to limit search window
+ * @param {number} searchStartTime - Search start timestamp (ms) to limit CloudWatch query window
  * @param {object} context - The context object with env, log
  * @returns {Promise<object|null>} Bot protection statistics or null
  */
 async function checkBotProtectionInScrapes(
   scrapeJobId,
-  onboardStartTime,
+  searchStartTime,
   context,
 ) {
   const { log } = context;
 
-  if (!scrapeJobId || !onboardStartTime) {
-    log.debug('Skipping bot protection check: missing scrapeJobId or onboardStartTime');
+  if (!scrapeJobId || !searchStartTime) {
+    log.debug('[BOT-BLOCKED] Skipping bot protection check: missing scrapeJobId or searchStartTime');
     return null;
   }
 
-  log.debug(`Querying CloudWatch logs for bot protection from ${new Date(onboardStartTime).toISOString()}`);
-  const logEvents = await queryBotProtectionLogs(scrapeJobId, context, onboardStartTime);
+  log.info(`[BOT-BLOCKED] Querying CloudWatch logs for bot protection from ${new Date(searchStartTime).toISOString()}`);
+  const logEvents = await queryBotProtectionLogs(scrapeJobId, context, searchStartTime);
 
   if (logEvents.length === 0) {
     // No bot protection detected in logs
@@ -241,7 +241,7 @@ async function checkBotProtectionInScrapes(
 
   // Parse and aggregate bot protection statistics from logs
   const botProtectionStats = aggregateBotProtectionStats(logEvents);
-  log.warn(`Bot protection detected: ${botProtectionStats.totalCount} URLs blocked (from CloudWatch logs)`);
+  log.warn(`[BOT-BLOCKED] Bot protection detected: ${botProtectionStats.totalCount} URLs blocked (from CloudWatch logs) for job ${scrapeJobId}`);
 
   return botProtectionStats;
 }
@@ -553,15 +553,20 @@ export async function runOpportunityStatusProcessor(message, context) {
           }
 
           // Check for bot protection via CloudWatch logs
-          if (scrapingCheck.jobId && slackContext && onboardStartTime) {
+          log.info(`[BOT-BLOCKED] Bot protection check conditions: jobId=${!!scrapingCheck.jobId}, slackContext=${!!slackContext}, onboardStartTime=${!!onboardStartTime}`);
+
+          if (scrapingCheck.jobId && slackContext) {
+            // Use onboardStartTime if available, otherwise use a reasonable fallback (24 hours ago)
+            const searchStartTime = onboardStartTime || (Date.now() - (24 * 60 * 60 * 1000));
+            log.info(`[BOT-BLOCKED] Checking bot protection for scrape job: ${scrapingCheck.jobId}, searchStartTime: ${new Date(searchStartTime).toISOString()}`);
             const botProtectionStats = await checkBotProtectionInScrapes(
               scrapingCheck.jobId, // Scrape job ID for CloudWatch log querying
-              onboardStartTime, // Onboard start time to limit CloudWatch search window
+              searchStartTime, // Search start time (onboard time or 24h ago)
               context,
             );
 
             if (botProtectionStats && botProtectionStats.totalCount > 0) {
-              log.warn(`Bot protection blocking scrapes for ${siteUrl} - aborting task processing`);
+              log.warn(`[BOT-BLOCKED] Bot protection blocking scrapes for ${siteUrl} - aborting task processing`);
 
               // Get bot IPs from environment and send alert
               const botIps = env.SPACECAT_BOT_IPS || '';
