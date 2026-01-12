@@ -261,13 +261,12 @@ describe('slack-utils', () => {
       const result = formatBotProtectionSlackMessage({
         siteUrl: 'https://test.com',
         stats,
-        totalUrlCount: 10,
         allowlistIps: ['1.2.3.4', '5.6.7.8'],
         allowlistUserAgent: 'TestBot/1.0',
       });
 
       expect(result).to.be.a('string');
-      expect(result).to.include('3 of 10 URLs');
+      expect(result).to.include('3 URL'); // Changed: no longer shows "of X"
       expect(result).to.not.include('... and');
     });
 
@@ -289,13 +288,12 @@ describe('slack-utils', () => {
       const result = formatBotProtectionSlackMessage({
         siteUrl: 'https://test.com',
         stats,
-        totalUrlCount: 10,
         allowlistIps: ['1.2.3.4', '5.6.7.8'],
         allowlistUserAgent: 'TestBot/1.0',
       });
 
       expect(result).to.be.a('string');
-      expect(result).to.include('5 of 10 URLs');
+      expect(result).to.include('5 URL'); // Changed: no longer shows "of X"
       expect(result).to.include('... and 2 more URLs');
     });
   });

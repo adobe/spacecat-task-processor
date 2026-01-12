@@ -13,7 +13,39 @@
 // eslint-disable-next-line import/no-unresolved
 import { hasText } from '@adobe/spacecat-shared-utils';
 import { BaseSlackClient, SLACK_TARGETS } from '@adobe/spacecat-shared-slack-client';
-import { formatHttpStatus, formatBlockerType } from './cloudwatch-utils.js';
+
+/**
+ * Formats HTTP status code with emoji and description
+ * Only includes status codes that indicate bot protection (403, 200 with challenge page)
+ * @param {number|string} status - HTTP status code
+ * @returns {string} Formatted status string
+ */
+function formatHttpStatus(status) {
+  const statusMap = {
+    403: '🚫 403 Forbidden',
+    200: '⚠️ 200 OK (Challenge Page)',
+    unknown: '❓ Unknown Status',
+  };
+  return statusMap[String(status)] || `⚠️ ${status}`;
+}
+
+/**
+ * Formats blocker type with proper casing
+ * @param {string} type - Blocker type
+ * @returns {string} Formatted blocker type
+ */
+function formatBlockerType(type) {
+  const typeMap = {
+    cloudflare: 'Cloudflare',
+    akamai: 'Akamai',
+    imperva: 'Imperva',
+    fastly: 'Fastly',
+    cloudfront: 'AWS CloudFront',
+    unknown: 'Unknown Blocker',
+  };
+  return typeMap[type] || type;
+}
+
 /**
  * Sends a message to Slack using the provided client and context
  * @param {object} slackClient - The Slack client instance
@@ -57,7 +89,6 @@ export async function say(env, log, slackContext, message) {
  * @param {Object} options - Options
  * @param {string} options.siteUrl - Site URL
  * @param {Object} options.stats - Bot protection statistics (from aggregateBotProtectionStats)
- * @param {number} options.totalUrlCount - Total number of URLs scraped
  * @param {Array<string>} options.allowlistIps - Array of IPs to allowlist
  * @param {string} options.allowlistUserAgent - User-Agent to allowlist
  * @returns {string} Formatted Slack message
@@ -65,7 +96,6 @@ export async function say(env, log, slackContext, message) {
 export function formatBotProtectionSlackMessage({
   siteUrl,
   stats,
-  totalUrlCount,
   allowlistIps = [],
   allowlistUserAgent,
 }) {
@@ -76,8 +106,6 @@ export function formatBotProtectionSlackMessage({
     urls,
     highConfidenceCount,
   } = stats;
-
-  const percentage = ((totalCount / totalUrlCount) * 100).toFixed(0);
 
   // Format HTTP status breakdown
   const statusBreakdown = Object.entries(byHttpStatus)
@@ -103,8 +131,8 @@ export function formatBotProtectionSlackMessage({
 
   const ipList = allowlistIps.map((ip) => `  • \`${ip}\``).join('\n');
 
-  let message = ':warning: *Bot Protection Detected*\n\n'
-    + `*Summary:* ${totalCount} of ${totalUrlCount} URLs (${percentage}%) are blocked\n\n`
+  let message = ':rotating_light: :warning: *Bot Protection Detected*\n\n'
+    + `*Summary:* ${totalCount} URL${totalCount > 1 ? 's' : ''} blocked by bot protection\n\n`
     + '*📊 Detection Statistics*\n'
     + `• *Total Blocked:* ${totalCount} URLs\n`
     + `• *High Confidence:* ${highConfidenceCount} URLs\n\n`

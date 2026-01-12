@@ -11,18 +11,20 @@
  */
 
 import { ok } from '@adobe/spacecat-shared-http-utils';
-import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
 import RUMAPIClient from '@adobe/spacecat-shared-rum-api-client';
 import GoogleClient from '@adobe/spacecat-shared-google-client';
 import { ScrapeClient } from '@adobe/spacecat-shared-scrape-client';
-import { resolveCanonicalUrl, formatAllowlistMessage } from '@adobe/spacecat-shared-utils';
-import { say, formatBotProtectionSlackMessage } from '../../utils/slack-utils.js';
-import { queryBotProtectionLogs, aggregateBotProtectionStats } from '../../utils/cloudwatch-utils.js';
+import { resolveCanonicalUrl } from '@adobe/spacecat-shared-utils';
+import {
+  checkAndAlertBotProtection,
+  checkAuditExecution,
+  getAuditFailureReason,
+} from '../../utils/cloudwatch-utils.js';
+import { say } from '../../utils/slack-utils.js';
 import { getOpportunitiesForAudit } from './audit-opportunity-map.js';
 import { OPPORTUNITY_DEPENDENCY_MAP } from './opportunity-dependency-map.js';
 
 const TASK_TYPE = 'opportunity-status-processor';
-const AUDIT_WORKER_LOG_GROUP = '/aws/lambda/spacecat-services--audit-worker';
 
 /**
  * Checks if RUM is available for a domain by attempting to get a domainkey
@@ -128,9 +130,10 @@ function getOpportunityTitle(opportunityType) {
  *
  * @param {string} baseUrl - The base URL to check
  * @param {object} context - The context object with env and log
+ * @param {number} [onboardStartTime] - Optional onboard start timestamp to filter jobs
  * @returns {Promise<{available: boolean, results: Array}>} Scraping availability and URL results
  */
-async function isScrapingAvailable(baseUrl, context) {
+async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
   const { log } = context;
 
   try {
@@ -152,8 +155,20 @@ async function isScrapingAvailable(baseUrl, context) {
       return { available: false, results: [] };
     }
 
-    // Sort jobs by date (latest first) - assuming jobs have a timestamp field
-    const sortedJobs = jobs.sort((a, b) => {
+    // Filter jobs created after onboardStartTime
+    const filteredJobs = jobs.filter((job) => {
+      const jobTimestamp = new Date(job.startedAt || job.createdAt || 0).getTime();
+      return jobTimestamp >= onboardStartTime;
+    });
+    log.info(`Filtered ${filteredJobs.length} jobs created after onboardStartTime from ${jobs.length} total jobs`);
+
+    if (filteredJobs.length === 0) {
+      log.info(`No scrape jobs found for ${baseUrl} after onboardStartTime ${new Date(onboardStartTime).toISOString()}`);
+      return { available: false, results: [] };
+    }
+
+    // Sort jobs by date (latest first)
+    const sortedJobs = filteredJobs.sort((a, b) => {
       const dateA = new Date(b.startedAt || b.createdAt || 0);
       const dateB = new Date(a.startedAt || a.createdAt || 0);
       return dateA - dateB;
@@ -208,133 +223,6 @@ async function isScrapingAvailable(baseUrl, context) {
  * @param {object} context - The context object with log
  * @returns {object|null} Bot protection details if detected, null otherwise
  */
-/**
- * Detects bot protection by checking CloudWatch logs for bot protection events.
- *
- * Content Scraper logs bot protection events to CloudWatch, making logs the source of truth.
- * This function uses searchStartTime to query CloudWatch logs.
- *
- * @param {string} scrapeJobId - The scrape job ID for CloudWatch log querying
- * @param {number} searchStartTime - Search start timestamp (ms) to limit CloudWatch query window
- * @param {object} context - The context object with env, log
- * @returns {Promise<object|null>} Bot protection statistics or null
- */
-async function checkBotProtectionInScrapes(
-  scrapeJobId,
-  searchStartTime,
-  context,
-) {
-  const { log } = context;
-
-  if (!scrapeJobId || !searchStartTime) {
-    log.debug('[BOT-BLOCKED] Skipping bot protection check: missing scrapeJobId or searchStartTime');
-    return null;
-  }
-
-  log.info(`[BOT-BLOCKED] Querying CloudWatch logs for bot protection from ${new Date(searchStartTime).toISOString()}`);
-  const logEvents = await queryBotProtectionLogs(scrapeJobId, context, searchStartTime);
-
-  if (logEvents.length === 0) {
-    // No bot protection detected in logs
-    return null;
-  }
-
-  // Parse and aggregate bot protection statistics from logs
-  const botProtectionStats = aggregateBotProtectionStats(logEvents);
-  log.warn(`[BOT-BLOCKED] Bot protection detected: ${botProtectionStats.totalCount} URLs blocked (from CloudWatch logs) for job ${scrapeJobId}`);
-
-  return botProtectionStats;
-}
-
-/**
- * Searches CloudWatch logs for audit execution
- * @param {string} auditType - The audit type to search for
- * @param {string} siteId - The site ID
- * @param {number} onboardStartTime - The onboarding start timestamp
- * @param {object} context - The context object
- * @returns {Promise<boolean>} Whether the audit was executed
- */
-async function checkAuditExecution(auditType, siteId, onboardStartTime, context) {
-  const { log, env } = context;
-  const logGroupName = AUDIT_WORKER_LOG_GROUP;
-
-  try {
-    const cloudWatchClient = new CloudWatchLogsClient({ region: env.AWS_REGION || 'us-east-1' });
-    const filterPattern = `"Received ${auditType} audit request for: ${siteId}"`;
-
-    // Add small buffer before onboardStartTime to account for clock skew and processing delays
-    // The audit log should be after onboardStartTime, but we add a small buffer for safety
-    const bufferMs = 60 * 1000; // 1 minute
-    const searchStartTime = onboardStartTime ? onboardStartTime - bufferMs : undefined;
-
-    const command = new FilterLogEventsCommand({
-      logGroupName,
-      filterPattern,
-      startTime: searchStartTime,
-      endTime: Date.now(),
-    });
-
-    const response = await cloudWatchClient.send(command);
-    const found = response.events && response.events.length > 0;
-
-    return found;
-  } catch (error) {
-    log.error(`Error checking audit execution for ${auditType}:`, error);
-    return false;
-  }
-}
-
-/**
- * Searches CloudWatch logs for audit failure reason
- * @param {string} auditType - The audit type to search for
- * @param {string} siteId - The site ID
- * @param {number} onboardStartTime - The onboarding start timestamp
- * @param {object} context - The context object
- * @returns {Promise<string|null>} The failure reason or null if not found
- */
-async function getAuditFailureReason(auditType, siteId, onboardStartTime, context) {
-  const { log, env } = context;
-  const logGroupName = AUDIT_WORKER_LOG_GROUP;
-
-  try {
-    const cloudWatchClient = new CloudWatchLogsClient({ region: env.AWS_REGION || 'us-east-1' });
-    const filterPattern = `"${auditType} audit for ${siteId} failed"`;
-
-    // Add small buffer before onboardStartTime to account for clock skew and processing delays
-    const bufferMs = 30 * 1000; // 30 seconds
-    const searchStartTime = onboardStartTime ? onboardStartTime - bufferMs : undefined;
-
-    const command = new FilterLogEventsCommand({
-      logGroupName,
-      filterPattern,
-      startTime: searchStartTime,
-      endTime: Date.now(),
-    });
-
-    const response = await cloudWatchClient.send(command);
-
-    if (response.events && response.events.length > 0) {
-      // Extract reason from the message
-      const { message } = response.events[0];
-      const reasonMatch = message.match(/Reason:\s*([^]+?)(?:\s+at\s|$)/);
-      if (reasonMatch && reasonMatch[1]) {
-        return reasonMatch[1].trim();
-      }
-      // Fallback: return entire message if "Reason:" pattern not found
-      return message.trim();
-    }
-
-    return null;
-  /* c8 ignore start */
-  // Defensive error handling: Difficult to test as requires CloudWatch API to throw errors.
-  // Would need complex AWS SDK mocking infrastructure for marginal coverage gain.
-  } catch (error) {
-    log.error(`Error checking audit failure for ${auditType}:`, error);
-    return null;
-  }
-  /* c8 ignore stop */
-}
-
 /**
  * Analyzes missing opportunities and determines the root cause
  * @param {Array<string>} missingOpportunities - Array of missing opportunity types
@@ -529,7 +417,27 @@ export async function runOpportunityStatusProcessor(message, context) {
         }
 
         if (needsScraping) {
-          const scrapingCheck = await isScrapingAvailable(siteUrl, context);
+          // Check for bot protection FIRST before fetching scrape results
+          const botProtectionStats = await checkAndAlertBotProtection({
+            siteId,
+            siteUrl,
+            searchStartTime: onboardStartTime,
+            slackContext,
+            context,
+          });
+
+          // Abort processing if bot protection detected
+          if (botProtectionStats && botProtectionStats.totalCount > 0) {
+            log.warn(`[BOT-BLOCKED] Bot protection blocking scrapes for ${siteUrl}`);
+            return ok({
+              message: `Bot protection detected for ${siteUrl}`,
+              botProtectionDetected: true,
+              blockedUrlCount: botProtectionStats.totalCount,
+            });
+          }
+
+          // Only check scraping availability if no bot protection detected
+          const scrapingCheck = await isScrapingAvailable(siteUrl, context, onboardStartTime);
           scrapingAvailable = scrapingCheck.available;
 
           // Send Slack notification with scraping statistics if available
@@ -549,48 +457,6 @@ export async function runOpportunityStatusProcessor(message, context) {
               );
             } else {
               await say(env, log, slackContext, statsMessage);
-            }
-          }
-
-          // Check for bot protection via CloudWatch logs
-          log.info(`[BOT-BLOCKED] Bot protection check conditions: jobId=${!!scrapingCheck.jobId}, slackContext=${!!slackContext}, onboardStartTime=${!!onboardStartTime}`);
-
-          if (scrapingCheck.jobId && slackContext) {
-            // Use onboardStartTime if available, otherwise use a reasonable fallback (24 hours ago)
-            const searchStartTime = onboardStartTime || (Date.now() - (24 * 60 * 60 * 1000));
-            log.info(`[BOT-BLOCKED] Checking bot protection for scrape job: ${scrapingCheck.jobId}, searchStartTime: ${new Date(searchStartTime).toISOString()}`);
-            const botProtectionStats = await checkBotProtectionInScrapes(
-              scrapingCheck.jobId, // Scrape job ID for CloudWatch log querying
-              searchStartTime, // Search start time (onboard time or 24h ago)
-              context,
-            );
-
-            if (botProtectionStats && botProtectionStats.totalCount > 0) {
-              log.warn(`[BOT-BLOCKED] Bot protection blocking scrapes for ${siteUrl} - aborting task processing`);
-
-              // Get bot IPs from environment and send alert
-              const botIps = env.SPACECAT_BOT_IPS || '';
-              const allowlistInfo = formatAllowlistMessage(botIps);
-
-              await say(
-                env,
-                log,
-                slackContext,
-                formatBotProtectionSlackMessage({
-                  siteUrl,
-                  stats: botProtectionStats,
-                  totalUrlCount: scrapingCheck.results.length,
-                  allowlistIps: allowlistInfo.ips,
-                  allowlistUserAgent: allowlistInfo.userAgent,
-                }),
-              );
-
-              // Abort processing when bot protection detected
-              return ok({
-                message: `Task processing aborted: Bot protection detected for ${siteUrl}`,
-                botProtectionDetected: true,
-                blockedUrlCount: botProtectionStats.totalCount,
-              });
             }
           }
         }

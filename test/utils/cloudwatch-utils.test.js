@@ -88,7 +88,7 @@ describe('CloudWatch Utils', () => {
           url: 'https://test.com/2', httpStatus: 403, blockerType: 'cloudflare', confidence: 0.95,
         },
         {
-          url: 'https://test.com/3', httpStatus: 401, blockerType: 'akamai', confidence: 0.8,
+          url: 'https://test.com/3', httpStatus: 200, blockerType: 'akamai', confidence: 0.8,
         },
       ];
 
@@ -96,7 +96,7 @@ describe('CloudWatch Utils', () => {
 
       expect(result.totalCount).to.equal(3);
       expect(result.highConfidenceCount).to.equal(2);
-      expect(result.byHttpStatus).to.deep.equal({ 403: 2, 401: 1 });
+      expect(result.byHttpStatus).to.deep.equal({ 403: 2, 200: 1 });
       expect(result.byBlockerType).to.deep.equal({ cloudflare: 2, akamai: 1 });
       expect(result.urls).to.have.lengthOf(3);
     });
