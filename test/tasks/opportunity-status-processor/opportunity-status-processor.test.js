@@ -2159,9 +2159,124 @@ describe('Opportunity Status Processor', () => {
         dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
       }
     });
+
+    it('should handle jobs with completely missing timestamps (line 160, 172-173)', async () => {
+      // Import ScrapeClient and create stub
+      const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+      const { ScrapeClient } = scrapeModule;
+
+      // Temporarily add scraping dependency
+      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
+
+      try {
+        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
+
+        message.siteUrl = 'https://example.com';
+        message.taskContext.auditTypes = ['broken-backlinks'];
+        message.taskContext.slackContext = {
+          channelId: 'test-channel',
+          threadTs: 'test-thread',
+        };
+        // Set onboardStartTime to 0 so jobs with timestamp 0 can pass the filter
+        message.taskContext.onboardStartTime = 0;
+        context.env.AWS_REGION = 'us-east-1';
+
+        const mockScrapeClient = {
+          getScrapeJobsByBaseURL: sinon.stub().resolves([
+            // Job with NO timestamps - triggers || 0 on line 160 (filter), and lines 172-173 (sort)
+            { id: 'job-no-timestamps' },
+            // Job with only createdAt, no startedAt - line 172: b.startedAt || b.createdAt
+            { id: 'job-created-only', createdAt: new Date(Date.now() - 1200000).toISOString() },
+            // Job with only startedAt, no createdAt - line 173: a.startedAt || a.createdAt
+            { id: 'job-started-only', startedAt: new Date(Date.now() - 1800000).toISOString() },
+            // Job with both - ensures sort comparisons happen
+            { id: 'job-both', startedAt: new Date(Date.now() - 600000).toISOString(), createdAt: new Date(Date.now() - 900000).toISOString() },
+          ]),
+          getScrapeJobUrlResults: sinon.stub().resolves([]),
+        };
+
+        const scrapeClientStub = sinon.stub(ScrapeClient, 'createFrom').returns(mockScrapeClient);
+        mockSite.getOpportunities.resolves([]);
+
+        // Mock CloudWatch
+        const { CloudWatchLogsClient } = await import('@aws-sdk/client-cloudwatch-logs');
+        const cloudWatchStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
+        cloudWatchStub.resolves({ events: [] });
+
+        await runOpportunityStatusProcessor(message, context);
+
+        // Verify jobs were processed and sorted
+        expect(mockScrapeClient.getScrapeJobsByBaseURL.called).to.be.true;
+        // The sort function will compare all pairs, hitting both line 172 and 173
+
+        // Cleanup
+        cloudWatchStub.restore();
+        scrapeClientStub.restore();
+      } finally {
+        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
+      }
+    });
   });
 
   describe('Additional coverage for uncovered lines', () => {
+    it('should use info icon for opportunities with no suggestions (line 621)', async () => {
+      // Mock Slack client
+      const mockSlackClient = {
+        postMessage: sinon.stub().resolves(),
+      };
+      const SlackClientModule = await import('@adobe/spacecat-shared-slack-client');
+      const slackStub = sinon.stub(SlackClientModule.BaseSlackClient, 'createFrom').returns(mockSlackClient);
+
+      message.siteUrl = 'https://example.com';
+      message.taskContext.auditTypes = ['cwv', 'broken-backlinks'];
+      message.taskContext.onboardStartTime = Date.now() - 3600000;
+      message.taskContext.slackContext = {
+        channelId: 'test-channel',
+        threadTs: 'test-thread',
+      };
+      context.env.AWS_REGION = 'us-east-1';
+
+      // Mock TWO opportunities with no suggestions to ensure loop executes multiple times
+      const mockOpportunity1 = {
+        getType: () => 'cwv',
+        getSuggestions: sinon.stub().resolves([]), // No suggestions
+      };
+
+      const mockOpportunity2 = {
+        getType: () => 'broken-backlinks',
+        getSuggestions: sinon.stub().resolves([]), // No suggestions
+      };
+
+      mockSite.getOpportunities.resolves([mockOpportunity1, mockOpportunity2]);
+
+      // Mock CloudWatch - no bot protection
+      const { CloudWatchLogsClient } = await import('@aws-sdk/client-cloudwatch-logs');
+      const cloudWatchStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
+      cloudWatchStub.resolves({ events: [] });
+
+      try {
+        await runOpportunityStatusProcessor(message, context);
+
+        // Verify Slack messages were sent
+        const postMessageCalls = mockSlackClient.postMessage.getCalls();
+        expect(postMessageCalls.length).to.be.at.least(1);
+
+        // Line 621 should be executed for both opportunities
+        // Find messages with the error details
+        const allMessages = postMessageCalls.map((c) => c.args[0]?.text).join('\n');
+
+        // Both opportunities should appear with :information_source: emoji
+        expect(allMessages).to.include('Core Web Vitals');
+        expect(allMessages).to.include('Broken Backlinks');
+        expect(allMessages).to.include(':information_source:');
+        expect(allMessages).to.include('found no suggestions');
+      } finally {
+        cloudWatchStub.restore();
+        slackStub.restore();
+      }
+    });
+
     it('should handle empty baseUrl in scraping check (lines 138-139)', async () => {
       const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
       const { ScrapeClient } = scrapeModule;

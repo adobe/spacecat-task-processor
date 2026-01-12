@@ -618,7 +618,7 @@ export async function runOpportunityStatusProcessor(message, context) {
       if (failedOpportunities.length > 0) {
         for (const failed of failedOpportunities) {
           // Use info icon for successful audits with zero suggestions
-          const emoji = failed.reason.includes('opportunity found with zero suggestions') ? ' :information_source:' : ' :x:';
+          const emoji = failed.reason.includes('found no suggestions') ? ' :information_source:' : ' :x:';
           auditErrors.push(`*${failed.title}*: ${failed.reason}${emoji}`);
         }
       }
