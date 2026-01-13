@@ -2492,6 +2492,23 @@ describe('Opportunity Status Processor', () => {
       // Ensure mockSite returns empty opportunities
       mockSite.getOpportunities.resolves([]);
 
+      // Mock ScrapeClient - needed to get jobId for bot protection check
+      const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+      const mockScrapeClientLocal = {
+        getScrapeJobsByBaseURL: sinon.stub().resolves([
+          {
+            id: 'job-123',
+            status: 'RUNNING',
+            startedAt: new Date(Date.now() - 60000).toISOString(), // Started 1 min ago
+            createdAt: new Date(Date.now() - 60000).toISOString(),
+          },
+        ]),
+        getScrapeJobUrlResults: sinon.stub().resolves([
+          { url: 'https://zepbound.lilly.com/', status: 'COMPLETE' },
+        ]),
+      };
+      scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
+
       // Mock CloudWatch to return bot protection log events
       const { CloudWatchLogsClient } = await import('@aws-sdk/client-cloudwatch-logs');
       const cloudWatchStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
@@ -2520,7 +2537,6 @@ describe('Opportunity Status Processor', () => {
         ],
       });
 
-      // No need to mock scrape client - bot protection check happens BEFORE fetching scrape data
       const result = await runOpportunityStatusProcessor(message, context);
 
       // Verify bot protection alert was sent via Slack
@@ -2545,8 +2561,9 @@ describe('Opportunity Status Processor', () => {
 
       expect(result.status).to.equal(200);
 
-      // Cleanup CloudWatch stub
+      // Cleanup stubs
       cloudWatchStub.restore();
+      scrapeClientStub.restore();
       dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
     });
 
@@ -2573,6 +2590,23 @@ describe('Opportunity Status Processor', () => {
       // Ensure mockSite returns empty opportunities
       mockSite.getOpportunities.resolves([]);
 
+      // Mock ScrapeClient - needed to get jobId for bot protection check
+      const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+      const mockScrapeClientLocal = {
+        getScrapeJobsByBaseURL: sinon.stub().resolves([
+          {
+            id: 'job-dev',
+            status: 'RUNNING',
+            startedAt: new Date(Date.now() - 60000).toISOString(),
+            createdAt: new Date(Date.now() - 60000).toISOString(),
+          },
+        ]),
+        getScrapeJobUrlResults: sinon.stub().resolves([
+          { url: 'https://dev-test.com/', status: 'COMPLETE' },
+        ]),
+      };
+      scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
+
       // Mock CloudWatch to return bot protection log events
       const { CloudWatchLogsClient } = await import('@aws-sdk/client-cloudwatch-logs');
       const cloudWatchStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
@@ -2591,7 +2625,6 @@ describe('Opportunity Status Processor', () => {
         ],
       });
 
-      // No need to mock scrape client - bot protection check happens BEFORE fetching scrape data
       const result = await runOpportunityStatusProcessor(message, context);
 
       // Verify bot protection alert was sent via Slack
@@ -2614,8 +2647,9 @@ describe('Opportunity Status Processor', () => {
 
       expect(result.status).to.equal(200);
 
-      // Cleanup CloudWatch stub
+      // Cleanup stubs
       cloudWatchStub.restore();
+      scrapeClientStub.restore();
       dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
     });
 
@@ -2705,6 +2739,25 @@ describe('Opportunity Status Processor', () => {
         context.env.AWS_REGION = 'us-east-1';
         context.env.SPACECAT_BOT_IPS = '3.218.16.42,52.55.82.37,54.172.145.38';
 
+        // Mock ScrapeClient - needed to get jobId for bot protection check
+        const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+        const mockScrapeClientLocal = {
+          getScrapeJobsByBaseURL: sinon.stub().resolves([
+            {
+              id: 'job-456',
+              status: 'RUNNING',
+              startedAt: new Date(Date.now() - 60000).toISOString(),
+              createdAt: new Date(Date.now() - 60000).toISOString(),
+            },
+          ]),
+          getScrapeJobUrlResults: sinon.stub().resolves([
+            { url: 'https://example.com/blocked', status: 'COMPLETE' },
+            { url: 'https://example.com/also-blocked', status: 'COMPLETE' },
+            { url: 'https://example.com/success', status: 'COMPLETE' },
+          ]),
+        };
+        scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
+
         // Mock CloudWatch to return bot protection events for 2 out of 3 URLs
         const { CloudWatchLogsClient } = await import('@aws-sdk/client-cloudwatch-logs');
         const cloudWatchStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
@@ -2733,7 +2786,6 @@ describe('Opportunity Status Processor', () => {
           ],
         });
 
-        // No need to mock scrape client - bot protection check happens BEFORE fetching scrape data
         const result = await runOpportunityStatusProcessor(message, context);
 
         // Verify bot protection alert was sent via Slack
@@ -2755,8 +2807,9 @@ describe('Opportunity Status Processor', () => {
 
         expect(result.status).to.equal(200);
 
-        // Cleanup CloudWatch stub
+        // Cleanup stubs
         cloudWatchStub.restore();
+        scrapeClientStub.restore();
       } finally {
         dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
       }

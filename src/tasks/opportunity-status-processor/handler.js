@@ -418,12 +418,26 @@ export async function runOpportunityStatusProcessor(message, context) {
 
         if (needsScraping) {
           /* c8 ignore start */
-          log.info(`[BOT-CHECK-TP] Scraping dependency detected, checking bot protection for ${siteUrl}`);
+          log.info(`[BOT-CHECK-TP] Scraping dependency detected, checking scraping availability for ${siteUrl}`);
           log.info(`[BOT-CHECK-TP] onboardStartTime: ${new Date(onboardStartTime).toISOString()} (${onboardStartTime})`);
           /* c8 ignore stop */
-          // Check for bot protection FIRST before fetching scrape results
+
+          // First, get scraping availability and jobId
+          const scrapingCheck = await isScrapingAvailable(siteUrl, context, onboardStartTime);
+          scrapingAvailable = scrapingCheck.available;
+
+          // Always check for bot protection, use jobId for precision if available
+          // If no jobId, fallback to searching all [BOT-BLOCKED] events in time window
+          /* c8 ignore start */
+          if (scrapingCheck.jobId) {
+            log.info(`[BOT-CHECK-TP] Found scrape job ${scrapingCheck.jobId}, checking for bot protection`);
+          } else {
+            log.info('[BOT-CHECK-TP] No scrape job found yet, checking for bot protection using time-based filter');
+          }
+          /* c8 ignore stop */
+
           const botProtectionStats = await checkAndAlertBotProtection({
-            siteId,
+            jobId: scrapingCheck.jobId || null,
             siteUrl,
             searchStartTime: onboardStartTime,
             slackContext,
@@ -439,10 +453,6 @@ export async function runOpportunityStatusProcessor(message, context) {
               blockedUrlCount: botProtectionStats.totalCount,
             });
           }
-
-          // Only check scraping availability if no bot protection detected
-          const scrapingCheck = await isScrapingAvailable(siteUrl, context, onboardStartTime);
-          scrapingAvailable = scrapingCheck.available;
 
           // Send Slack notification with scraping statistics if available
           if (scrapingCheck.stats && slackContext) {

@@ -28,12 +28,12 @@ function createCloudWatchClient(env) {
 
 /**
  * Queries CloudWatch logs for bot protection errors from content scraper
- * @param {string} siteId - The site ID for filtering
+ * @param {string|null} jobId - The scrape job ID for filtering (optional)
  * @param {object} context - Context with env and log
  * @param {number} onboardStartTime - Onboard start timestamp (ms) to limit search window
  * @returns {Promise<Array>} Array of bot protection events
  */
-export async function queryBotProtectionLogs(siteId, context, onboardStartTime) {
+export async function queryBotProtectionLogs(jobId, context, onboardStartTime) {
   const { env, log } = context;
 
   const cloudwatchClient = createCloudWatchClient(env);
@@ -48,14 +48,16 @@ export async function queryBotProtectionLogs(siteId, context, onboardStartTime) 
   /* c8 ignore start */
   log.info('[BOT-CHECK-TP] Querying CloudWatch logs:');
   log.info(`[BOT-CHECK-TP]   Log Group: ${logGroupName}`);
-  log.info(`[BOT-CHECK-TP]   Site ID: ${siteId}`);
+  log.info(`[BOT-CHECK-TP]   Job ID: ${jobId || 'N/A (searching all bot protection events)'}`);
   log.info(`[BOT-CHECK-TP]   Time Range: ${new Date(startTime).toISOString()} to ${new Date(endTime).toISOString()}`);
   log.info(`[BOT-CHECK-TP]   Onboard Start Time (raw): ${new Date(onboardStartTime).toISOString()}`);
   log.info('[BOT-CHECK-TP]   Buffer Applied: 5 minutes');
   /* c8 ignore stop */
 
   try {
-    const filterPattern = `"[BOT-BLOCKED]" "${siteId}"`;
+    // If jobId is provided, filter by both [BOT-BLOCKED] and jobId
+    // Otherwise, just filter by [BOT-BLOCKED]
+    const filterPattern = jobId ? `"[BOT-BLOCKED]" "${jobId}"` : '"[BOT-BLOCKED]"';
 
     /* c8 ignore start */
     log.info(`[BOT-CHECK-TP] Filter Pattern: ${filterPattern}`);
@@ -83,7 +85,7 @@ export async function queryBotProtectionLogs(siteId, context, onboardStartTime) 
       /* c8 ignore start */
       log.info('[BOT-CHECK-TP] No bot protection events found in CloudWatch response');
       /* c8 ignore stop */
-      log.debug(`No bot protection logs found for site ${siteId} in time window`);
+      log.debug(`No bot protection logs found${jobId ? ` for job ${jobId}` : ''} in time window`);
       return [];
     }
 
@@ -92,7 +94,7 @@ export async function queryBotProtectionLogs(siteId, context, onboardStartTime) 
     log.info(`[BOT-CHECK-TP] Sample event message: ${response.events[0]?.message?.substring(0, 200)}`);
     /* c8 ignore stop */
 
-    log.info(`Found ${response.events.length} bot protection events in CloudWatch logs for site ${siteId}`);
+    log.info(`Found ${response.events.length} bot protection events in CloudWatch logs${jobId ? ` for job ${jobId}` : ''}`);
 
     // Parse log events
     const botProtectionEvents = response.events
@@ -172,7 +174,7 @@ export function aggregateBotProtectionStats(events) {
  * and Slack alerting in one call to simplify handler logic.
  *
  * @param {Object} params - Parameters object
- * @param {string} params.siteId - The site ID
+ * @param {string|null} params.jobId - The scrape job ID (optional)
  * @param {string} params.siteUrl - The site URL
  * @param {number} params.searchStartTime - Search start timestamp (ms)
  * @param {Object} params.slackContext - Slack context for sending messages
@@ -180,7 +182,7 @@ export function aggregateBotProtectionStats(events) {
  * @returns {Promise<Object|null>} Bot protection stats if detected, null otherwise
  */
 export async function checkAndAlertBotProtection({
-  siteId,
+  jobId = null,
   siteUrl,
   searchStartTime,
   slackContext,
@@ -189,16 +191,16 @@ export async function checkAndAlertBotProtection({
   const { log, env } = context;
 
   /* c8 ignore start */
-  log.info(`[BOT-CHECK-TP] Starting bot protection check for site ${siteUrl} (${siteId})`);
+  log.info(`[BOT-CHECK-TP] Starting bot protection check for site ${siteUrl}${jobId ? ` (job ${jobId})` : ''}`);
   log.info(`[BOT-CHECK-TP] Search start time: ${new Date(searchStartTime).toISOString()}`);
   /* c8 ignore stop */
 
-  // Query CloudWatch logs using siteId and time range
-  const logEvents = await queryBotProtectionLogs(siteId, context, searchStartTime);
+  // Query CloudWatch logs using jobId (if available) and time range
+  const logEvents = await queryBotProtectionLogs(jobId, context, searchStartTime);
 
   if (logEvents.length === 0) {
     /* c8 ignore start */
-    log.info(`[BOT-CHECK-TP] No bot protection detected for site ${siteUrl} (${siteId})`);
+    log.info(`[BOT-CHECK-TP] No bot protection detected for site ${siteUrl}${jobId ? ` (job ${jobId})` : ''}`);
     /* c8 ignore stop */
     return null;
   }
@@ -211,7 +213,7 @@ export async function checkAndAlertBotProtection({
   const botProtectionStats = aggregateBotProtectionStats(logEvents);
   log.warn(
     `[BOT-BLOCKED] Bot protection detected: ${botProtectionStats.totalCount} URLs blocked `
-    + `(from CloudWatch logs) for site ${siteUrl} (${siteId})`,
+    + `(from CloudWatch logs) for site ${siteUrl}${jobId ? ` (job ${jobId})` : ''}`,
   );
 
   // Send Slack alert - import dynamically to avoid circular dependency
