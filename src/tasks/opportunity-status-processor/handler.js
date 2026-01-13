@@ -417,6 +417,10 @@ export async function runOpportunityStatusProcessor(message, context) {
         }
 
         if (needsScraping) {
+          /* c8 ignore start */
+          log.info(`[BOT-CHECK-TP] Scraping dependency detected, checking bot protection for ${siteUrl}`);
+          log.info(`[BOT-CHECK-TP] onboardStartTime: ${new Date(onboardStartTime).toISOString()} (${onboardStartTime})`);
+          /* c8 ignore stop */
           // Check for bot protection FIRST before fetching scrape results
           const botProtectionStats = await checkAndAlertBotProtection({
             siteId,

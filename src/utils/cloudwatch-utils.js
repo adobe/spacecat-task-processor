@@ -45,7 +45,23 @@ export async function queryBotProtectionLogs(siteId, context, onboardStartTime) 
   const startTime = onboardStartTime - BUFFER_MS;
   const endTime = Date.now();
 
+  /* c8 ignore start */
+  log.info('[BOT-CHECK-TP] Querying CloudWatch logs:');
+  log.info(`[BOT-CHECK-TP]   Log Group: ${logGroupName}`);
+  log.info(`[BOT-CHECK-TP]   Site ID: ${siteId}`);
+  log.info(`[BOT-CHECK-TP]   Time Range: ${new Date(startTime).toISOString()} to ${new Date(endTime).toISOString()}`);
+  log.info(`[BOT-CHECK-TP]   Onboard Start Time (raw): ${new Date(onboardStartTime).toISOString()}`);
+  log.info('[BOT-CHECK-TP]   Buffer Applied: 5 minutes');
+  /* c8 ignore stop */
+
   try {
+    const filterPattern = `"[BOT-BLOCKED]" "${siteId}"`;
+
+    /* c8 ignore start */
+    log.info(`[BOT-CHECK-TP] Filter Pattern: ${filterPattern}`);
+    log.info('[BOT-CHECK-TP] Sending CloudWatch query...');
+    /* c8 ignore stop */
+
     const command = new FilterLogEventsCommand({
       logGroupName,
       startTime,
@@ -53,16 +69,28 @@ export async function queryBotProtectionLogs(siteId, context, onboardStartTime) 
       // Filter pattern to find bot protection logs for this site in the time window
       // Using text pattern since logs have prefix:
       // [BOT-BLOCKED] Bot Protection Detection in Scraper: {...}
-      filterPattern: `"[BOT-BLOCKED]" "${siteId}"`,
+      filterPattern,
       limit: 100, // Max URLs per job
     });
 
     const response = await cloudwatchClient.send(command);
 
+    /* c8 ignore start */
+    log.info(`[BOT-CHECK-TP] CloudWatch query completed. Events found: ${response.events?.length || 0}`);
+    /* c8 ignore stop */
+
     if (!response.events || response.events.length === 0) {
+      /* c8 ignore start */
+      log.info('[BOT-CHECK-TP] No bot protection events found in CloudWatch response');
+      /* c8 ignore stop */
       log.debug(`No bot protection logs found for site ${siteId} in time window`);
       return [];
     }
+
+    /* c8 ignore start */
+    log.info(`[BOT-CHECK-TP] Raw CloudWatch events count: ${response.events.length}`);
+    log.info(`[BOT-CHECK-TP] Sample event message: ${response.events[0]?.message?.substring(0, 200)}`);
+    /* c8 ignore stop */
 
     log.info(`Found ${response.events.length} bot protection events in CloudWatch logs for site ${siteId}`);
 
@@ -75,6 +103,9 @@ export async function queryBotProtectionLogs(siteId, context, onboardStartTime) 
           if (messageMatch) {
             return JSON.parse(messageMatch[1]);
           }
+          /* c8 ignore start */
+          log.warn(`[BOT-CHECK-TP] Event message did not match expected pattern: ${event.message?.substring(0, 100)}`);
+          /* c8 ignore stop */
           return null;
         } catch (parseError) {
           log.warn(`Failed to parse bot protection log event: ${event.message}`);
@@ -82,6 +113,10 @@ export async function queryBotProtectionLogs(siteId, context, onboardStartTime) 
         }
       })
       .filter((event) => event !== null);
+
+    /* c8 ignore start */
+    log.info(`[BOT-CHECK-TP] Successfully parsed ${botProtectionEvents.length} bot protection events`);
+    /* c8 ignore stop */
 
     return botProtectionEvents;
   } catch (error) {
@@ -153,12 +188,24 @@ export async function checkAndAlertBotProtection({
 }) {
   const { log, env } = context;
 
+  /* c8 ignore start */
+  log.info(`[BOT-CHECK-TP] Starting bot protection check for site ${siteUrl} (${siteId})`);
+  log.info(`[BOT-CHECK-TP] Search start time: ${new Date(searchStartTime).toISOString()}`);
+  /* c8 ignore stop */
+
   // Query CloudWatch logs using siteId and time range
   const logEvents = await queryBotProtectionLogs(siteId, context, searchStartTime);
 
   if (logEvents.length === 0) {
+    /* c8 ignore start */
+    log.info(`[BOT-CHECK-TP] No bot protection detected for site ${siteUrl} (${siteId})`);
+    /* c8 ignore stop */
     return null;
   }
+
+  /* c8 ignore start */
+  log.info(`[BOT-CHECK-TP] Bot protection detected! Processing ${logEvents.length} events`);
+  /* c8 ignore stop */
 
   // Aggregate statistics
   const botProtectionStats = aggregateBotProtectionStats(logEvents);

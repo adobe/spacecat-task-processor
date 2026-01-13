@@ -1956,22 +1956,31 @@ describe('Opportunity Status Processor', () => {
     });
 
     it('should handle no scrape jobs found (line 149-150)', async () => {
-      // Import ScrapeClient and create stub
-      const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
-      const { ScrapeClient } = scrapeModule;
+      // Temporarily add scraping dependency to trigger scraping check
+      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       const mockScrapeClient = {
         getScrapeJobsByBaseURL: sinon.stub().resolves([]),
         getScrapeJobUrlResults: sinon.stub(),
       };
 
-      const scrapeClientStub = sinon.stub(ScrapeClient, 'createFrom').returns(mockScrapeClient);
-
-      // Temporarily add scraping dependency to trigger scraping check
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
-      const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
+      const mockScrapeClientClass = {
+        createFrom: sinon.stub().returns(mockScrapeClient),
+      };
 
       try {
+        // Use esmock to mock the ScrapeClient module
+        const esmock = (await import('esmock')).default;
+        const handler = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
+          '@adobe/spacecat-shared-scrape-client': { ScrapeClient: mockScrapeClientClass },
+          '../../../src/utils/cloudwatch-utils.js': {
+            checkAndAlertBotProtection: sinon.stub().resolves(null),
+            checkAuditExecution: sinon.stub().resolves(true),
+            getAuditFailureReason: sinon.stub().resolves(null),
+          },
+        });
+
         dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
 
         message.siteUrl = 'https://example.com';
@@ -1980,15 +1989,15 @@ describe('Opportunity Status Processor', () => {
           channelId: 'test-channel',
           threadTs: 'test-thread',
         };
+        message.taskContext.onboardStartTime = Date.now();
         mockSite.getOpportunities.resolves([]);
 
-        await runOpportunityStatusProcessor(message, context);
+        await handler.runOpportunityStatusProcessor(message, context);
 
         // Verify that scraping check was performed
         expect(mockScrapeClient.getScrapeJobsByBaseURL.calledWith('https://example.com', 'default')).to.be.true;
       } finally {
-        // Cleanup - always restore even if test fails
-        scrapeClientStub.restore();
+        // Cleanup
         dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
       }
     });

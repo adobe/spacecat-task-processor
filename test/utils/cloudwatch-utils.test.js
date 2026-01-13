@@ -85,8 +85,8 @@ describe('CloudWatch Utils', () => {
 
       expect(result).to.have.lengthOf(1);
       expect(result[0]).to.deep.equal({ jobId: 'test', httpStatus: 403 });
-      // One warning: the second message matches pattern but has invalid JSON
-      expect(mockContext.log.warn).to.have.been.calledOnce;
+      // Two warnings: first message doesn't match pattern, second matches but has invalid JSON
+      expect(mockContext.log.warn).to.have.been.calledTwice;
     });
   });
 
