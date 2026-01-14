@@ -1994,8 +1994,8 @@ describe('Opportunity Status Processor', () => {
 
         await handler.runOpportunityStatusProcessor(message, context);
 
-        // Verify that scraping check was performed
-        expect(mockScrapeClient.getScrapeJobsByBaseURL.calledWith('https://example.com', 'default')).to.be.true;
+        // Verify that scraping check was performed (all processing types)
+        expect(mockScrapeClient.getScrapeJobsByBaseURL.calledWith('https://example.com')).to.be.true;
       } finally {
         // Cleanup
         dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
@@ -2157,8 +2157,8 @@ describe('Opportunity Status Processor', () => {
         await runOpportunityStatusProcessor(message, context);
 
         // Should detect successful scrape (at least one COMPLETE)
-        // Verify that scraping was checked and completed successfully
-        expect(mockScrapeClient.getScrapeJobsByBaseURL.calledWith('https://example.com', 'default')).to.be.true;
+        // Verify that scraping was checked and completed successfully (all processing types)
+        expect(mockScrapeClient.getScrapeJobsByBaseURL.calledWith('https://example.com')).to.be.true;
         expect(mockScrapeClient.getScrapeJobUrlResults.calledOnce).to.be.true;
 
         // Cleanup

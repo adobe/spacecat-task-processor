@@ -148,8 +148,8 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     // Create scrape client
     const scrapeClient = ScrapeClient.createFrom(context);
 
-    // Get all scrape jobs for this baseUrl with 'default' processing type
-    const jobs = await scrapeClient.getScrapeJobsByBaseURL(baseUrl, 'default');
+    // Get all scrape jobs for this baseUrl (all processing types)
+    const jobs = await scrapeClient.getScrapeJobsByBaseURL(baseUrl);
 
     if (!jobs || jobs.length === 0) {
       return { available: false, results: [] };
