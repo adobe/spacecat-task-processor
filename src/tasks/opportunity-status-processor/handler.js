@@ -163,7 +163,6 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     log.info(`Filtered ${filteredJobs.length} jobs created after onboardStartTime from ${jobs.length} total jobs`);
 
     if (filteredJobs.length === 0) {
-      log.info(`No scrape jobs found for ${baseUrl} after onboardStartTime ${new Date(onboardStartTime).toISOString()}`);
       return { available: false, results: [] };
     }
 

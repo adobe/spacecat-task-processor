@@ -2002,6 +2002,59 @@ describe('Opportunity Status Processor', () => {
       }
     });
 
+    it('should handle jobs filtered out by onboardStartTime (line 165-167)', async () => {
+      // Import ScrapeClient and create stub
+      const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+      const { ScrapeClient } = scrapeModule;
+
+      // Temporarily add scraping dependency
+      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
+
+      try {
+        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
+
+        message.siteUrl = 'https://example.com';
+        message.taskContext.auditTypes = ['broken-backlinks'];
+        message.taskContext.slackContext = {
+          channelId: 'test-channel',
+          threadTs: 'test-thread',
+        };
+        message.taskContext.onboardStartTime = Date.now(); // Right now
+        context.env.AWS_REGION = 'us-east-1'; // Required for CloudWatch client
+
+        const mockScrapeClient = {
+          getScrapeJobsByBaseURL: sinon.stub().resolves([
+            // Jobs BEFORE onboardStartTime - should be filtered out
+            { id: 'job-1', startedAt: new Date(Date.now() - 7200000).toISOString() }, // 2 hours ago
+            { id: 'job-2', createdAt: new Date(Date.now() - 3600000).toISOString() }, // 1 hour ago
+          ]),
+          getScrapeJobUrlResults: sinon.stub().resolves([]),
+        };
+
+        const scrapeClientStub = sinon.stub(ScrapeClient, 'createFrom').returns(mockScrapeClient);
+        mockSite.getOpportunities.resolves([]);
+
+        // Mock CloudWatch to return NO bot protection events
+        const { CloudWatchLogsClient } = await import('@aws-sdk/client-cloudwatch-logs');
+        const cloudWatchStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
+        cloudWatchStub.resolves({ events: [] });
+
+        await runOpportunityStatusProcessor(message, context);
+
+        // Verify that scraping jobs were checked but filtered out
+        expect(mockScrapeClient.getScrapeJobsByBaseURL.called).to.be.true;
+        // getScrapeJobUrlResults should NOT be called since all jobs were filtered out
+        expect(mockScrapeClient.getScrapeJobUrlResults.called).to.be.false;
+
+        // Cleanup
+        cloudWatchStub.restore();
+        scrapeClientStub.restore();
+      } finally {
+        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
+      }
+    });
+
     it('should handle jobs with no URL results (line 175-177)', async () => {
       // Import ScrapeClient and create stub
       const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
