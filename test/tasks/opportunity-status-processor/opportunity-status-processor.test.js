@@ -2592,6 +2592,13 @@ describe('Opportunity Status Processor', () => {
 
       const result = await runOpportunityStatusProcessor(message, context);
 
+      // Verify scraping was checked
+      expect(mockScrapeClientLocal.getScrapeJobsByBaseURL).to.have.been.calledWith('https://zepbound.lilly.com');
+      expect(mockScrapeClientLocal.getScrapeJobUrlResults).to.have.been.calledWith('job-123');
+
+      // Verify CloudWatch was queried
+      expect(cloudWatchStub).to.have.been.called;
+
       // Verify bot protection alert was sent via Slack
       expect(mockSlackClient.postMessage).to.have.been.called;
 
@@ -2679,6 +2686,13 @@ describe('Opportunity Status Processor', () => {
       });
 
       const result = await runOpportunityStatusProcessor(message, context);
+
+      // Verify scraping was checked
+      expect(mockScrapeClientLocal.getScrapeJobsByBaseURL).to.have.been.calledWith('https://dev-test.com');
+      expect(mockScrapeClientLocal.getScrapeJobUrlResults).to.have.been.calledWith('job-dev');
+
+      // Verify CloudWatch was queried
+      expect(cloudWatchStub).to.have.been.called;
 
       // Verify bot protection alert was sent via Slack
       expect(mockSlackClient.postMessage).to.have.been.called;
