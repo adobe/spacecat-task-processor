@@ -84,7 +84,7 @@
     "@adobe/spacecat-shared-rum-api-client": "2.40.4",
     "@adobe/spacecat-shared-scrape-client": "2.3.6",
     "@adobe/spacecat-shared-slack-client": "1.5.32",
-    "@adobe/spacecat-shared-utils": "https://gist.github.com/tkotthakota-adobe/655342ca8fe806db4e508761465becb2/raw/72a22c19f8a596650493990d8443238466f0d224/adobe-spacecat-shared-utils-1.87.0.tgz",
+    "@adobe/spacecat-shared-utils": "https://gist.github.com/tkotthakota-adobe/77de5842d7b7c05f04b49e555b2d3627/raw/394a546047b6230e69abbf1c7ff46a1340c8bf09/adobe-spacecat-shared-utils-1.89.0.tgz",
     "@aws-sdk/client-s3": "3.971.0",
     "@aws-sdk/client-cloudwatch-logs": "3.971.0",
     "@aws-sdk/client-lambda": "3.971.0",

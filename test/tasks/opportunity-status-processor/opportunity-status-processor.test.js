@@ -1843,6 +1843,30 @@ describe('Opportunity Status Processor', () => {
   });
 
   describe('GSC and Scraping Dependency Coverage', () => {
+    let CloudWatchLogsClient;
+    let mockSendStub;
+
+    beforeEach(async () => {
+      // Dynamically import CloudWatch Client
+      const CloudWatchModule = await import('@aws-sdk/client-cloudwatch-logs');
+      CloudWatchLogsClient = CloudWatchModule.CloudWatchLogsClient;
+
+      // Create a mock for CloudWatchLogsClient.prototype.send
+      mockSendStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
+
+      // Default: return empty events
+      mockSendStub.resolves({ events: [] });
+
+      context.mockCloudWatchSend = mockSendStub;
+    });
+
+    afterEach(() => {
+      if (mockSendStub && mockSendStub.restore) {
+        mockSendStub.restore();
+      }
+      delete context.mockCloudWatchSend;
+    });
+
     it('should cover scraping dependency when checked (lines 330-331, 454-457, 595-596, 628-638)', async () => {
       // Temporarily modify OPPORTUNITY_DEPENDENCY_MAP to include a scraping dependency
       const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
@@ -1859,16 +1883,14 @@ describe('Opportunity Status Processor', () => {
 
       mockSite.getOpportunities.resolves([]);
 
-      // Reset CloudWatch to say audit was executed (if mockCloudWatchSend exists)
-      if (context.mockCloudWatchSend) {
-        context.mockCloudWatchSend.reset();
-        context.mockCloudWatchSend.resolves({
-          events: [{
-            timestamp: Date.now(),
-            message: 'Received broken-backlinks audit request for: test-site-id',
-          }],
-        });
-      }
+      // Reset CloudWatch to say audit was executed
+      context.mockCloudWatchSend.reset();
+      context.mockCloudWatchSend.resolves({
+        events: [{
+          timestamp: Date.now(),
+          message: 'Received broken-backlinks audit request for: test-site-id',
+        }],
+      });
 
       await runOpportunityStatusProcessor(message, context);
 
@@ -1895,16 +1917,14 @@ describe('Opportunity Status Processor', () => {
 
       mockSite.getOpportunities.resolves([]);
 
-      // Reset CloudWatch to say audit was executed (if mockCloudWatchSend exists)
-      if (context.mockCloudWatchSend) {
-        context.mockCloudWatchSend.reset();
-        context.mockCloudWatchSend.resolves({
-          events: [{
-            timestamp: Date.now(),
-            message: 'Received cwv audit request for: test-site-id',
-          }],
-        });
-      }
+      // Reset CloudWatch to say audit was executed
+      context.mockCloudWatchSend.reset();
+      context.mockCloudWatchSend.resolves({
+        events: [{
+          timestamp: Date.now(),
+          message: 'Received cwv audit request for: test-site-id',
+        }],
+      });
 
       await runOpportunityStatusProcessor(message, context);
 
@@ -2468,6 +2488,8 @@ describe('Opportunity Status Processor', () => {
     let scrapeClientStub;
     let mockSlackClient;
     let BaseSlackClientStub;
+    let CloudWatchLogsClient;
+    let mockCloudWatchSendStub;
 
     beforeEach(async () => {
       // Restore any previous BaseSlackClient stub first
@@ -2502,11 +2524,24 @@ describe('Opportunity Status Processor', () => {
         }),
       };
 
+      // Set up CloudWatch mock
+      const CloudWatchModule = await import('@aws-sdk/client-cloudwatch-logs');
+      CloudWatchLogsClient = CloudWatchModule.CloudWatchLogsClient;
+      mockCloudWatchSendStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
+      mockCloudWatchSendStub.resolves({ events: [] });
+      context.mockCloudWatchSend = mockCloudWatchSendStub;
+
       // Reset AWS_REGION to ensure each test starts fresh
       delete context.env.AWS_REGION;
     });
 
     afterEach(() => {
+      // Restore CloudWatch stub
+      if (mockCloudWatchSendStub && mockCloudWatchSendStub.restore) {
+        mockCloudWatchSendStub.restore();
+      }
+      delete context.mockCloudWatchSend;
+
       // Restore BaseSlackClient stub
       if (BaseSlackClientStub && BaseSlackClientStub.restore) {
         BaseSlackClientStub.restore();
@@ -2563,9 +2598,7 @@ describe('Opportunity Status Processor', () => {
       scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
 
       // Mock CloudWatch to return bot protection log events
-      const { CloudWatchLogsClient } = await import('@aws-sdk/client-cloudwatch-logs');
-      const cloudWatchStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
-      cloudWatchStub.resolves({
+      context.mockCloudWatchSend.resolves({
         events: [
           {
             message: `Bot Protection Detection in Scraper: ${JSON.stringify({
@@ -2597,7 +2630,7 @@ describe('Opportunity Status Processor', () => {
       expect(mockScrapeClientLocal.getScrapeJobUrlResults).to.have.been.calledWith('job-123');
 
       // Verify CloudWatch was queried
-      expect(cloudWatchStub).to.have.been.called;
+      expect(context.mockCloudWatchSend).to.have.been.called;
 
       // Verify bot protection alert was sent via Slack
       expect(mockSlackClient.postMessage).to.have.been.called;
@@ -2622,7 +2655,6 @@ describe('Opportunity Status Processor', () => {
       expect(result.status).to.equal(200);
 
       // Cleanup stubs
-      cloudWatchStub.restore();
       scrapeClientStub.restore();
       dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
     });
@@ -2668,9 +2700,7 @@ describe('Opportunity Status Processor', () => {
       scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
 
       // Mock CloudWatch to return bot protection log events
-      const { CloudWatchLogsClient } = await import('@aws-sdk/client-cloudwatch-logs');
-      const cloudWatchStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
-      cloudWatchStub.resolves({
+      context.mockCloudWatchSend.resolves({
         events: [
           {
             message: `Bot Protection Detection in Scraper: ${JSON.stringify({
@@ -2692,7 +2722,7 @@ describe('Opportunity Status Processor', () => {
       expect(mockScrapeClientLocal.getScrapeJobUrlResults).to.have.been.calledWith('job-dev');
 
       // Verify CloudWatch was queried
-      expect(cloudWatchStub).to.have.been.called;
+      expect(context.mockCloudWatchSend).to.have.been.called;
 
       // Verify bot protection alert was sent via Slack
       expect(mockSlackClient.postMessage).to.have.been.called;
@@ -2715,7 +2745,6 @@ describe('Opportunity Status Processor', () => {
       expect(result.status).to.equal(200);
 
       // Cleanup stubs
-      cloudWatchStub.restore();
       scrapeClientStub.restore();
       dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
     });
@@ -2744,9 +2773,7 @@ describe('Opportunity Status Processor', () => {
         mockSite.getOpportunities.resolves([]);
 
         // Mock CloudWatch to return EMPTY events (no bot protection)
-        const { CloudWatchLogsClient } = await import('@aws-sdk/client-cloudwatch-logs');
-        const cloudWatchStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
-        cloudWatchStub.resolves({
+        context.mockCloudWatchSend.resolves({
           events: [], // No bot protection events
         });
 
@@ -2772,9 +2799,6 @@ describe('Opportunity Status Processor', () => {
         expect(botProtectionCall).to.not.exist;
 
         expect(result.status).to.equal(200);
-
-        // Cleanup CloudWatch stub
-        cloudWatchStub.restore();
       } finally {
         if (scrapeClientStub && scrapeClientStub.restore) {
           try {
@@ -2826,9 +2850,7 @@ describe('Opportunity Status Processor', () => {
         scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
 
         // Mock CloudWatch to return bot protection events for 2 out of 3 URLs
-        const { CloudWatchLogsClient } = await import('@aws-sdk/client-cloudwatch-logs');
-        const cloudWatchStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
-        cloudWatchStub.resolves({
+        context.mockCloudWatchSend.resolves({
           events: [
             {
               message: `Bot Protection Detection in Scraper: ${JSON.stringify({
@@ -2875,7 +2897,6 @@ describe('Opportunity Status Processor', () => {
         expect(result.status).to.equal(200);
 
         // Cleanup stubs
-        cloudWatchStub.restore();
         scrapeClientStub.restore();
       } finally {
         dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
@@ -2901,9 +2922,7 @@ describe('Opportunity Status Processor', () => {
         message.taskContext.onboardStartTime = Date.now() - 3600000;
 
         // Mock CloudWatch to return NO bot protection events
-        const { CloudWatchLogsClient } = await import('@aws-sdk/client-cloudwatch-logs');
-        const cloudWatchStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
-        cloudWatchStub.resolves({ events: [] });
+        context.mockCloudWatchSend.resolves({ events: [] });
 
         // Mock scrape results - no bot protection
         const mockScrapeResults = [
@@ -2960,7 +2979,6 @@ describe('Opportunity Status Processor', () => {
         expect(result.status).to.equal(200);
 
         // Cleanup
-        cloudWatchStub.restore();
         scrapeClientStub.restore();
       } finally {
         dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
@@ -3212,9 +3230,7 @@ describe('Opportunity Status Processor', () => {
         ];
 
         // Mock CloudWatch to return empty events array (no logs found)
-        const { CloudWatchLogsClient } = await import('@aws-sdk/client-cloudwatch-logs');
-        const cloudWatchStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
-        cloudWatchStub.resolves({
+        context.mockCloudWatchSend.resolves({
           events: [], // No events found - triggers fallback stats
         });
 
@@ -3244,9 +3260,6 @@ describe('Opportunity Status Processor', () => {
         expect(slackMessage).to.include('unknown'); // Fallback blocker type (lowercase)
 
         expect(result.status).to.equal(200);
-
-        // Cleanup CloudWatch stub
-        cloudWatchStub.restore();
       } finally {
         if (localScrapeStub && localScrapeStub.restore) {
           try {
