@@ -55,7 +55,7 @@ describe('CloudWatch Utils', () => {
       cloudWatchStub.resolves({ events: [] });
 
       const onboardStartTime = Date.now() - 3600000; // 1 hour ago
-      const result = await queryBotProtectionLogs('test-job-id', mockContext, onboardStartTime);
+      const result = await queryBotProtectionLogs(mockContext, onboardStartTime);
 
       expect(result).to.deep.equal([]);
       expect(mockContext.log.debug).to.have.been.calledWithMatch(/No bot protection logs found/);
@@ -65,7 +65,7 @@ describe('CloudWatch Utils', () => {
       cloudWatchStub.rejects(new Error('CloudWatch error'));
 
       const onboardStartTime = Date.now() - 3600000; // 1 hour ago
-      const result = await queryBotProtectionLogs('test-job-id', mockContext, onboardStartTime);
+      const result = await queryBotProtectionLogs(mockContext, onboardStartTime);
 
       expect(result).to.deep.equal([]);
       expect(mockContext.log.error).to.have.been.calledWithMatch(/Failed to query CloudWatch logs/);
@@ -76,15 +76,15 @@ describe('CloudWatch Utils', () => {
         events: [
           { message: 'INVALID_LOG_FORMAT no json here' }, // Doesn't match pattern
           { message: 'Bot Protection Detection in Scraper: { invalid: json }' }, // Matches pattern but invalid JSON, logs warning
-          { message: `Bot Protection Detection in Scraper: ${JSON.stringify({ jobId: 'test', httpStatus: 403 })}` },
+          { message: `Bot Protection Detection in Scraper: ${JSON.stringify({ jobId: 'test', httpStatus: 403, url: 'https://example.com/test' })}` },
         ],
       });
 
       const onboardStartTime = Date.now() - 3600000; // 1 hour ago
-      const result = await queryBotProtectionLogs('test-job-id', mockContext, onboardStartTime);
+      const result = await queryBotProtectionLogs(mockContext, onboardStartTime);
 
       expect(result).to.have.lengthOf(1);
-      expect(result[0]).to.deep.equal({ jobId: 'test', httpStatus: 403 });
+      expect(result[0]).to.deep.equal({ jobId: 'test', httpStatus: 403, url: 'https://example.com/test' });
       // Two warnings: first message doesn't match pattern, second matches but has invalid JSON
       expect(mockContext.log.warn).to.have.been.calledTwice;
     });
@@ -133,7 +133,6 @@ describe('CloudWatch Utils', () => {
       cloudWatchStub.resolves({ events: [] });
 
       const result = await checkAndAlertBotProtection({
-        siteId: 'site-123',
         siteUrl: 'https://example.com',
         searchStartTime: Date.now() - 3600000,
         slackContext: { channelId: 'C123', threadTs: '123.456' },
@@ -177,7 +176,6 @@ describe('CloudWatch Utils', () => {
       try {
         // The function will execute line 174: const botIps = env.SPACECAT_BOT_IPS || '';
         const result = await checkAndAlertBotProtection({
-          siteId: 'site-123',
           siteUrl: 'https://example.com',
           searchStartTime: Date.now() - 3600000,
           slackContext: { channelId: 'C123', threadTs: '123.456' },
@@ -207,7 +205,6 @@ describe('CloudWatch Utils', () => {
       cloudWatchStub.rejects(new Error('CloudWatch error'));
 
       const result = await checkAndAlertBotProtection({
-        siteId: 'site-456',
         siteUrl: 'https://test.com',
         searchStartTime: Date.now() - 3600000,
         slackContext: { channelId: 'C456', threadTs: '456.789' },
@@ -217,6 +214,99 @@ describe('CloudWatch Utils', () => {
       // Should return null due to error (queryBotProtectionLogs returns [] on error)
       expect(result).to.be.null;
       expect(mockContext.log.error).to.have.been.calledWithMatch(/Failed to query CloudWatch logs/);
+    });
+
+    it('should filter out events with invalid URLs', async () => {
+      const mockSlackClient = {
+        postMessage: sinon.stub().resolves(),
+      };
+      const BaseSlackClientModule = await import('@adobe/spacecat-shared-slack-client');
+      const slackStub = sinon.stub(BaseSlackClientModule.BaseSlackClient, 'createFrom').returns(mockSlackClient);
+
+      const mockEvents = [
+        {
+          message: `Bot Protection Detection in Scraper: ${JSON.stringify({
+            url: 'https://example.com/page1',
+            httpStatus: 403,
+            blockerType: 'cloudflare',
+            confidence: 0.99,
+          })}`,
+        },
+        {
+          message: `Bot Protection Detection in Scraper: ${JSON.stringify({
+            url: 'not-a-valid-url',
+            httpStatus: 403,
+            blockerType: 'cloudflare',
+            confidence: 0.98,
+          })}`,
+        },
+        {
+          message: `Bot Protection Detection in Scraper: ${JSON.stringify({
+            url: 'https://other-site.com/page2',
+            httpStatus: 403,
+            blockerType: 'cloudflare',
+            confidence: 0.97,
+          })}`,
+        },
+      ];
+
+      cloudWatchStub.resolves({ events: mockEvents });
+      mockContext.env.SPACECAT_BOT_IPS = '1.2.3.4';
+
+      try {
+        const result = await checkAndAlertBotProtection({
+          siteUrl: 'https://example.com',
+          searchStartTime: Date.now() - 3600000,
+          slackContext: { channelId: 'C123', threadTs: '123.456' },
+          context: mockContext,
+        });
+
+        // Should only include the valid URL matching example.com
+        expect(result).to.not.be.null;
+        expect(result.totalCount).to.equal(1);
+        expect(result.urls[0].url).to.equal('https://example.com/page1');
+        // The filter should have excluded the invalid URL and the other site
+      } finally {
+        slackStub.restore();
+      }
+    });
+
+    it('should handle invalid siteUrl gracefully and use all events', async () => {
+      const mockSlackClient = {
+        postMessage: sinon.stub().resolves(),
+      };
+      const BaseSlackClientModule = await import('@adobe/spacecat-shared-slack-client');
+      const slackStub = sinon.stub(BaseSlackClientModule.BaseSlackClient, 'createFrom').returns(mockSlackClient);
+
+      const mockEvents = [
+        {
+          message: `Bot Protection Detection in Scraper: ${JSON.stringify({
+            url: 'https://example.com/page1',
+            httpStatus: 403,
+            blockerType: 'cloudflare',
+            confidence: 0.99,
+          })}`,
+        },
+      ];
+
+      cloudWatchStub.resolves({ events: mockEvents });
+      mockContext.env.SPACECAT_BOT_IPS = '1.2.3.4';
+
+      try {
+        const result = await checkAndAlertBotProtection({
+          siteUrl: 'not-a-valid-url',
+          searchStartTime: Date.now() - 3600000,
+          slackContext: { channelId: 'C123', threadTs: '123.456' },
+          context: mockContext,
+        });
+
+        // Should use all events as fallback
+        expect(result).to.not.be.null;
+        expect(result.totalCount).to.equal(1);
+        expect(mockContext.log.warn).to.have.been.calledWithMatch(/Failed to parse siteUrl/);
+      } finally {
+        slackStub.restore();
+      }
     });
   });
 

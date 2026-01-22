@@ -28,12 +28,11 @@ function createCloudWatchClient(env) {
 
 /**
  * Queries CloudWatch logs for bot protection errors from content scraper
- * @param {string|null} jobId - The scrape job ID for filtering (optional)
  * @param {object} context - Context with env and log
  * @param {number} onboardStartTime - Onboard start timestamp (ms) to limit search window
  * @returns {Promise<Array>} Array of bot protection events
  */
-export async function queryBotProtectionLogs(jobId, context, onboardStartTime) {
+export async function queryBotProtectionLogs(context, onboardStartTime) {
   const { env, log } = context;
 
   const cloudwatchClient = createCloudWatchClient(env);
@@ -45,24 +44,9 @@ export async function queryBotProtectionLogs(jobId, context, onboardStartTime) {
   const startTime = onboardStartTime - BUFFER_MS;
   const endTime = Date.now();
 
-  /* c8 ignore start */
-  log.info('[BOT-CHECK-TP] Querying CloudWatch logs:');
-  log.info(`[BOT-CHECK-TP]   Log Group: ${logGroupName}`);
-  log.info(`[BOT-CHECK-TP]   Job ID: ${jobId || 'N/A (searching all bot protection events)'}`);
-  log.info(`[BOT-CHECK-TP]   Time Range: ${new Date(startTime).toISOString()} to ${new Date(endTime).toISOString()}`);
-  log.info(`[BOT-CHECK-TP]   Onboard Start Time (raw): ${new Date(onboardStartTime).toISOString()}`);
-  log.info('[BOT-CHECK-TP]   Buffer Applied: 5 minutes');
-  /* c8 ignore stop */
-
   try {
-    // If jobId is provided, filter by both [BOT-BLOCKED] and jobId
-    // Otherwise, just filter by [BOT-BLOCKED]
-    const filterPattern = jobId ? `"[BOT-BLOCKED]" "${jobId}"` : '"[BOT-BLOCKED]"';
-
-    /* c8 ignore start */
-    log.info(`[BOT-CHECK-TP] Filter Pattern: ${filterPattern}`);
-    log.info('[BOT-CHECK-TP] Sending CloudWatch query...');
-    /* c8 ignore stop */
+    // Filter by [BOT-BLOCKED] pattern
+    const filterPattern = '"[BOT-BLOCKED]"';
 
     const command = new FilterLogEventsCommand({
       logGroupName,
@@ -77,24 +61,12 @@ export async function queryBotProtectionLogs(jobId, context, onboardStartTime) {
 
     const response = await cloudwatchClient.send(command);
 
-    /* c8 ignore start */
-    log.info(`[BOT-CHECK-TP] CloudWatch query completed. Events found: ${response.events?.length || 0}`);
-    /* c8 ignore stop */
-
     if (!response.events || response.events.length === 0) {
-      /* c8 ignore start */
-      log.info('[BOT-CHECK-TP] No bot protection events found in CloudWatch response');
-      /* c8 ignore stop */
-      log.debug(`No bot protection logs found${jobId ? ` for job ${jobId}` : ''} in time window`);
+      log.debug('No bot protection logs found in time window');
       return [];
     }
 
-    /* c8 ignore start */
-    log.info(`[BOT-CHECK-TP] Raw CloudWatch events count: ${response.events.length}`);
-    log.info(`[BOT-CHECK-TP] Sample event message: ${response.events[0]?.message?.substring(0, 200)}`);
-    /* c8 ignore stop */
-
-    log.info(`Found ${response.events.length} bot protection events in CloudWatch logs${jobId ? ` for job ${jobId}` : ''}`);
+    log.info(`Found ${response.events.length} bot protection events in CloudWatch logs`);
 
     // Parse log events
     const botProtectionEvents = response.events
@@ -106,7 +78,7 @@ export async function queryBotProtectionLogs(jobId, context, onboardStartTime) {
             return JSON.parse(messageMatch[1]);
           }
           /* c8 ignore start */
-          log.warn(`[BOT-CHECK-TP] Event message did not match expected pattern: ${event.message?.substring(0, 100)}`);
+          log.warn(`Event message did not match expected pattern: ${event.message?.substring(0, 100)}`);
           /* c8 ignore stop */
           return null;
         } catch (parseError) {
@@ -115,10 +87,6 @@ export async function queryBotProtectionLogs(jobId, context, onboardStartTime) {
         }
       })
       .filter((event) => event !== null);
-
-    /* c8 ignore start */
-    log.info(`[BOT-CHECK-TP] Successfully parsed ${botProtectionEvents.length} bot protection events`);
-    /* c8 ignore stop */
 
     return botProtectionEvents;
   } catch (error) {
@@ -170,11 +138,9 @@ export function aggregateBotProtectionStats(events) {
 
 /**
  * Checks for bot protection and sends Slack alert if detected
- * This is a convenience function that combines CloudWatch querying, stats aggregation,
- * and Slack alerting in one call to simplify handler logic.
+ * Filters by time range and site URL to identify bot protection events.
  *
  * @param {Object} params - Parameters object
- * @param {string|null} params.jobId - The scrape job ID (optional)
  * @param {string} params.siteUrl - The site URL
  * @param {number} params.searchStartTime - Search start timestamp (ms)
  * @param {Object} params.slackContext - Slack context for sending messages
@@ -182,7 +148,6 @@ export function aggregateBotProtectionStats(events) {
  * @returns {Promise<Object|null>} Bot protection stats if detected, null otherwise
  */
 export async function checkAndAlertBotProtection({
-  jobId = null,
   siteUrl,
   searchStartTime,
   slackContext,
@@ -190,30 +155,43 @@ export async function checkAndAlertBotProtection({
 }) {
   const { log, env } = context;
 
-  /* c8 ignore start */
-  log.info(`[BOT-CHECK-TP] Starting bot protection check for site ${siteUrl}${jobId ? ` (job ${jobId})` : ''}`);
-  log.info(`[BOT-CHECK-TP] Search start time: ${new Date(searchStartTime).toISOString()}`);
-  /* c8 ignore stop */
+  // Query CloudWatch logs using time range
+  const logEvents = await queryBotProtectionLogs(context, searchStartTime);
 
-  // Query CloudWatch logs using jobId (if available) and time range
-  const logEvents = await queryBotProtectionLogs(jobId, context, searchStartTime);
+  // Filter events by site URL
+  let filteredEvents = [];
+  if (logEvents.length > 0) {
+    try {
+      // Extract base domain from siteUrl (e.g., "abbvie.com" from "https://abbvie.com")
+      const siteUrlObj = new URL(siteUrl);
+      const siteHostname = siteUrlObj.hostname.toLowerCase();
 
-  if (logEvents.length === 0) {
-    /* c8 ignore start */
-    log.info(`[BOT-CHECK-TP] No bot protection detected for site ${siteUrl}${jobId ? ` (job ${jobId})` : ''}`);
-    /* c8 ignore stop */
+      filteredEvents = logEvents.filter((event) => {
+        try {
+          const eventUrlObj = new URL(event.url);
+          const eventHostname = eventUrlObj.hostname.toLowerCase();
+          // Match exact hostname or subdomain
+          return eventHostname === siteHostname || eventHostname.endsWith(`.${siteHostname}`);
+        } catch (urlError) {
+          return false;
+        }
+      });
+    } catch (urlError) {
+      // Fall back to using all events if URL parsing fails
+      log.warn(`Failed to parse siteUrl ${siteUrl}, using all events: ${urlError.message}`);
+      filteredEvents = logEvents;
+    }
+  }
+
+  if (filteredEvents.length === 0) {
     return null;
   }
 
-  /* c8 ignore start */
-  log.info(`[BOT-CHECK-TP] Bot protection detected! Processing ${logEvents.length} events`);
-  /* c8 ignore stop */
-
   // Aggregate statistics
-  const botProtectionStats = aggregateBotProtectionStats(logEvents);
+  const botProtectionStats = aggregateBotProtectionStats(filteredEvents);
   log.warn(
     `[BOT-BLOCKED] Bot protection detected: ${botProtectionStats.totalCount} URLs blocked `
-    + `(from CloudWatch logs) for site ${siteUrl}${jobId ? ` (job ${jobId})` : ''}`,
+    + `(from CloudWatch logs) for site ${siteUrl}`,
   );
 
   // Send Slack alert - import dynamically to avoid circular dependency
