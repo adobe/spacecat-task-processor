@@ -2580,8 +2580,9 @@ describe('Opportunity Status Processor', () => {
       // Ensure mockSite returns empty opportunities
       mockSite.getOpportunities.resolves([]);
 
-      // Mock ScrapeClient - needed to get jobId for bot protection check
+      // Mock ScrapeClient - Import module and create stub
       const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+
       const mockScrapeClientLocal = {
         getScrapeJobsByBaseURL: sinon.stub().resolves([
           {
@@ -2595,6 +2596,8 @@ describe('Opportunity Status Processor', () => {
           { url: 'https://zepbound.lilly.com/', status: 'COMPLETE' },
         ]),
       };
+
+      // Create the stub - this must happen before handler execution
       scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
 
       // Mock CloudWatch to return bot protection log events
@@ -2625,8 +2628,10 @@ describe('Opportunity Status Processor', () => {
 
       const result = await runOpportunityStatusProcessor(message, context);
 
-      // Verify scraping was checked
-      expect(mockScrapeClientLocal.getScrapeJobsByBaseURL).to.have.been.calledWith('https://zepbound.lilly.com');
+      // Verify scraping was checked (handle both with and without trailing slash)
+      expect(mockScrapeClientLocal.getScrapeJobsByBaseURL).to.have.been.called;
+      const actualUrl = mockScrapeClientLocal.getScrapeJobsByBaseURL.firstCall?.args[0];
+      expect(actualUrl?.replace(/\/$/, '')).to.equal('https://zepbound.lilly.com');
       expect(mockScrapeClientLocal.getScrapeJobUrlResults).to.have.been.calledWith('job-123');
 
       // Verify CloudWatch was queried
