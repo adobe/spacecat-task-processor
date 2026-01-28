@@ -11,17 +11,20 @@
  */
 
 import { ok } from '@adobe/spacecat-shared-http-utils';
-import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
 import RUMAPIClient from '@adobe/spacecat-shared-rum-api-client';
 import GoogleClient from '@adobe/spacecat-shared-google-client';
 import { ScrapeClient } from '@adobe/spacecat-shared-scrape-client';
 import { resolveCanonicalUrl } from '@adobe/spacecat-shared-utils';
+import {
+  checkAndAlertBotProtection,
+  checkAuditExecution,
+  getAuditFailureReason,
+} from '../../utils/cloudwatch-utils.js';
 import { say } from '../../utils/slack-utils.js';
 import { getOpportunitiesForAudit } from './audit-opportunity-map.js';
 import { OPPORTUNITY_DEPENDENCY_MAP } from './opportunity-dependency-map.js';
 
 const TASK_TYPE = 'opportunity-status-processor';
-const AUDIT_WORKER_LOG_GROUP = '/aws/lambda/spacecat-services--audit-worker';
 
 /**
  * Checks if RUM is available for a domain by attempting to get a domainkey
@@ -127,9 +130,10 @@ function getOpportunityTitle(opportunityType) {
  *
  * @param {string} baseUrl - The base URL to check
  * @param {object} context - The context object with env and log
+ * @param {number} [onboardStartTime] - Optional onboard start timestamp to filter jobs
  * @returns {Promise<{available: boolean, results: Array}>} Scraping availability and URL results
  */
-async function isScrapingAvailable(baseUrl, context) {
+async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
   const { log } = context;
 
   try {
@@ -144,15 +148,26 @@ async function isScrapingAvailable(baseUrl, context) {
     // Create scrape client
     const scrapeClient = ScrapeClient.createFrom(context);
 
-    // Get all scrape jobs for this baseUrl with 'default' processing type
-    const jobs = await scrapeClient.getScrapeJobsByBaseURL(baseUrl, 'default');
+    // Get all scrape jobs for this baseUrl (all processing types)
+    const jobs = await scrapeClient.getScrapeJobsByBaseURL(baseUrl);
 
     if (!jobs || jobs.length === 0) {
       return { available: false, results: [] };
     }
 
-    // Sort jobs by date (latest first) - assuming jobs have a timestamp field
-    const sortedJobs = jobs.sort((a, b) => {
+    // Filter jobs created after onboardStartTime
+    const filteredJobs = jobs.filter((job) => {
+      const jobTimestamp = new Date(job.startedAt || job.createdAt || 0).getTime();
+      return jobTimestamp >= onboardStartTime;
+    });
+    log.info(`Filtered ${filteredJobs.length} jobs created after onboardStartTime from ${jobs.length} total jobs`);
+
+    if (filteredJobs.length === 0) {
+      return { available: false, results: [] };
+    }
+
+    // Sort jobs by date (latest first)
+    const sortedJobs = filteredJobs.sort((a, b) => {
       const dateA = new Date(b.startedAt || b.createdAt || 0);
       const dateB = new Date(a.startedAt || a.createdAt || 0);
       return dateA - dateB;
@@ -177,7 +192,6 @@ async function isScrapingAvailable(baseUrl, context) {
       log.info(`Scraping check: No jobs with URL results found for ${baseUrl}`);
       return { available: false, results: [] };
     }
-
     // Count successful and failed scrapes
     const completedCount = urlResults.filter((result) => result.status === 'COMPLETE').length;
     const failedCount = urlResults.filter((result) => result.status === 'FAILED').length;
@@ -203,94 +217,11 @@ async function isScrapingAvailable(baseUrl, context) {
 }
 
 /**
- * Searches CloudWatch logs for audit execution
- * @param {string} auditType - The audit type to search for
- * @param {string} siteId - The site ID
- * @param {number} onboardStartTime - The onboarding start timestamp
- * @param {object} context - The context object
- * @returns {Promise<boolean>} Whether the audit was executed
+ * Checks scrape results for bot protection blocking
+ * @param {Array} scrapeResults - Array of scrape URL results
+ * @param {object} context - The context object with log
+ * @returns {object|null} Bot protection details if detected, null otherwise
  */
-async function checkAuditExecution(auditType, siteId, onboardStartTime, context) {
-  const { log, env } = context;
-  const logGroupName = AUDIT_WORKER_LOG_GROUP;
-
-  try {
-    const cloudWatchClient = new CloudWatchLogsClient({ region: env.AWS_REGION || 'us-east-1' });
-    const filterPattern = `"Received ${auditType} audit request for: ${siteId}"`;
-
-    // Add small buffer before onboardStartTime to account for clock skew and processing delays
-    // The audit log should be after onboardStartTime, but we add a small buffer for safety
-    const bufferMs = 60 * 1000; // 1 minute
-    const searchStartTime = onboardStartTime ? onboardStartTime - bufferMs : undefined;
-
-    const command = new FilterLogEventsCommand({
-      logGroupName,
-      filterPattern,
-      startTime: searchStartTime,
-      endTime: Date.now(),
-    });
-
-    const response = await cloudWatchClient.send(command);
-    const found = response.events && response.events.length > 0;
-
-    return found;
-  } catch (error) {
-    log.error(`Error checking audit execution for ${auditType}:`, error);
-    return false;
-  }
-}
-
-/**
- * Searches CloudWatch logs for audit failure reason
- * @param {string} auditType - The audit type to search for
- * @param {string} siteId - The site ID
- * @param {number} onboardStartTime - The onboarding start timestamp
- * @param {object} context - The context object
- * @returns {Promise<string|null>} The failure reason or null if not found
- */
-async function getAuditFailureReason(auditType, siteId, onboardStartTime, context) {
-  const { log, env } = context;
-  const logGroupName = AUDIT_WORKER_LOG_GROUP;
-
-  try {
-    const cloudWatchClient = new CloudWatchLogsClient({ region: env.AWS_REGION || 'us-east-1' });
-    const filterPattern = `"${auditType} audit for ${siteId} failed"`;
-
-    // Add small buffer before onboardStartTime to account for clock skew and processing delays
-    const bufferMs = 30 * 1000; // 30 seconds
-    const searchStartTime = onboardStartTime ? onboardStartTime - bufferMs : undefined;
-
-    const command = new FilterLogEventsCommand({
-      logGroupName,
-      filterPattern,
-      startTime: searchStartTime,
-      endTime: Date.now(),
-    });
-
-    const response = await cloudWatchClient.send(command);
-
-    if (response.events && response.events.length > 0) {
-      // Extract reason from the message
-      const { message } = response.events[0];
-      const reasonMatch = message.match(/Reason:\s*([^]+?)(?:\s+at\s|$)/);
-      if (reasonMatch && reasonMatch[1]) {
-        return reasonMatch[1].trim();
-      }
-      // Fallback: return entire message if "Reason:" pattern not found
-      return message.trim();
-    }
-
-    return null;
-  /* c8 ignore start */
-  // Defensive error handling: Difficult to test as requires CloudWatch API to throw errors.
-  // Would need complex AWS SDK mocking infrastructure for marginal coverage gain.
-  } catch (error) {
-    log.error(`Error checking audit failure for ${auditType}:`, error);
-    return null;
-  }
-  /* c8 ignore stop */
-}
-
 /**
  * Analyzes missing opportunities and determines the root cause
  * @param {Array<string>} missingOpportunities - Array of missing opportunity types
@@ -448,10 +379,10 @@ export async function runOpportunityStatusProcessor(message, context) {
       auditTypes.forEach((auditType) => {
         const opportunitiesForAudit = getOpportunitiesForAudit(auditType);
         if (opportunitiesForAudit.length === 0) {
-          // This audit type doesn't map to any known opportunities
           hasUnknownAuditTypes = true;
+        } else {
+          expectedOpportunityTypes = [...expectedOpportunityTypes, ...opportunitiesForAudit];
         }
-        expectedOpportunityTypes = [...expectedOpportunityTypes, ...opportunitiesForAudit];
       });
       // Remove duplicates
       expectedOpportunityTypes = [...new Set(expectedOpportunityTypes)];
@@ -485,8 +416,27 @@ export async function runOpportunityStatusProcessor(message, context) {
         }
 
         if (needsScraping) {
-          const scrapingCheck = await isScrapingAvailable(siteUrl, context);
+          // First, get scraping availability
+          const scrapingCheck = await isScrapingAvailable(siteUrl, context, onboardStartTime);
           scrapingAvailable = scrapingCheck.available;
+
+          // Check for bot protection using time range and site URL filtering
+          const botProtectionStats = await checkAndAlertBotProtection({
+            siteUrl,
+            searchStartTime: onboardStartTime,
+            slackContext,
+            context,
+          });
+
+          // Abort processing if bot protection detected
+          if (botProtectionStats && botProtectionStats.totalCount > 0) {
+            log.warn(`[BOT-BLOCKED] Bot protection blocking scrapes for ${siteUrl}`);
+            return ok({
+              message: `Bot protection detected for ${siteUrl}`,
+              botProtectionDetected: true,
+              blockedUrlCount: botProtectionStats.totalCount,
+            });
+          }
 
           // Send Slack notification with scraping statistics if available
           if (scrapingCheck.stats && slackContext) {
@@ -666,7 +616,7 @@ export async function runOpportunityStatusProcessor(message, context) {
       if (failedOpportunities.length > 0) {
         for (const failed of failedOpportunities) {
           // Use info icon for successful audits with zero suggestions
-          const emoji = failed.reason.includes('opportunity found with zero suggestions') ? ' :information_source:' : ' :x:';
+          const emoji = failed.reason.includes('found no suggestions') ? ' :information_source:' : ' :x:';
           auditErrors.push(`*${failed.title}*: ${failed.reason}${emoji}`);
         }
       }
