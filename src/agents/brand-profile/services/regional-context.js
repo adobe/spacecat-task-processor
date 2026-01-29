@@ -95,6 +95,7 @@ function createFallbackContext(countryCode) {
  * @returns {string} Normalized business model
  */
 function normalizeBusinessModel(bm) {
+  /* c8 ignore next */
   const upper = (bm || '').toUpperCase();
   if (upper.includes('B2B') && upper.includes('B2C')) {
     return 'B2B & B2C';

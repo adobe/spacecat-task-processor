@@ -143,6 +143,296 @@ describe('services/persona-inference', () => {
 
       expect(result.personas).to.have.length(1);
     });
+
+    it('retries on parse error and succeeds on second attempt', async () => {
+      gpt.fetchChatCompletion
+        .onFirstCall().resolves({ choices: [{ message: { content: 'invalid' } }] })
+        .onSecondCall().resolves({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                personas: [{ name: 'RetryPersona', role: 'Role', needs: 'Needs' }],
+              }),
+            },
+          }],
+        });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/persona-inference.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferPersonas({
+        brandName: 'Test',
+        industry: 'Tech',
+      }, gpt, log);
+
+      expect(result.personas).to.have.length(1);
+      expect(result.personas[0].name).to.equal('RetryPersona');
+      expect(log.warn).to.have.been.called;
+    });
+
+    it('returns fallback after all retries fail', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{ message: { content: 'always-bad-json' } }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/persona-inference.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferPersonas({
+        brandName: 'Test',
+        industry: 'Tech',
+      }, gpt, log);
+
+      expect(result.personas).to.have.length(1);
+      expect(result.personas[0].name).to.equal('General Consumer');
+      expect(result.source).to.equal('fallback');
+      expect(log.error).to.have.been.called;
+    });
+
+    it('handles empty personas array from LLM', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              personas: [],
+            }),
+          },
+        }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/persona-inference.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferPersonas({
+        brandName: 'Test',
+        industry: 'Tech',
+      }, gpt, log);
+
+      expect(result.personas).to.deep.equal([]);
+      expect(result.source).to.equal('llm_inferred');
+    });
+
+    it('handles null personas from LLM', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              personas: null,
+            }),
+          },
+        }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/persona-inference.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferPersonas({
+        brandName: 'Test',
+        industry: 'Tech',
+      }, gpt, log);
+
+      expect(result.personas).to.deep.equal([]);
+    });
+
+    it('uses default values for missing optional params', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              personas: [{ name: 'Persona1' }],
+            }),
+          },
+        }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/persona-inference.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferPersonas({
+        brandName: 'Test',
+        industry: null,
+        targetAudience: '',
+        competitors: null,
+        countryCode: '',
+      }, gpt, log);
+
+      expect(result.personas).to.have.length(1);
+    });
+
+    it('handles competitors with objects in array', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              personas: [{ name: 'Persona' }],
+            }),
+          },
+        }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/persona-inference.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferPersonas({
+        brandName: 'Test',
+        industry: 'Tech',
+        competitors: [
+          { name: 'Comp1', why_competitor: 'Reason1' },
+          { name: 'Comp2' },
+        ],
+      }, gpt, log);
+
+      expect(result.personas).to.have.length(1);
+    });
+
+    it('handles competitor objects without name property (uses object itself)', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              personas: [{ name: 'Persona' }],
+            }),
+          },
+        }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/persona-inference.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      // Pass competitors as objects without name property - should fallback to using the object
+      const result = await mod.inferPersonas({
+        brandName: 'Test',
+        industry: 'Tech',
+        competitors: [
+          { why_competitor: 'Reason but no name' },
+          { name: null, why_competitor: 'Name is null' },
+        ],
+      }, gpt, log);
+
+      expect(result.personas).to.have.length(1);
+    });
+
+    it('handles LLM response with empty choices array', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/persona-inference.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferPersonas({
+        brandName: 'Test',
+        industry: 'Tech',
+      }, gpt, log);
+
+      // Should use fallback '{}' and return empty personas
+      expect(result.personas).to.deep.equal([]);
+      expect(result.source).to.equal('llm_inferred');
+    });
+
+    it('handles LLM response with null message content', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{ message: { content: null } }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/persona-inference.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferPersonas({
+        brandName: 'Test',
+        industry: 'Tech',
+      }, gpt, log);
+
+      // Should use fallback '{}' and return empty personas
+      expect(result.personas).to.deep.equal([]);
+    });
+
+    it('handles personas with missing name field (uses Customer)', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              personas: [
+                { role: 'Role only', needs: 'Needs', unbranded_angle: 'angle' },
+                { name: null, role: 'Another role' },
+              ],
+            }),
+          },
+        }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/persona-inference.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferPersonas({
+        brandName: 'Test',
+        industry: 'Tech',
+      }, gpt, log);
+
+      expect(result.personas).to.have.length(2);
+      expect(result.personas[0].name).to.equal('Customer');
+      expect(result.personas[1].name).to.equal('Customer');
+    });
   });
 
   describe('formatPersonasForPrompt', () => {
@@ -187,6 +477,45 @@ describe('services/persona-inference', () => {
       const lines = result.split('\n');
 
       expect(lines).to.have.length(5);
+    });
+
+    it('handles personas without unbranded_angle', async () => {
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/persona-inference.js',
+        {},
+      );
+
+      const result = mod.formatPersonasForPrompt([
+        { name: 'Test Persona' },
+      ]);
+
+      expect(result).to.include('- Test Persona');
+    });
+
+    it('handles personas with missing name (uses Customer)', async () => {
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/persona-inference.js',
+        {},
+      );
+
+      const result = mod.formatPersonasForPrompt([
+        { unbranded_angle: 'angle only' },
+        { name: null, unbranded_angle: 'name is null' },
+      ]);
+
+      expect(result).to.include('- Customer: angle only');
+      expect(result).to.include('- Customer: name is null');
+    });
+
+    it('handles non-array input', async () => {
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/persona-inference.js',
+        {},
+      );
+
+      const result = mod.formatPersonasForPrompt(null);
+
+      expect(result).to.equal('General consumers researching options');
     });
   });
 

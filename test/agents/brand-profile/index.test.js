@@ -267,6 +267,270 @@ describe('agents/brand-profile', () => {
     expect(result.products.items).to.have.length(1);
   });
 
+  it('run() uses sitemapUrl when provided for product extraction', async () => {
+    const fetchChatCompletion = sandbox.stub().resolves({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            main_profile: { brand_name: 'TestBrand' },
+            competitive_context: { industry: 'Tech' },
+          }),
+        },
+      }],
+    });
+    const createFrom = sandbox.stub().returns({ fetchChatCompletion });
+
+    const mockProductService = {
+      extractFromSitemap: sandbox.stub().resolves({
+        products: [{ name: 'SitemapProduct' }],
+        services: [],
+        sub_brands: [],
+        discontinued: [],
+        metadata: { source: 'sitemap', count: 1 },
+      }),
+      extractProducts: sandbox.stub().resolves({
+        products: [],
+        metadata: {},
+      }),
+    };
+
+    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
+      '@adobe/spacecat-shared-gpt-client': {
+        AzureOpenAIClient: { createFrom },
+      },
+      '../../../src/agents/base.js': {
+        readPromptFile: sandbox.stub().returns('PROMPT'),
+        renderTemplate: sandbox.stub().returns('RENDERED'),
+      },
+      '../../../src/agents/brand-profile/services/regional-context.js': {
+        createRegionalContextService: () => ({
+          inferRegionFromUrl: sandbox.stub().resolves({ country_code: 'US' }),
+          inferRegionalContext: sandbox.stub().resolves({ languages: ['en-US'] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/competitor-inference.js': {
+        createCompetitorInferenceService: () => ({
+          inferCompetitors: sandbox.stub().resolves({ competitors: [] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/persona-inference.js': {
+        createPersonaInferenceService: () => ({
+          inferPersonas: sandbox.stub().resolves({ personas: [] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/product-extractor.js': {
+        createProductExtractorService: () => mockProductService,
+      },
+      '../../../src/agents/brand-profile/services/wikipedia.js': {
+        createWikipediaService: () => ({
+          fetchSummary: sandbox.stub().resolves(null),
+          fetchFullText: sandbox.stub().resolves(null),
+        }),
+      },
+    });
+
+    const result = await mod.default.run(
+      {
+        baseURL: 'https://example.com',
+        params: {
+          enhance: true,
+          sitemapUrl: 'https://example.com/sitemap.xml',
+        },
+      },
+      env,
+      log,
+    );
+
+    // extractFromSitemap should be called instead of extractProducts
+    expect(mockProductService.extractFromSitemap).to.have.been.calledWith(
+      'https://example.com/sitemap.xml',
+      'TestBrand',
+    );
+    expect(mockProductService.extractProducts).to.not.have.been.called;
+    expect(result.products.items).to.have.length(1);
+    expect(result.products.items[0].name).to.equal('SitemapProduct');
+  });
+
+  it('run() extracts brand name from competitive_context when main_profile missing', async () => {
+    const fetchChatCompletion = sandbox.stub().resolves({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            main_profile: {},
+            competitive_context: { brand_name: 'ContextBrand', industry: 'Tech' },
+          }),
+        },
+      }],
+    });
+    const createFrom = sandbox.stub().returns({ fetchChatCompletion });
+
+    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
+      '@adobe/spacecat-shared-gpt-client': {
+        AzureOpenAIClient: { createFrom },
+      },
+      '../../../src/agents/base.js': {
+        readPromptFile: sandbox.stub().returns('PROMPT'),
+        renderTemplate: sandbox.stub().returns('RENDERED'),
+      },
+      '../../../src/agents/brand-profile/services/regional-context.js': {
+        createRegionalContextService: () => ({
+          inferRegionFromUrl: sandbox.stub().resolves({ country_code: 'US' }),
+          inferRegionalContext: sandbox.stub().resolves({ languages: ['en-US'] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/competitor-inference.js': {
+        createCompetitorInferenceService: () => ({
+          inferCompetitors: sandbox.stub().resolves({ competitors: [] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/persona-inference.js': {
+        createPersonaInferenceService: () => ({
+          inferPersonas: sandbox.stub().resolves({ personas: [] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/product-extractor.js': {
+        createProductExtractorService: () => ({
+          extractProducts: sandbox.stub().resolves({ products: [], metadata: {} }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/wikipedia.js': {
+        createWikipediaService: () => ({
+          fetchSummary: sandbox.stub().resolves(null),
+          fetchFullText: sandbox.stub().resolves(null),
+        }),
+      },
+    });
+
+    await mod.default.run(
+      { baseURL: 'https://example.com', params: { enhance: true } },
+      env,
+      log,
+    );
+
+    // The log should show "ContextBrand" as the extracted brand name
+    expect(log.info).to.have.been.calledWithMatch('ContextBrand');
+  });
+
+  it('run() falls back to domain name when no brand name in profile', async () => {
+    const fetchChatCompletion = sandbox.stub().resolves({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            main_profile: {},
+            competitive_context: { industry: 'Tech' },
+          }),
+        },
+      }],
+    });
+    const createFrom = sandbox.stub().returns({ fetchChatCompletion });
+
+    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
+      '@adobe/spacecat-shared-gpt-client': {
+        AzureOpenAIClient: { createFrom },
+      },
+      '../../../src/agents/base.js': {
+        readPromptFile: sandbox.stub().returns('PROMPT'),
+        renderTemplate: sandbox.stub().returns('RENDERED'),
+      },
+      '../../../src/agents/brand-profile/services/regional-context.js': {
+        createRegionalContextService: () => ({
+          inferRegionFromUrl: sandbox.stub().resolves({ country_code: 'US' }),
+          inferRegionalContext: sandbox.stub().resolves({ languages: ['en-US'] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/competitor-inference.js': {
+        createCompetitorInferenceService: () => ({
+          inferCompetitors: sandbox.stub().resolves({ competitors: [] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/persona-inference.js': {
+        createPersonaInferenceService: () => ({
+          inferPersonas: sandbox.stub().resolves({ personas: [] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/product-extractor.js': {
+        createProductExtractorService: () => ({
+          extractProducts: sandbox.stub().resolves({ products: [], metadata: {} }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/wikipedia.js': {
+        createWikipediaService: () => ({
+          fetchSummary: sandbox.stub().resolves(null),
+          fetchFullText: sandbox.stub().resolves(null),
+        }),
+      },
+    });
+
+    await mod.default.run(
+      { baseURL: 'https://testcompany.com', params: { enhance: true } },
+      env,
+      log,
+    );
+
+    // Should extract "Testcompany" from the domain
+    expect(log.info).to.have.been.calledWithMatch('Testcompany');
+  });
+
+  it('run() uses "Unknown Brand" when URL has only short domain parts', async () => {
+    const fetchChatCompletion = sandbox.stub().resolves({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            main_profile: {},
+            competitive_context: { industry: 'Tech' },
+          }),
+        },
+      }],
+    });
+    const createFrom = sandbox.stub().returns({ fetchChatCompletion });
+
+    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
+      '@adobe/spacecat-shared-gpt-client': {
+        AzureOpenAIClient: { createFrom },
+      },
+      '../../../src/agents/base.js': {
+        readPromptFile: sandbox.stub().returns('PROMPT'),
+        renderTemplate: sandbox.stub().returns('RENDERED'),
+      },
+      '../../../src/agents/brand-profile/services/regional-context.js': {
+        createRegionalContextService: () => ({
+          inferRegionFromUrl: sandbox.stub().resolves({ country_code: 'US' }),
+          inferRegionalContext: sandbox.stub().resolves({ languages: ['en-US'] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/competitor-inference.js': {
+        createCompetitorInferenceService: () => ({
+          inferCompetitors: sandbox.stub().resolves({ competitors: [] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/persona-inference.js': {
+        createPersonaInferenceService: () => ({
+          inferPersonas: sandbox.stub().resolves({ personas: [] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/product-extractor.js': {
+        createProductExtractorService: () => ({
+          extractProducts: sandbox.stub().resolves({ products: [], metadata: {} }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/wikipedia.js': {
+        createWikipediaService: () => ({
+          fetchSummary: sandbox.stub().resolves(null),
+          fetchFullText: sandbox.stub().resolves(null),
+        }),
+      },
+    });
+
+    await mod.default.run(
+      { baseURL: 'https://www.ab.co', params: { enhance: true } },
+      env,
+      log,
+    );
+
+    // Should use "Unknown Brand" since all domain parts are short
+    expect(log.info).to.have.been.calledWithMatch('Unknown Brand');
+  });
+
   it('run() uses LLMO competitors when provided', async () => {
     const fetchChatCompletion = sandbox.stub().resolves({
       choices: [{

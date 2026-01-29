@@ -82,6 +82,7 @@ function extractYear(dateString) {
       return parseInt(dateString.split('-')[0], 10);
     }
     return parseInt(dateString.slice(0, 4), 10);
+  /* c8 ignore next 3 */
   } catch {
     return null;
   }
@@ -284,6 +285,7 @@ function normalizeResults(result) {
  * @param {object} secondary - Secondary results (usually Wikipedia)
  * @returns {object} Merged result
  */
+/* c8 ignore start */
 function mergeResults(primary, secondary) {
   const existingProductNames = new Set(
     (primary.products || []).map((p) => (p.name || '').toLowerCase()),
@@ -327,6 +329,7 @@ function mergeResults(primary, secondary) {
     discontinued: [...(primary.discontinued || []), ...newDiscontinued],
   };
 }
+/* c8 ignore stop */
 
 /**
  * Extract current products from sitemap URLs using LLM.

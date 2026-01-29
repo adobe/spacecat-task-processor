@@ -131,6 +131,256 @@ describe('services/competitor-inference', () => {
 
       expect(result.competitors).to.have.length(1);
     });
+
+    it('retries on parse error and succeeds on second attempt', async () => {
+      gpt.fetchChatCompletion
+        .onFirstCall().resolves({ choices: [{ message: { content: 'invalid-json' } }] })
+        .onSecondCall().resolves({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                competitors: [{ name: 'RetryCompetitor', why_competitor: 'Reason' }],
+              }),
+            },
+          }],
+        });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/competitor-inference.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferCompetitors({
+        brandName: 'Test',
+        industry: 'Tech',
+      }, gpt, log);
+
+      expect(result.competitors).to.have.length(1);
+      expect(result.competitors[0].name).to.equal('RetryCompetitor');
+      expect(log.warn).to.have.been.called;
+    });
+
+    it('returns fallback after all retries fail', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{ message: { content: 'bad-json' } }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/competitor-inference.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferCompetitors({
+        brandName: 'Test',
+        industry: 'Tech',
+      }, gpt, log);
+
+      expect(result.competitors).to.deep.equal([]);
+      expect(result.source).to.equal('fallback_empty');
+      expect(log.error).to.have.been.called;
+    });
+
+    it('handles empty competitors array from LLM', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              competitors: [],
+              market_context: 'No direct competitors found',
+            }),
+          },
+        }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/competitor-inference.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferCompetitors({
+        brandName: 'Test',
+        industry: 'Niche',
+      }, gpt, log);
+
+      expect(result.competitors).to.deep.equal([]);
+      expect(result.source).to.equal('llm_inferred');
+    });
+
+    it('handles null competitors from LLM', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              competitors: null,
+            }),
+          },
+        }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/competitor-inference.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferCompetitors({
+        brandName: 'Test',
+        industry: 'Tech',
+      }, gpt, log);
+
+      expect(result.competitors).to.deep.equal([]);
+    });
+
+    it('uses default values for missing optional params', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              competitors: [{ name: 'Comp1' }],
+            }),
+          },
+        }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/competitor-inference.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferCompetitors({
+        brandName: 'Test',
+        industry: null,
+        countryCode: '',
+        wikipediaSummary: '',
+      }, gpt, log);
+
+      expect(result.competitors).to.have.length(1);
+    });
+
+    it('handles LLM response with empty choices array', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/competitor-inference.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferCompetitors({
+        brandName: 'Test',
+        industry: 'Tech',
+      }, gpt, log);
+
+      // Should use fallback '{}' and return empty competitors
+      expect(result.competitors).to.deep.equal([]);
+    });
+
+    it('handles competitors with missing name (uses Unknown)', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              competitors: [
+                { why_competitor: 'Reason but no name' },
+                { name: null, why_competitor: 'Another reason' },
+              ],
+            }),
+          },
+        }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/competitor-inference.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferCompetitors({
+        brandName: 'Test',
+        industry: 'Tech',
+      }, gpt, log);
+
+      expect(result.competitors).to.have.length(2);
+      expect(result.competitors[0].name).to.equal('Unknown');
+      expect(result.competitors[1].name).to.equal('Unknown');
+    });
+
+    it('handles LLM response with null message content', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{ message: { content: null } }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/competitor-inference.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferCompetitors({
+        brandName: 'Test',
+        industry: 'Tech',
+      }, gpt, log);
+
+      // Should use fallback '{}' and return empty competitors
+      expect(result.competitors).to.deep.equal([]);
+    });
+  });
+
+  describe('formatCompetitorsForPrompt edge cases', () => {
+    it('handles competitor with missing name in format', async () => {
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/competitor-inference.js',
+        {},
+      );
+
+      const result = mod.formatCompetitorsForPrompt([
+        { why_competitor: 'Reason' },
+        { name: null },
+      ]);
+
+      expect(result).to.include('Unknown');
+    });
+
+    it('handles non-array input', async () => {
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/competitor-inference.js',
+        {},
+      );
+
+      const result = mod.formatCompetitorsForPrompt(null);
+
+      expect(result).to.equal('No competitors identified');
+    });
   });
 
   describe('formatCompetitorsForPrompt', () => {

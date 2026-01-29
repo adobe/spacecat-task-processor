@@ -117,6 +117,75 @@ describe('services/regional-context', () => {
 
       expect(result.country_code).to.equal('US');
     });
+
+    it('handles LLM response with empty choices array', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/regional-context.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferRegionFromUrl('https://example.com', gpt, log);
+
+      // Should use fallback '{}' and default to US
+      expect(result.country_code).to.equal('US');
+    });
+
+    it('handles LLM response with null message content', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{ message: { content: null } }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/regional-context.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferRegionFromUrl('https://example.com', gpt, log);
+
+      // Should use fallback '{}' and default to US
+      expect(result.country_code).to.equal('US');
+    });
+
+    it('handles missing confidence, detection_method, and reasoning', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              country_code: 'DE',
+              // Missing: confidence, detection_method, reasoning
+            }),
+          },
+        }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/regional-context.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferRegionFromUrl('https://example.de', gpt, log);
+
+      expect(result.country_code).to.equal('DE');
+      expect(result.confidence).to.equal('medium');
+      expect(result.detection_method).to.equal('unknown');
+      expect(result.reasoning).to.equal('');
+    });
   });
 
   describe('inferRegionalContext', () => {
@@ -216,6 +285,417 @@ describe('services/regional-context', () => {
 
       expect(result.business_model).to.equal('B2B');
     });
+
+    it('normalizes null business model to B2C', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              languages: ['en-US'],
+              business_model: null, // Null value
+            }),
+          },
+        }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/regional-context.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferRegionalContext({
+        countryCode: 'US',
+        industry: 'Tech',
+        brandName: 'Test',
+      }, gpt, log);
+
+      expect(result.business_model).to.equal('B2C');
+    });
+
+    it('uses default values when industry and brandName are null', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              languages: ['en-US'],
+            }),
+          },
+        }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/regional-context.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferRegionalContext({
+        countryCode: 'US',
+        industry: null, // Null industry
+        brandName: null, // Null brandName
+      }, gpt, log);
+
+      expect(result.languages).to.deep.equal(['en-US']);
+    });
+
+    it('uses fallback languages when LLM returns empty', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              languages: [],
+              primary_language: null,
+            }),
+          },
+        }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/regional-context.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferRegionalContext({
+        countryCode: 'CH',
+        industry: 'Insurance',
+        brandName: 'Test',
+      }, gpt, log);
+
+      expect(result.languages).to.deep.equal(['de-CH', 'fr-CH', 'it-CH']);
+      expect(result.primary_language).to.equal('de-CH');
+    });
+
+    it('uses default en-US for unknown country code when LLM returns empty languages', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              languages: [], // Empty languages
+              // Use unknown country code that's not in COUNTRY_LANGUAGES
+            }),
+          },
+        }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/regional-context.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      // Use a country code that's NOT in COUNTRY_LANGUAGES (e.g., 'ZZ' or 'XX')
+      const result = await mod.inferRegionalContext({
+        countryCode: 'ZZ', // Unknown country code
+        industry: 'Tech',
+        brandName: 'Test',
+      }, gpt, log);
+
+      // Should fall back to default ['en-US'] when country not in map
+      expect(result.languages).to.deep.equal(['en-US']);
+    });
+
+    it('uses fallback currency when not provided', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              languages: ['en-GB'],
+              currency: null,
+            }),
+          },
+        }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/regional-context.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferRegionalContext({
+        countryCode: 'GB',
+        industry: 'Finance',
+        brandName: 'Test',
+      }, gpt, log);
+
+      expect(result.currency).to.equal('GBP');
+    });
+
+    it('handles missing regulatory context and market specifics', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              languages: ['en-US'],
+            }),
+          },
+        }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/regional-context.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferRegionalContext({
+        countryCode: 'US',
+        industry: 'Tech',
+        brandName: 'Test',
+      }, gpt, log);
+
+      expect(result.regulatory_context).to.equal('');
+      expect(result.market_specifics).to.equal('');
+      expect(result.key_terminology).to.deep.equal({});
+    });
+
+    it('handles missing business model', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              languages: ['en-US'],
+              business_model: null,
+            }),
+          },
+        }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/regional-context.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferRegionalContext({
+        countryCode: 'US',
+        industry: 'Tech',
+        brandName: 'Test',
+      }, gpt, log);
+
+      expect(result.business_model).to.equal('B2C');
+    });
+
+    it('uses default country code when null', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              languages: ['en-US'],
+            }),
+          },
+        }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/regional-context.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferRegionalContext({
+        countryCode: null,
+        industry: 'Tech',
+        brandName: 'Test',
+      }, gpt, log);
+
+      expect(result).to.have.property('languages');
+    });
+
+    it('retries on parse error and eventually returns fallback', async () => {
+      gpt.fetchChatCompletion
+        .onFirstCall()
+        .resolves({ choices: [{ message: { content: 'bad-json' } }] })
+        .onSecondCall()
+        .resolves({ choices: [{ message: { content: 'still-bad' } }] })
+        .onThirdCall()
+        .resolves({ choices: [{ message: { content: 'still-bad' } }] });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/regional-context.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferRegionalContext({
+        countryCode: 'JP',
+        industry: 'Tech',
+        brandName: 'Test',
+      }, gpt, log);
+
+      expect(result.languages).to.deep.equal(['ja-JP']);
+      expect(log.warn).to.have.been.called;
+    });
+
+    it('uses fallback for unknown country code', async () => {
+      gpt.fetchChatCompletion
+        .resolves({ choices: [{ message: { content: 'invalid-json' } }] })
+        .onSecondCall()
+        .resolves({ choices: [{ message: { content: 'still-bad' } }] })
+        .onThirdCall()
+        .resolves({ choices: [{ message: { content: 'still-bad' } }] });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/regional-context.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      // Use an unknown country code that's not in COUNTRY_LANGUAGES
+      const result = await mod.inferRegionalContext({
+        countryCode: 'ZZ',
+        industry: 'Tech',
+        brandName: 'Test',
+      }, gpt, log);
+
+      // Should use fallback ['en-US'] when country not found
+      expect(result.languages).to.deep.equal(['en-US']);
+    });
+
+    it('handles LLM response with empty choices array', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/regional-context.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferRegionalContext({
+        countryCode: 'US',
+        industry: 'Tech',
+        brandName: 'Test',
+      }, gpt, log);
+
+      // Should use fallback '{}' and return with default values
+      expect(result.languages).to.deep.equal(['en-US']);
+    });
+
+    it('handles LLM response with null message content', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{ message: { content: null } }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/regional-context.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferRegionalContext({
+        countryCode: 'US',
+        industry: 'Tech',
+        brandName: 'Test',
+      }, gpt, log);
+
+      // Should use fallback '{}' and return with default values
+      expect(result.languages).to.deep.equal(['en-US']);
+    });
+
+    it('handles missing primary_language by using first language', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              languages: ['de-DE', 'en-DE'],
+              primary_language: null, // Missing
+            }),
+          },
+        }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/regional-context.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferRegionalContext({
+        countryCode: 'DE',
+        industry: 'Tech',
+        brandName: 'Test',
+      }, gpt, log);
+
+      // primary_language should be first language
+      expect(result.primary_language).to.equal('de-DE');
+    });
+
+    it('handles key_terminology with non-array values', async () => {
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              languages: ['en-US'],
+              key_terminology: {
+                en: ['term1', 'term2'],
+                de: 'not-an-array', // Invalid, should be array
+                fr: null, // Null
+              },
+            }),
+          },
+        }],
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/regional-context.js',
+        {
+          '@adobe/spacecat-shared-gpt-client': {
+            AzureOpenAIClient: { createFrom: () => gpt },
+          },
+        },
+      );
+
+      const result = await mod.inferRegionalContext({
+        countryCode: 'US',
+        industry: 'Tech',
+        brandName: 'Test',
+      }, gpt, log);
+
+      expect(result.key_terminology).to.have.property('en');
+    });
   });
 
   describe('formatTerminologyForPrompt', () => {
@@ -244,6 +724,47 @@ describe('services/regional-context', () => {
       const result = mod.formatTerminologyForPrompt({}, '');
 
       expect(result).to.equal('No specific regional terminology available.');
+    });
+
+    it('handles null terminology', async () => {
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/regional-context.js',
+        {},
+      );
+
+      const result = mod.formatTerminologyForPrompt(null, 'Some context');
+
+      expect(result).to.include('Regulatory Context: Some context');
+    });
+
+    it('handles terminology with empty arrays', async () => {
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/regional-context.js',
+        {},
+      );
+
+      const result = mod.formatTerminologyForPrompt(
+        { de: [], fr: [] },
+        '',
+      );
+
+      // The header is added but no terms, so just the header line
+      expect(result).to.include('Industry Terminology');
+    });
+
+    it('truncates long terminology lists', async () => {
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/regional-context.js',
+        {},
+      );
+
+      const longTerms = Array.from({ length: 20 }, (_, i) => `term${i}`);
+      const result = mod.formatTerminologyForPrompt({ de: longTerms }, '');
+
+      // Should only include first 15 terms
+      expect(result).to.include('term0');
+      expect(result).to.include('term14');
+      expect(result).not.to.include('term15');
     });
   });
 

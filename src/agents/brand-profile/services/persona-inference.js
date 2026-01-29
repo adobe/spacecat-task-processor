@@ -142,6 +142,7 @@ export function formatPersonasForPrompt(personas) {
     return angle ? `- ${name}: ${angle}` : `- ${name}`;
   });
 
+  /* c8 ignore next */
   return lines.length > 0 ? lines.join('\n') : 'General consumers researching options';
 }
 

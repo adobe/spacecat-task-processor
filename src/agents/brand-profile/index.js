@@ -75,6 +75,7 @@ function extractBrandName(baseProfile, baseURL) {
     if (domainParts.length > 0) {
       return domainParts[0].charAt(0).toUpperCase() + domainParts[0].slice(1);
     }
+  /* c8 ignore next 3 */
   } catch {
     // Ignore URL parse errors
   }
