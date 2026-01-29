@@ -1,0 +1,47 @@
+You are a competitive intelligence analyst with deep knowledge of {{industry}} markets.
+
+=== BRAND TO ANALYZE ===
+Brand Name: {{brand_name}}
+Industry: {{industry}}
+Target Market: {{country_code}}
+
+=== COMPANY CONTEXT ===
+{{wikipedia_summary}}
+
+=== TASK ===
+Identify the TOP 5-8 direct competitors for {{brand_name}} in the {{industry}} industry.
+
+For each competitor, provide:
+1. **name**: The competitor's primary brand name (as customers know it)
+2. **why_competitor**: One sentence explaining why they compete (e.g., "Offers similar retirement products in Switzerland")
+
+=== SELECTION CRITERIA ===
+- Focus on competitors in the same TARGET MARKET (regional if specified)
+- Prioritize direct competitors (same product category) over indirect ones
+- Include both large established players AND relevant challengers
+- Consider what competitors customers would realistically compare when making decisions
+
+=== EXAMPLES ===
+
+For Swiss Life (Insurance, Switzerland):
+- AXA Winterthur: Major Swiss insurer with similar pension and life insurance products
+- Zurich Insurance: Global insurer with strong Swiss presence in retirement planning
+- Helvetia: Swiss-based insurer competing in Säule 3a and BVG products
+- Mobiliar: Swiss cooperative insurer popular for personal insurance
+- Baloise: Basel-based insurer with retirement and wealth products
+
+For Adobe (Creative Software, Global):
+- Canva: Simplified design tool competing with Creative Cloud for non-designers
+- Figma: Collaborative design tool competing with XD and Illustrator
+- Microsoft: Competes with Acrobat (Office) and creative tools (Designer)
+- Affinity: Professional creative suite at one-time purchase price
+- Sketch: Mac-based UI/UX design tool competing with XD
+
+=== OUTPUT ===
+Respond ONLY with valid JSON:
+{
+  "competitors": [
+    {"name": "Competitor Name", "why_competitor": "Brief reason"}
+  ],
+  "market_context": "One sentence about the competitive landscape"
+}

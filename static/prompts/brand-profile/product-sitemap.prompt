@@ -1,0 +1,34 @@
+Analyze these sitemap URLs from {{brand_name}}'s official website and extract the CURRENT product lineup.
+
+=== SITEMAP URLs ===
+{{urls_text}}
+
+=== TASK ===
+Based ONLY on these URLs, identify:
+1. Current products/models (only products with active product pages, not "previous-year" or "legacy")
+2. Group them by category (infer from URL structure)
+3. Include variants/trims if clearly indicated in URLs
+
+=== RULES ===
+- ONLY include products that have current (non-archived) product pages
+- URLs with "/previous-year/", "/legacy/", "/archive/" indicate older models - mark as discontinued
+- Be precise - extract product names exactly as they appear in URLs
+- If URL shows "/silverado/1500" that's "Silverado 1500", not just "Silverado"
+- Include variants separately (e.g., "Silverado EV" is different from "Silverado 1500")
+- Infer categories from URL path segments (e.g., /trucks/, /suvs/, /sedans/)
+
+=== OUTPUT (JSON only) ===
+{
+  "products": [
+    {"name": "Product Name", "category": "Category inferred from URL", "variants": ["Variant1", "Variant2"]}
+  ],
+  "services": [
+    {"name": "Service Name", "category": "Category if applicable"}
+  ],
+  "sub_brands": ["Sub-brand 1", "Sub-brand 2"],
+  "discontinued": [
+    {"name": "Old Product", "category": "Category if known"}
+  ],
+  "confidence": "high|medium|low",
+  "notes": "any important observations about the extraction"
+}
