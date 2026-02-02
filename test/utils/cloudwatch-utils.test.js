@@ -75,8 +75,8 @@ describe('CloudWatch Utils', () => {
       cloudWatchStub.resolves({
         events: [
           { message: 'INVALID_LOG_FORMAT no json here' }, // Doesn't match pattern
-          { message: 'Bot Protection Detection in Scraper: { invalid: json }' }, // Matches pattern but invalid JSON, logs warning
-          { message: `Bot Protection Detection in Scraper: ${JSON.stringify({ jobId: 'test', httpStatus: 403, url: 'https://example.com/test' })}` },
+          { message: '[BOT-BLOCKED] Bot Protection Detection in Scraper: { invalid: json }' }, // Matches pattern but invalid JSON, logs warning
+          { message: `[BOT-BLOCKED] Bot Protection Detection in Scraper: ${JSON.stringify({ jobId: 'test', httpStatus: 403, url: 'https://example.com/test' })}` },
         ],
       });
 
@@ -152,7 +152,7 @@ describe('CloudWatch Utils', () => {
 
       const mockEvents = [
         {
-          message: `Bot Protection Detection in Scraper: ${JSON.stringify({
+          message: `[BOT-BLOCKED] Bot Protection Detection in Scraper: ${JSON.stringify({
             url: 'https://example.com/page1',
             httpStatus: 403,
             blockerType: 'cloudflare',
@@ -160,7 +160,7 @@ describe('CloudWatch Utils', () => {
           })}`,
         },
         {
-          message: `Bot Protection Detection in Scraper: ${JSON.stringify({
+          message: `[BOT-BLOCKED] Bot Protection Detection in Scraper: ${JSON.stringify({
             url: 'https://example.com/page2',
             httpStatus: 403,
             blockerType: 'cloudflare',
@@ -225,7 +225,7 @@ describe('CloudWatch Utils', () => {
 
       const mockEvents = [
         {
-          message: `Bot Protection Detection in Scraper: ${JSON.stringify({
+          message: `[BOT-BLOCKED] Bot Protection Detection in Scraper: ${JSON.stringify({
             url: 'https://example.com/page1',
             httpStatus: 403,
             blockerType: 'cloudflare',
@@ -233,7 +233,7 @@ describe('CloudWatch Utils', () => {
           })}`,
         },
         {
-          message: `Bot Protection Detection in Scraper: ${JSON.stringify({
+          message: `[BOT-BLOCKED] Bot Protection Detection in Scraper: ${JSON.stringify({
             url: 'not-a-valid-url',
             httpStatus: 403,
             blockerType: 'cloudflare',
@@ -241,7 +241,7 @@ describe('CloudWatch Utils', () => {
           })}`,
         },
         {
-          message: `Bot Protection Detection in Scraper: ${JSON.stringify({
+          message: `[BOT-BLOCKED] Bot Protection Detection in Scraper: ${JSON.stringify({
             url: 'https://other-site.com/page2',
             httpStatus: 403,
             blockerType: 'cloudflare',
@@ -280,7 +280,7 @@ describe('CloudWatch Utils', () => {
 
       const mockEvents = [
         {
-          message: `Bot Protection Detection in Scraper: ${JSON.stringify({
+          message: `[BOT-BLOCKED] Bot Protection Detection in Scraper: ${JSON.stringify({
             url: 'https://example.com/page1',
             httpStatus: 403,
             blockerType: 'cloudflare',

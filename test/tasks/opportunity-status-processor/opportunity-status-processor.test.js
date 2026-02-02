@@ -2604,7 +2604,7 @@ describe('Opportunity Status Processor', () => {
       context.mockCloudWatchSend.resolves({
         events: [
           {
-            message: `Bot Protection Detection in Scraper: ${JSON.stringify({
+            message: `[BOT-BLOCKED] Bot Protection Detection in Scraper: ${JSON.stringify({
               jobId: 'job-123',
               errorCategory: 'bot-protection',
               url: 'https://zepbound.lilly.com/',
@@ -2614,7 +2614,7 @@ describe('Opportunity Status Processor', () => {
             })}`,
           },
           {
-            message: `Bot Protection Detection in Scraper: ${JSON.stringify({
+            message: `[BOT-BLOCKED] Bot Protection Detection in Scraper: ${JSON.stringify({
               jobId: 'job-123',
               errorCategory: 'bot-protection',
               url: 'https://zepbound.lilly.com/about',
@@ -2708,7 +2708,7 @@ describe('Opportunity Status Processor', () => {
       context.mockCloudWatchSend.resolves({
         events: [
           {
-            message: `Bot Protection Detection in Scraper: ${JSON.stringify({
+            message: `[BOT-BLOCKED] Bot Protection Detection in Scraper: ${JSON.stringify({
               jobId: 'job-dev',
               errorCategory: 'bot-protection',
               url: 'https://dev-test.com/',
@@ -2858,7 +2858,7 @@ describe('Opportunity Status Processor', () => {
         context.mockCloudWatchSend.resolves({
           events: [
             {
-              message: `Bot Protection Detection in Scraper: ${JSON.stringify({
+              message: `[BOT-BLOCKED] Bot Protection Detection in Scraper: ${JSON.stringify({
                 jobId: 'job-456',
                 errorCategory: 'bot-protection',
                 url: 'https://example.com/blocked',
@@ -2868,7 +2868,7 @@ describe('Opportunity Status Processor', () => {
               })}`,
             },
             {
-              message: `Bot Protection Detection in Scraper: ${JSON.stringify({
+              message: `[BOT-BLOCKED] Bot Protection Detection in Scraper: ${JSON.stringify({
                 jobId: 'job-456',
                 errorCategory: 'bot-protection',
                 url: 'https://example.com/also-blocked',

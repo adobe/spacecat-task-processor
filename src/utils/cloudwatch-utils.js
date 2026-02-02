@@ -72,8 +72,8 @@ export async function queryBotProtectionLogs(context, onboardStartTime) {
     const botProtectionEvents = response.events
       .map((event) => {
         try {
-          // CloudWatch log message format: "Bot Protection Detection in Scraper: { json }"
-          const messageMatch = event.message.match(/Bot Protection Detection in Scraper:\s+({.*})/);
+          // Checking if the logs have bot protection detection in scraper
+          const messageMatch = event.message.match(/\[BOT-BLOCKED\]\s+Bot Protection Detection in Scraper:\s*({.*})/);
           if (messageMatch) {
             return JSON.parse(messageMatch[1]);
           }
