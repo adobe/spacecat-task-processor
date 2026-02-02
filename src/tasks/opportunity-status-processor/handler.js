@@ -17,8 +17,7 @@ import { ScrapeClient } from '@adobe/spacecat-shared-scrape-client';
 import { resolveCanonicalUrl } from '@adobe/spacecat-shared-utils';
 import {
   checkAndAlertBotProtection,
-  checkAuditExecution,
-  getAuditFailureReason,
+  getAuditStatus,
 } from '../../utils/cloudwatch-utils.js';
 import { say } from '../../utils/slack-utils.js';
 import { getOpportunitiesForAudit } from './audit-opportunity-map.js';
@@ -260,14 +259,15 @@ async function analyzeMissingOpportunities(
     /* c8 ignore stop */
 
     for (const auditType of relatedAudits) {
-      const auditExecuted = await checkAuditExecution(
+      // Get audit execution status and failure reason in a single call
+      const { executed, failureReason } = await getAuditStatus(
         auditType,
         siteId,
         onboardStartTime,
         context,
       );
 
-      if (!auditExecuted) {
+      if (!executed) {
         results.push({
           opportunity: opportunityType,
           audit: auditType,
@@ -305,13 +305,6 @@ async function analyzeMissingOpportunities(
       }
 
       // All dependencies met, check for audit failure
-      const failureReason = await getAuditFailureReason(
-        auditType,
-        siteId,
-        onboardStartTime,
-        context,
-      );
-
       if (failureReason) {
         results.push({
           opportunity: opportunityType,

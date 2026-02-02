@@ -27,6 +27,52 @@ function createCloudWatchClient(env) {
 }
 
 /**
+ * Calculates the search window start time with buffer
+ * @param {number} onboardStartTime - The onboarding start timestamp (ms)
+ * @param {number} bufferMs - Buffer time in milliseconds (default: 5 minutes)
+ * @returns {number} The search start time in milliseconds
+ */
+function calculateSearchWindow(onboardStartTime, bufferMs = 5 * 60 * 1000) {
+  return onboardStartTime
+    ? onboardStartTime - bufferMs
+    : Date.now() - 30 * 60 * 1000; // 30 minutes ago as fallback
+}
+
+/**
+ * Filters CloudWatch log events by site URL (matches hostname and subdomains)
+ * @param {Array} events - Array of log events with url property
+ * @param {string} siteUrl - The site URL to filter by
+ * @param {object} log - Logger instance
+ * @returns {Array} Filtered events matching the site URL
+ */
+function filterEventsBySiteUrl(events, siteUrl, log) {
+  if (events.length === 0) {
+    return [];
+  }
+
+  try {
+    // Extract base domain from siteUrl (e.g., "abbvie.com" from "https://abbvie.com")
+    const siteUrlObj = new URL(siteUrl);
+    const siteHostname = siteUrlObj.hostname.toLowerCase();
+
+    return events.filter((event) => {
+      try {
+        const eventUrlObj = new URL(event.url);
+        const eventHostname = eventUrlObj.hostname.toLowerCase();
+        // Match exact hostname or subdomain
+        return eventHostname === siteHostname || eventHostname.endsWith(`.${siteHostname}`);
+      } catch (urlError) {
+        return false;
+      }
+    });
+  } catch (urlError) {
+    // Fall back to using all events if URL parsing fails
+    log.warn(`Failed to parse siteUrl ${siteUrl}, using all events: ${urlError.message}`);
+    return events;
+  }
+}
+
+/**
  * Queries CloudWatch logs for bot protection errors from content scraper
  * @param {object} context - Context with env and log
  * @param {number} onboardStartTime - Onboard start timestamp (ms) to limit search window
@@ -159,29 +205,7 @@ export async function checkAndAlertBotProtection({
   const logEvents = await queryBotProtectionLogs(context, searchStartTime);
 
   // Filter events by site URL
-  let filteredEvents = [];
-  if (logEvents.length > 0) {
-    try {
-      // Extract base domain from siteUrl (e.g., "abbvie.com" from "https://abbvie.com")
-      const siteUrlObj = new URL(siteUrl);
-      const siteHostname = siteUrlObj.hostname.toLowerCase();
-
-      filteredEvents = logEvents.filter((event) => {
-        try {
-          const eventUrlObj = new URL(event.url);
-          const eventHostname = eventUrlObj.hostname.toLowerCase();
-          // Match exact hostname or subdomain
-          return eventHostname === siteHostname || eventHostname.endsWith(`.${siteHostname}`);
-        } catch (urlError) {
-          return false;
-        }
-      });
-    } catch (urlError) {
-      // Fall back to using all events if URL parsing fails
-      log.warn(`Failed to parse siteUrl ${siteUrl}, using all events: ${urlError.message}`);
-      filteredEvents = logEvents;
-    }
-  }
+  const filteredEvents = filterEventsBySiteUrl(logEvents, siteUrl, log);
 
   if (filteredEvents.length === 0) {
     return null;
@@ -217,6 +241,73 @@ export async function checkAndAlertBotProtection({
 }
 
 /**
+ * Gets the execution status and failure reason for an audit by searching Audit Worker logs.
+ * This replaces the separate checkAuditExecution and getAuditFailureReason functions,
+ * reducing redundant CloudWatch API calls.
+ *
+ * @param {string} auditType - The audit type to search for
+ * @param {string} siteId - The site ID
+ * @param {number} onboardStartTime - The onboarding start timestamp
+ * @param {object} context - The context object with env and log
+ * @returns {Promise<Object>} Object with { executed: boolean, failureReason: string|null }
+ */
+export async function getAuditStatus(auditType, siteId, onboardStartTime, context) {
+  const { log, env } = context;
+  const logGroupName = env.AUDIT_WORKER_LOG_GROUP || AUDIT_WORKER_LOG_GROUP;
+  const cloudWatchClient = createCloudWatchClient(env);
+
+  try {
+    // Check if audit was executed
+    const executionFilterPattern = `"Received ${auditType} audit request for: ${siteId}"`;
+    const searchStartTime = calculateSearchWindow(onboardStartTime, 5 * 60 * 1000); // 5 min buffer
+
+    const executionCommand = new FilterLogEventsCommand({
+      logGroupName,
+      filterPattern: executionFilterPattern,
+      startTime: searchStartTime,
+      endTime: Date.now(),
+    });
+
+    const executionResponse = await cloudWatchClient.send(executionCommand);
+    const executed = executionResponse.events && executionResponse.events.length > 0;
+
+    if (!executed) {
+      return { executed: false, failureReason: null };
+    }
+
+    // Audit was executed, check for failure
+    const failureFilterPattern = `"${auditType} audit for ${siteId} failed"`;
+    const failureStartTime = calculateSearchWindow(onboardStartTime, 30 * 1000); // 30 sec buffer
+
+    const failureCommand = new FilterLogEventsCommand({
+      logGroupName,
+      filterPattern: failureFilterPattern,
+      startTime: failureStartTime,
+      endTime: Date.now(),
+    });
+
+    const failureResponse = await cloudWatchClient.send(failureCommand);
+
+    if (failureResponse.events && failureResponse.events.length > 0) {
+      // Extract reason from the message
+      const { message } = failureResponse.events[0];
+      const reasonMatch = message.match(/Reason:\s*([^]+?)(?:\s+at\s|$)/);
+      const failureReason = reasonMatch && reasonMatch[1]
+        ? reasonMatch[1].trim()
+        : message.trim();
+
+      return { executed: true, failureReason };
+    }
+
+    return { executed: true, failureReason: null };
+  } catch (error) {
+    log.error(`Error getting audit status for ${auditType}:`, error);
+    return { executed: false, failureReason: null };
+  }
+}
+
+/**
+ * @deprecated Use getAuditStatus instead - this function is kept for backward compatibility
  * Checks if an audit was executed by searching Audit Worker logs
  * @param {string} auditType - The audit type to search for
  * @param {string} siteId - The site ID
@@ -225,38 +316,12 @@ export async function checkAndAlertBotProtection({
  * @returns {Promise<boolean>} Whether the audit was executed
  */
 export async function checkAuditExecution(auditType, siteId, onboardStartTime, context) {
-  const { log, env } = context;
-  const logGroupName = env.AUDIT_WORKER_LOG_GROUP || AUDIT_WORKER_LOG_GROUP;
-
-  try {
-    const cloudWatchClient = createCloudWatchClient(env);
-    const filterPattern = `"Received ${auditType} audit request for: ${siteId}"`;
-
-    // Add small buffer before onboardStartTime to account for clock skew and processing delays
-    // The audit log should be after onboardStartTime, but we add a small buffer for safety
-    const bufferMs = 5 * 60 * 1000; // 5 minutes
-    const searchStartTime = onboardStartTime
-      ? onboardStartTime - bufferMs
-      : Date.now() - 30 * 60 * 1000; // 30 minutes ago
-
-    const command = new FilterLogEventsCommand({
-      logGroupName,
-      filterPattern,
-      startTime: searchStartTime,
-      endTime: Date.now(),
-    });
-
-    const response = await cloudWatchClient.send(command);
-    const found = response.events && response.events.length > 0;
-
-    return found;
-  } catch (error) {
-    log.error(`Error checking audit execution for ${auditType}:`, error);
-    return false;
-  }
+  const { executed } = await getAuditStatus(auditType, siteId, onboardStartTime, context);
+  return executed;
 }
 
 /**
+ * @deprecated Use getAuditStatus instead - this function is kept for backward compatibility
  * Gets the failure reason for an audit by searching Audit Worker logs
  * @param {string} auditType - The audit type to search for
  * @param {string} siteId - The site ID
@@ -265,42 +330,6 @@ export async function checkAuditExecution(auditType, siteId, onboardStartTime, c
  * @returns {Promise<string|null>} The failure reason or null if not found
  */
 export async function getAuditFailureReason(auditType, siteId, onboardStartTime, context) {
-  const { log, env } = context;
-  const logGroupName = env.AUDIT_WORKER_LOG_GROUP || AUDIT_WORKER_LOG_GROUP;
-
-  try {
-    const cloudWatchClient = createCloudWatchClient(env);
-    const filterPattern = `"${auditType} audit for ${siteId} failed"`;
-
-    // Add small buffer before onboardStartTime to account for clock skew and processing delays
-    const bufferMs = 30 * 1000; // 30 seconds
-    const searchStartTime = onboardStartTime
-      ? onboardStartTime - bufferMs
-      : Date.now() - 30 * 60 * 1000; // 30 minutes ago
-
-    const command = new FilterLogEventsCommand({
-      logGroupName,
-      filterPattern,
-      startTime: searchStartTime,
-      endTime: Date.now(),
-    });
-
-    const response = await cloudWatchClient.send(command);
-
-    if (response.events && response.events.length > 0) {
-      // Extract reason from the message
-      const { message } = response.events[0];
-      const reasonMatch = message.match(/Reason:\s*([^]+?)(?:\s+at\s|$)/);
-      if (reasonMatch && reasonMatch[1]) {
-        return reasonMatch[1].trim();
-      }
-      // Fallback: return entire message if "Reason:" pattern not found
-      return message.trim();
-    }
-
-    return null;
-  } catch (error) {
-    log.error(`Error getting audit failure reason for ${auditType}:`, error);
-    return null;
-  }
+  const { failureReason } = await getAuditStatus(auditType, siteId, onboardStartTime, context);
+  return failureReason;
 }

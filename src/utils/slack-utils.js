@@ -47,6 +47,19 @@ function formatBlockerType(type) {
 }
 
 /**
+ * Formats a breakdown of counts by category for Slack display
+ * @param {Object} data - Object with category keys and count values
+ * @param {Function} formatter - Function to format the category name
+ * @returns {string} Formatted breakdown string
+ */
+function formatBreakdown(data, formatter) {
+  return Object.entries(data)
+    .sort((a, b) => b[1] - a[1]) // Sort by count descending
+    .map(([key, count]) => `  • ${formatter(key)}: ${count} URL${count > 1 ? 's' : ''}`)
+    .join('\n');
+}
+
+/**
  * Sends a message to Slack using the provided client and context
  * @param {object} slackClient - The Slack client instance
  * @param {object} slackContext - The Slack context containing channelId and threadTs
@@ -108,16 +121,10 @@ export function formatBotProtectionSlackMessage({
   } = stats;
 
   // Format HTTP status breakdown
-  const statusBreakdown = Object.entries(byHttpStatus)
-    .sort((a, b) => b[1] - a[1]) // Sort by count descending
-    .map(([status, count]) => `  • ${formatHttpStatus(status)}: ${count} URL${count > 1 ? 's' : ''}`)
-    .join('\n');
+  const statusBreakdown = formatBreakdown(byHttpStatus, formatHttpStatus);
 
   // Format blocker type breakdown
-  const blockerBreakdown = Object.entries(byBlockerType)
-    .sort((a, b) => b[1] - a[1])
-    .map(([type, count]) => `  • ${formatBlockerType(type)}: ${count} URL${count > 1 ? 's' : ''}`)
-    .join('\n');
+  const blockerBreakdown = formatBreakdown(byBlockerType, formatBlockerType);
 
   // Sample URLs (show up to 3, prioritize high confidence)
   const sampleUrls = urls

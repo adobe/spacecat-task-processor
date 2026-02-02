@@ -17,6 +17,7 @@ import {
   queryBotProtectionLogs,
   aggregateBotProtectionStats,
   checkAndAlertBotProtection,
+  getAuditStatus,
   checkAuditExecution,
   getAuditFailureReason,
 } from '../../src/utils/cloudwatch-utils.js';
@@ -310,6 +311,138 @@ describe('CloudWatch Utils', () => {
     });
   });
 
+  describe('getAuditStatus', () => {
+    it('should return executed: true and failureReason when audit executed and failed', async () => {
+      // First call: audit executed, second call: failure found
+      cloudWatchStub.onFirstCall().resolves({
+        events: [
+          { message: 'Received meta-tags audit request for: site-123' },
+        ],
+      });
+      cloudWatchStub.onSecondCall().resolves({
+        events: [
+          { message: 'meta-tags audit for site-123 failed. Reason: No top pages found' },
+        ],
+      });
+
+      const result = await getAuditStatus('meta-tags', 'site-123', Date.now() - 3600000, mockContext);
+
+      expect(result).to.deep.equal({
+        executed: true,
+        failureReason: 'No top pages found',
+      });
+      expect(cloudWatchStub).to.have.been.calledTwice;
+    });
+
+    it('should return executed: true and failureReason: null when audit succeeded', async () => {
+      // First call: audit executed, second call: no failure
+      cloudWatchStub.onFirstCall().resolves({
+        events: [
+          { message: 'Received cwv audit request for: site-456' },
+        ],
+      });
+      cloudWatchStub.onSecondCall().resolves({
+        events: [],
+      });
+
+      const result = await getAuditStatus('cwv', 'site-456', Date.now() - 3600000, mockContext);
+
+      expect(result).to.deep.equal({
+        executed: true,
+        failureReason: null,
+      });
+      expect(cloudWatchStub).to.have.been.calledTwice;
+    });
+
+    it('should return executed: false and failureReason: null when audit not executed', async () => {
+      cloudWatchStub.resolves({
+        events: [],
+      });
+
+      const result = await getAuditStatus('broken-backlinks', 'site-789', Date.now() - 3600000, mockContext);
+
+      expect(result).to.deep.equal({
+        executed: false,
+        failureReason: null,
+      });
+      // Should not check for failure if audit was not executed
+      expect(cloudWatchStub).to.have.been.calledOnce;
+    });
+
+    it('should extract failure reason with "at" keyword', async () => {
+      cloudWatchStub.onFirstCall().resolves({
+        events: [
+          { message: 'Received meta-tags audit request for: site-123' },
+        ],
+      });
+      cloudWatchStub.onSecondCall().resolves({
+        events: [
+          { message: 'meta-tags audit for site-123 failed. Reason: Database error at connection' },
+        ],
+      });
+
+      const result = await getAuditStatus('meta-tags', 'site-123', Date.now() - 3600000, mockContext);
+
+      expect(result.executed).to.be.true;
+      expect(result.failureReason).to.equal('Database error');
+    });
+
+    it('should use entire message as fallback when Reason pattern not found', async () => {
+      cloudWatchStub.onFirstCall().resolves({
+        events: [
+          { message: 'Received cwv audit request for: site-456' },
+        ],
+      });
+      cloudWatchStub.onSecondCall().resolves({
+        events: [
+          { message: 'Some error without expected pattern' },
+        ],
+      });
+
+      const result = await getAuditStatus('cwv', 'site-456', Date.now() - 3600000, mockContext);
+
+      expect(result.executed).to.be.true;
+      expect(result.failureReason).to.equal('Some error without expected pattern');
+    });
+
+    it('should handle CloudWatch errors gracefully', async () => {
+      cloudWatchStub.rejects(new Error('CloudWatch service unavailable'));
+
+      const result = await getAuditStatus('meta-tags', 'site-123', Date.now() - 3600000, mockContext);
+
+      expect(result).to.deep.equal({
+        executed: false,
+        failureReason: null,
+      });
+      expect(mockContext.log.error).to.have.been.calledWithMatch(/Error getting audit status/);
+    });
+
+    it('should use default time window when onboardStartTime is null', async () => {
+      cloudWatchStub.resolves({
+        events: [],
+      });
+
+      const result = await getAuditStatus('cwv', 'site-456', null, mockContext);
+
+      expect(result).to.deep.equal({
+        executed: false,
+        failureReason: null,
+      });
+      expect(cloudWatchStub).to.have.been.calledOnce;
+    });
+
+    it('should use custom log group from environment', async () => {
+      mockContext.env.AUDIT_WORKER_LOG_GROUP = '/custom/audit-worker-logs';
+      cloudWatchStub.resolves({
+        events: [],
+      });
+
+      await getAuditStatus('meta-tags', 'site-123', Date.now() - 3600000, mockContext);
+
+      expect(cloudWatchStub).to.have.been.calledOnce;
+    });
+  });
+
   describe('checkAuditExecution', () => {
     it('should return true when audit execution log is found', async () => {
       cloudWatchStub.resolves({
@@ -337,7 +470,7 @@ describe('CloudWatch Utils', () => {
       const result = await checkAuditExecution('broken-backlinks', 'site-789', Date.now() - 3600000, mockContext);
 
       expect(result).to.be.false;
-      expect(mockContext.log.error).to.have.been.calledWithMatch(/Error checking audit execution/);
+      expect(mockContext.log.error).to.have.been.calledWithMatch(/Error getting audit status/);
     });
 
     it('should use default time window when onboardStartTime is not provided', async () => {
@@ -399,7 +532,7 @@ describe('CloudWatch Utils', () => {
       const result = await getAuditFailureReason('meta-tags', 'site-123', Date.now() - 3600000, mockContext);
 
       expect(result).to.be.null;
-      expect(mockContext.log.error).to.have.been.calledWithMatch(/Error getting audit failure reason/);
+      expect(mockContext.log.error).to.have.been.calledWithMatch(/Error getting audit status/);
     });
 
     it('should use default time window when onboardStartTime is not provided', async () => {
