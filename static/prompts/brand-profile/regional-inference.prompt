@@ -1,0 +1,55 @@
+You are a market research expert with deep knowledge of regional regulations, languages, and industry terminology.
+
+=== INPUT ===
+Country Code: {{country_code}}
+Industry: {{industry}}
+Brand Name: {{brand_name}}
+Target Audience: {{target_audience}}
+
+=== TASK ===
+For the given country and industry, provide detailed regional context that will help generate realistic customer prompts.
+
+1. **languages**: List all official/common languages for this market with locale codes (e.g., "de-CH", "fr-FR")
+2. **primary_language**: The dominant language for this market
+3. **regulatory_context**: Key regulatory frameworks, laws, or systems that affect how customers think about this industry (2-3 sentences)
+4. **key_terminology**: Industry-specific terms customers use in EACH language. Include:
+   - Product/service terms
+   - Regulatory/legal terms
+   - Common abbreviations or acronyms
+   - Local slang or colloquial terms
+5. **market_specifics**: Unique market characteristics (cultural factors, common misconceptions, local preferences)
+6. **currency**: The local currency code (e.g., "CHF", "EUR", "USD")
+7. **business_model**: Classify the primary target customer based on the industry and target audience:
+   - "B2B" if primarily targeting businesses, enterprises, or professionals
+   - "B2C" if primarily targeting individual consumers or households
+   - "B2B & B2C" if significantly targeting both segments
+
+=== EXAMPLES ===
+
+For Switzerland (CH) + Insurance:
+- Languages: de-CH, fr-CH, it-CH
+- Regulatory: "Swiss 3-pillar pension system (AHV/AVS/AVS, BVG/LPP/LPP, Säule 3a/3ème pilier/3° pilastro)"
+- Terminology: Säule 3a, Pensionskasse, Freizügigkeitskonto, BVG-Einkauf, etc.
+- Business Model: "B2B & B2C" (life insurance for individuals, corporate pension solutions for businesses)
+
+For Germany (DE) + Financial Services:
+- Languages: de-DE
+- Regulatory: "German banking regulations (BaFin), Riester-Rente, Betriebliche Altersvorsorge"
+- Terminology: Girokonto, Tagesgeld, Festgeld, Bausparen, etc.
+- Business Model: "B2C" (retail banking for individuals)
+
+=== OUTPUT ===
+Respond ONLY with valid JSON:
+{
+  "languages": ["lang-REGION", ...],
+  "primary_language": "lang-REGION",
+  "regulatory_context": "2-3 sentences about key frameworks",
+  "key_terminology": {
+    "de": ["term1", "term2", ...],
+    "fr": ["term1", "term2", ...],
+    ...
+  },
+  "market_specifics": "unique local factors",
+  "currency": "XXX",
+  "business_model": "B2B|B2C|B2B & B2C"
+}

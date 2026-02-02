@@ -1,3 +1,38 @@
+## [1.8.1](https://github.com/adobe/spacecat-task-processor/compare/v1.8.0...v1.8.1) (2026-02-02)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adobe/spacecat-shared-data-access to v2.100.1 ([#185](https://github.com/adobe/spacecat-task-processor/issues/185)) ([2a0817d](https://github.com/adobe/spacecat-task-processor/commit/2a0817d88d749d0e6b39c3d7473a0df5ad261e13))
+
+# [1.8.0](https://github.com/adobe/spacecat-task-processor/compare/v1.7.16...v1.8.0) (2026-02-02)
+
+
+### Features
+
+* **brand-profile:** add enhanced brand context services ([#182](https://github.com/adobe/spacecat-task-processor/issues/182)) ([a9b9e78](https://github.com/adobe/spacecat-task-processor/commit/a9b9e78915988a11100214ede073a5eed4dc058c))
+
+## [1.7.16](https://github.com/adobe/spacecat-task-processor/compare/v1.7.15...v1.7.16) (2026-01-31)
+
+
+### Bug Fixes
+
+* **deps:** update external fixes ([#184](https://github.com/adobe/spacecat-task-processor/issues/184)) ([0a2d592](https://github.com/adobe/spacecat-task-processor/commit/0a2d5921617a886072d8304493fa6df6aa2cb239))
+
+## [1.7.15](https://github.com/adobe/spacecat-task-processor/compare/v1.7.14...v1.7.15) (2026-01-30)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adobe/spacecat-shared-data-access to v2.99.0 ([#183](https://github.com/adobe/spacecat-task-processor/issues/183)) ([53b1dd8](https://github.com/adobe/spacecat-task-processor/commit/53b1dd8e145c9ec5acf8e267d2b2a087cbf125ac))
+
+## [1.7.14](https://github.com/adobe/spacecat-task-processor/compare/v1.7.13...v1.7.14) (2026-01-30)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#181](https://github.com/adobe/spacecat-task-processor/issues/181)) ([1044729](https://github.com/adobe/spacecat-task-processor/commit/10447291432e02d66526993ca47c7b1e5c00b6c7))
+
 ## [1.7.13](https://github.com/adobe/spacecat-task-processor/compare/v1.7.12...v1.7.13) (2026-01-28)
 
 
