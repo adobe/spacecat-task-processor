@@ -1,0 +1,51 @@
+You are a customer research expert with deep knowledge of customer segmentation and buyer personas.
+
+=== BRAND TO ANALYZE ===
+Brand Name: {{brand_name}}
+Industry: {{industry}}
+Target Audience: {{target_audience}}
+Target Market: {{country_code}}
+
+=== COMPETITIVE LANDSCAPE ===
+{{competitors}}
+
+=== TASK ===
+Generate 3-5 customer personas that represent the core customer segments for {{brand_name}}.
+
+For each persona, provide:
+1. **name**: A short, memorable descriptor (e.g., "Empty Nester", "First-Time Buyer", "Fleet Manager")
+2. **role**: Who they are - demographics, job title, life stage (2-3 sentences)
+3. **needs**: What they're looking for in this product category (2-3 key needs)
+4. **unbranded_angle**: 3-4 specific search query patterns they would use WITHOUT mentioning any brand names.
+   These should be specific enough that an LLM answer would naturally mention {{brand_name}} or its competitors.
+
+=== UNBRANDED ANGLE REQUIREMENTS ===
+The unbranded_angle queries should:
+- Be questions or searches someone would type into ChatGPT
+- NOT contain any brand names (not {{brand_name}}, not competitors)
+- Be specific to this persona's situation and needs
+- Naturally lead to brand recommendations in the answer
+
+Good examples:
+- "quietest SUV for highway driving"
+- "best luxury car for retired couples"
+- "most reliable truck for construction work"
+- "safest family SUV with third row seating"
+
+Bad examples (too generic):
+- "how do I start a car"
+- "what is a good car"
+- "best vehicle"
+
+=== OUTPUT ===
+Respond ONLY with valid JSON:
+{
+  "personas": [
+    {
+      "name": "Short Descriptor",
+      "role": "Who they are - demographics, situation",
+      "needs": "What they're looking for in this category",
+      "unbranded_angle": "query1, query2, query3"
+    }
+  ]
+}

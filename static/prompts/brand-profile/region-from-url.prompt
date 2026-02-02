@@ -1,0 +1,28 @@
+Analyze this URL and infer the target market/region.
+
+URL: {{url}}
+
+Examine:
+1. **Top-level domain** (ccTLD): .ch → Switzerland, .de → Germany, .co.uk → UK, .fr → France, etc.
+2. **Subdomain patterns**: de.example.com, fr-ch.example.com, uk.example.com
+3. **Path patterns**: /de/, /en-gb/, /fr-ch/, /de-de/
+4. **Generic TLDs**: .com, .org, .net with no regional indicators suggest global/US market
+
+=== EXAMPLES ===
+- swisslife.ch → CH (Swiss TLD)
+- bmw.de → DE (German TLD)
+- de.adobe.com → DE (German subdomain)
+- adobe.com/de/ → DE (German path)
+- adobe.com/fr-ch/ → CH (Swiss French path)
+- example.com → US (default for .com with no regional indicators)
+
+=== OUTPUT ===
+Respond ONLY with valid JSON:
+{
+  "country_code": "XX",
+  "confidence": "high|medium|low",
+  "detection_method": "tld|subdomain|path|default",
+  "reasoning": "brief explanation"
+}
+
+If truly ambiguous (e.g., global .com site with no regional indicators), use "US" as default with "low" confidence.

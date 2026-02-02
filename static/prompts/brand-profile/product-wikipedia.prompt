@@ -1,0 +1,26 @@
+Extract all products, services, sub-brands, and offerings mentioned in this company overview.
+
+=== COMPANY: {{brand_name}} ===
+{{wikipedia_text}}
+
+=== RULES ===
+- Extract actual product/service/model names (not generic category terms like "cars" or "software")
+- Include sub-brands and product lines if mentioned
+- Include both current and discontinued products (mark discontinued separately)
+- Extract variants/trims/editions if specifically named
+- Do NOT assume or invent products not mentioned in the text
+- Be thorough - extract ALL product names mentioned
+
+=== OUTPUT (JSON only) ===
+{
+  "products": [
+    {"name": "Product Name", "category": "Category from text or inferred", "variants": ["Variant1", "Variant2"]}
+  ],
+  "services": [
+    {"name": "Service Name", "category": "Category if applicable"}
+  ],
+  "sub_brands": ["Sub-brand 1", "Sub-brand 2"],
+  "discontinued": [
+    {"name": "Old Product", "category": "Category if known"}
+  ]
+}
