@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/adobe/spacecat-task-processor/compare/v1.7.16...v1.8.0) (2026-02-02)
+
+
+### Features
+
+* **brand-profile:** add enhanced brand context services ([#182](https://github.com/adobe/spacecat-task-processor/issues/182)) ([a9b9e78](https://github.com/adobe/spacecat-task-processor/commit/a9b9e78915988a11100214ede073a5eed4dc058c))
+
 ## [1.7.16](https://github.com/adobe/spacecat-task-processor/compare/v1.7.15...v1.7.16) (2026-01-31)
 
 
