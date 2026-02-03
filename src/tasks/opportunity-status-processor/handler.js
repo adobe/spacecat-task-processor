@@ -129,6 +129,14 @@ function getOpportunityTitle(opportunityType) {
  * @param {number} onboardStartTime - Timestamp to filter by
  * @returns {Array} Filtered jobs
  */
+/**
+ * Filters scrape jobs to only include those created after onboardStartTime
+ * This ensures we only check jobs from the CURRENT onboarding session,
+ * not old scrape jobs from previous runs
+ * @param {Array} jobs - Array of scrape jobs
+ * @param {number} onboardStartTime - Onboard start timestamp (ms)
+ * @returns {Array} Filtered jobs
+ */
 function filterJobsByTimestamp(jobs, onboardStartTime) {
   return jobs.filter((job) => {
     const jobTimestamp = new Date(job.startedAt || job.createdAt || 0).getTime();
@@ -420,21 +428,31 @@ export async function runOpportunityStatusProcessor(message, context) {
           const scrapingCheck = await isScrapingAvailable(siteUrl, context, onboardStartTime);
           scrapingAvailable = scrapingCheck.available;
 
-          // Check for bot protection using time range and site URL filtering
-          const botProtectionStats = await checkAndAlertBotProtection({
-            siteUrl,
-            searchStartTime: onboardStartTime,
-            slackContext,
-            context,
-          });
+          // Check for bot protection using jobId from scraping check
+          const botProtectionStats = scrapingCheck.jobId
+            ? await checkAndAlertBotProtection({
+              jobId: scrapingCheck.jobId,
+              siteUrl,
+              slackContext,
+              context,
+            })
+            : null;
 
           // Abort processing if bot protection detected
           if (botProtectionStats && botProtectionStats.totalCount > 0) {
-            log.warn(`[BOT-BLOCKED] Bot protection blocking scrapes for ${siteUrl}`);
+            log.warn(
+              '[BOT-BLOCKED] Aborting opportunity processing due to bot protection: '
+              + `siteId=${siteId}, siteUrl=${siteUrl}, jobId=${scrapingCheck.jobId}, `
+              + `blockedUrls=${botProtectionStats.totalCount}/${botProtectionStats.totalUrlsInJob}, `
+              + `isPartial=${botProtectionStats.isPartial}, `
+              + `blockerTypes=${Object.keys(botProtectionStats.byBlockerType).join(',')}`,
+            );
             return ok({
               message: `Bot protection detected for ${siteUrl}`,
               botProtectionDetected: true,
               blockedUrlCount: botProtectionStats.totalCount,
+              jobId: scrapingCheck.jobId,
+              isPartial: botProtectionStats.isPartial,
             });
           }
 

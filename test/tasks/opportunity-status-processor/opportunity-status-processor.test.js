@@ -463,8 +463,7 @@ describe('Opportunity Status Processor', () => {
         },
         '../../../src/utils/cloudwatch-utils.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
-          checkAuditExecution: sinon.stub().resolves(true),
-          getAuditFailureReason: sinon.stub().resolves(null),
+          getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
         },
       });
 
@@ -785,8 +784,7 @@ describe('Opportunity Status Processor', () => {
         '../../../src/utils/cloudwatch-utils.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
           // Audit not executed (unmet dependencies)
-          checkAuditExecution: sinon.stub().resolves(false),
-          getAuditFailureReason: sinon.stub().resolves(null),
+          getAuditStatus: sinon.stub().resolves({ executed: false, failureReason: null }),
         },
       });
 
@@ -1722,7 +1720,7 @@ describe('Opportunity Status Processor', () => {
       // Reset and configure CloudWatch calls
       context.mockCloudWatchSend.reset();
 
-      // First call: checkAuditExecution - audit WAS executed
+      // First call: getAuditStatus - audit WAS executed and has failure reason
       context.mockCloudWatchSend.onCall(0).resolves({
         events: [{
           timestamp: Date.now(),
@@ -1730,7 +1728,7 @@ describe('Opportunity Status Processor', () => {
         }],
       });
 
-      // Second call: getAuditFailureReason - return a failure reason
+      // Second call: getAuditStatus - return a failure reason
       context.mockCloudWatchSend.onCall(1).resolves({
         events: [{
           timestamp: Date.now(),
@@ -1803,7 +1801,7 @@ describe('Opportunity Status Processor', () => {
       expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
     });
 
-    it('should handle CloudWatch error in getAuditFailureReason (lines 481-483)', async () => {
+    it('should handle CloudWatch error in getAuditStatus (lines 481-483)', async () => {
       message.taskContext.auditTypes = ['cwv'];
       message.taskContext.onboardStartTime = Date.now() - 3600000;
       mockSite.getOpportunities.resolves([]);
@@ -2616,36 +2614,38 @@ describe('Opportunity Status Processor', () => {
         getScrapeJobUrlResults: sinon.stub().resolves([
           { url: 'https://zepbound.lilly.com/', status: 'COMPLETE' },
         ]),
+        // Mock getScrapeJobStatus to return job with bot protection abortInfo
+        getScrapeJobStatus: sinon.stub().resolves({
+          id: 'job-123',
+          status: 'RUNNING',
+          abortInfo: {
+            reason: 'bot-protection',
+            details: {
+              blockedUrlsCount: 2,
+              totalUrlsCount: 10,
+              blockedUrls: [
+                {
+                  url: 'https://zepbound.lilly.com/',
+                  httpStatus: 403,
+                  blockerType: 'cloudflare',
+                  confidence: 0.99,
+                },
+                {
+                  url: 'https://zepbound.lilly.com/about',
+                  httpStatus: 403,
+                  blockerType: 'cloudflare',
+                  confidence: 0.99,
+                },
+              ],
+              byHttpStatus: { 403: 2 },
+              byBlockerType: { cloudflare: 2 },
+            },
+          },
+        }),
       };
 
       // Create the stub - this must happen before handler execution
       scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
-
-      // Mock CloudWatch to return bot protection log events
-      context.mockCloudWatchSend.resolves({
-        events: [
-          {
-            message: `[BOT-BLOCKED] Bot Protection Detection in Scraper: ${JSON.stringify({
-              jobId: 'job-123',
-              errorCategory: 'bot-protection',
-              url: 'https://zepbound.lilly.com/',
-              blockerType: 'cloudflare',
-              confidence: 0.99,
-              httpStatus: 403,
-            })}`,
-          },
-          {
-            message: `[BOT-BLOCKED] Bot Protection Detection in Scraper: ${JSON.stringify({
-              jobId: 'job-123',
-              errorCategory: 'bot-protection',
-              url: 'https://zepbound.lilly.com/about',
-              blockerType: 'cloudflare',
-              confidence: 0.99,
-              httpStatus: 403,
-            })}`,
-          },
-        ],
-      });
 
       const result = await runOpportunityStatusProcessor(message, context);
 
@@ -2655,8 +2655,8 @@ describe('Opportunity Status Processor', () => {
       expect(actualUrl?.replace(/\/$/, '')).to.equal('https://zepbound.lilly.com');
       expect(mockScrapeClientLocal.getScrapeJobUrlResults).to.have.been.calledWith('job-123');
 
-      // Verify CloudWatch was queried
-      expect(context.mockCloudWatchSend).to.have.been.called;
+      // Verify getScrapeJobStatus was called to check for bot protection
+      expect(mockScrapeClientLocal.getScrapeJobStatus).to.have.been.calledWith('job-123');
 
       // Verify bot protection alert was sent via Slack
       expect(mockSlackClient.postMessage).to.have.been.called;
@@ -2677,6 +2677,8 @@ describe('Opportunity Status Processor', () => {
       expect(slackMessage).to.include('Spacecat/1.0');
       expect(slackMessage).to.include('3.218.16.42'); // Production IP
       expect(slackMessage).to.include('How to Resolve'); // Resolution instructions
+      expect(slackMessage).to.include('Partial'); // isPartial flag (job is RUNNING)
+      expect(slackMessage).to.include('scraping is still in progress'); // Partial data warning
 
       expect(result.status).to.equal(200);
 
@@ -2722,24 +2724,29 @@ describe('Opportunity Status Processor', () => {
         getScrapeJobUrlResults: sinon.stub().resolves([
           { url: 'https://dev-test.com/', status: 'COMPLETE' },
         ]),
+        getScrapeJobStatus: sinon.stub().resolves({
+          id: 'job-dev',
+          status: 'RUNNING',
+          abortInfo: {
+            reason: 'bot-protection',
+            details: {
+              blockedUrlsCount: 1,
+              totalUrlsCount: 5,
+              blockedUrls: [
+                {
+                  url: 'https://dev-test.com/',
+                  httpStatus: 403,
+                  blockerType: 'akamai',
+                  confidence: 0.99,
+                },
+              ],
+              byHttpStatus: { 403: 1 },
+              byBlockerType: { akamai: 1 },
+            },
+          },
+        }),
       };
       scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
-
-      // Mock CloudWatch to return bot protection log events
-      context.mockCloudWatchSend.resolves({
-        events: [
-          {
-            message: `[BOT-BLOCKED] Bot Protection Detection in Scraper: ${JSON.stringify({
-              jobId: 'job-dev',
-              errorCategory: 'bot-protection',
-              url: 'https://dev-test.com/',
-              blockerType: 'akamai',
-              confidence: 0.99,
-              httpStatus: 403,
-            })}`,
-          },
-        ],
-      });
 
       const result = await runOpportunityStatusProcessor(message, context);
 
@@ -2747,8 +2754,8 @@ describe('Opportunity Status Processor', () => {
       expect(mockScrapeClientLocal.getScrapeJobsByBaseURL).to.have.been.calledWith('https://dev-test.com');
       expect(mockScrapeClientLocal.getScrapeJobUrlResults).to.have.been.calledWith('job-dev');
 
-      // Verify CloudWatch was queried
-      expect(context.mockCloudWatchSend).to.have.been.called;
+      // Verify getScrapeJobStatus was called to check for bot protection
+      expect(mockScrapeClientLocal.getScrapeJobStatus).to.have.been.calledWith('job-dev');
 
       // Verify bot protection alert was sent via Slack
       expect(mockSlackClient.postMessage).to.have.been.called;
@@ -2872,34 +2879,35 @@ describe('Opportunity Status Processor', () => {
             { url: 'https://example.com/also-blocked', status: 'COMPLETE' },
             { url: 'https://example.com/success', status: 'COMPLETE' },
           ]),
+          getScrapeJobStatus: sinon.stub().resolves({
+            id: 'job-456',
+            status: 'RUNNING',
+            abortInfo: {
+              reason: 'bot-protection',
+              details: {
+                blockedUrlsCount: 2,
+                totalUrlsCount: 3,
+                blockedUrls: [
+                  {
+                    url: 'https://example.com/blocked',
+                    httpStatus: 403,
+                    blockerType: 'cloudflare',
+                    confidence: 0.99,
+                  },
+                  {
+                    url: 'https://example.com/also-blocked',
+                    httpStatus: 403,
+                    blockerType: 'cloudflare',
+                    confidence: 0.99,
+                  },
+                ],
+                byHttpStatus: { 403: 2 },
+                byBlockerType: { cloudflare: 2 },
+              },
+            },
+          }),
         };
         scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
-
-        // Mock CloudWatch to return bot protection events for 2 out of 3 URLs
-        context.mockCloudWatchSend.resolves({
-          events: [
-            {
-              message: `[BOT-BLOCKED] Bot Protection Detection in Scraper: ${JSON.stringify({
-                jobId: 'job-456',
-                errorCategory: 'bot-protection',
-                url: 'https://example.com/blocked',
-                blockerType: 'cloudflare',
-                confidence: 0.99,
-                httpStatus: 403,
-              })}`,
-            },
-            {
-              message: `[BOT-BLOCKED] Bot Protection Detection in Scraper: ${JSON.stringify({
-                jobId: 'job-456',
-                errorCategory: 'bot-protection',
-                url: 'https://example.com/also-blocked',
-                blockerType: 'cloudflare',
-                confidence: 0.99,
-                httpStatus: 403,
-              })}`,
-            },
-          ],
-        });
 
         const result = await runOpportunityStatusProcessor(message, context);
 
@@ -3469,8 +3477,7 @@ describe('Opportunity Status Processor', () => {
         '@adobe/spacecat-shared-scrape-client': { ScrapeClient: mockScrapeClientClass },
         '../../../src/utils/cloudwatch-utils.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
-          checkAuditExecution: sinon.stub().resolves(true),
-          getAuditFailureReason: sinon.stub().resolves(null),
+          getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
         },
       });
 
@@ -3523,8 +3530,7 @@ describe('Opportunity Status Processor', () => {
       const handler = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
         '../../../src/utils/cloudwatch-utils.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
-          checkAuditExecution: sinon.stub().resolves(true),
-          getAuditFailureReason: sinon.stub().resolves(null),
+          getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
         },
       });
 
@@ -3566,8 +3572,7 @@ describe('Opportunity Status Processor', () => {
       const handler = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
         '../../../src/utils/cloudwatch-utils.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
-          checkAuditExecution: sinon.stub().resolves(true),
-          getAuditFailureReason: sinon.stub().resolves(null),
+          getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
         },
       });
 

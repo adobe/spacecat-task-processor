@@ -118,7 +118,15 @@ export function formatBotProtectionSlackMessage({
     byBlockerType,
     urls,
     highConfidenceCount,
+    isPartial,
+    totalUrlsInJob,
   } = stats;
+
+  // Determine data completeness status
+  const dataStatusEmoji = isPartial ? '⏳' : '✅';
+  const dataStatusText = isPartial
+    ? `*Data Status:* ${dataStatusEmoji} Partial (scraping in progress - ${totalCount} of ${totalUrlsInJob} URLs processed)`
+    : `*Data Status:* ${dataStatusEmoji} Complete (scraping finished)`;
 
   // Format HTTP status breakdown
   const statusBreakdown = formatBreakdown(byHttpStatus, formatHttpStatus);
@@ -139,7 +147,8 @@ export function formatBotProtectionSlackMessage({
   const ipList = allowlistIps.map((ip) => `  • \`${ip}\``).join('\n');
 
   let message = ':rotating_light: :warning: *Bot Protection Detected*\n\n'
-    + `*Summary:* ${totalCount} URL${totalCount > 1 ? 's' : ''} blocked by bot protection\n\n`
+    + `*Summary:* ${totalCount} URL${totalCount > 1 ? 's' : ''} blocked by bot protection\n`
+    + `${dataStatusText}\n\n`
     + '*📊 Detection Statistics*\n'
     + `• *Total Blocked:* ${totalCount} URLs\n`
     + `• *High Confidence:* ${highConfidenceCount} URLs\n\n`
@@ -152,6 +161,10 @@ export function formatBotProtectionSlackMessage({
 
   if (totalCount > 3) {
     message += `  ... and ${totalCount - 3} more URLs\n`;
+  }
+
+  if (isPartial) {
+    message += '\n:information_source: _Numbers shown are partial - scraping is still in progress. Final statistics will be logged when scraping completes._\n';
   }
 
   message += '\n'

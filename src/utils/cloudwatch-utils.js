@@ -11,6 +11,7 @@
  */
 
 import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
+import { ScrapeClient } from '@adobe/spacecat-shared-scrape-client';
 
 const AUDIT_WORKER_LOG_GROUP = '/aws/lambda/spacecat-services--audit-worker';
 const CONTENT_SCRAPER_LOG_GROUP = '/aws/lambda/spacecat-services--content-scraper';
@@ -36,40 +37,6 @@ function calculateSearchWindow(onboardStartTime, bufferMs = 5 * 60 * 1000) {
   return onboardStartTime
     ? onboardStartTime - bufferMs
     : Date.now() - 30 * 60 * 1000; // 30 minutes ago as fallback
-}
-
-/**
- * Filters CloudWatch log events by site URL (matches hostname and subdomains)
- * @param {Array} events - Array of log events with url property
- * @param {string} siteUrl - The site URL to filter by
- * @param {object} log - Logger instance
- * @returns {Array} Filtered events matching the site URL
- */
-function filterEventsBySiteUrl(events, siteUrl, log) {
-  if (events.length === 0) {
-    return [];
-  }
-
-  try {
-    // Extract base domain from siteUrl (e.g., "abbvie.com" from "https://abbvie.com")
-    const siteUrlObj = new URL(siteUrl);
-    const siteHostname = siteUrlObj.hostname.toLowerCase();
-
-    return events.filter((event) => {
-      try {
-        const eventUrlObj = new URL(event.url);
-        const eventHostname = eventUrlObj.hostname.toLowerCase();
-        // Match exact hostname or subdomain
-        return eventHostname === siteHostname || eventHostname.endsWith(`.${siteHostname}`);
-      } catch (urlError) {
-        return false;
-      }
-    });
-  } catch (urlError) {
-    // Fall back to using all events if URL parsing fails
-    log.warn(`Failed to parse siteUrl ${siteUrl}, using all events: ${urlError.message}`);
-    return events;
-  }
 }
 
 /**
@@ -180,39 +147,129 @@ export function aggregateBotProtectionStats(events) {
 }
 
 /**
+ * Converts abortInfo from database to bot protection stats format
+ * @param {object} abortInfo - Abort info from ScrapeJob database
+ * @param {boolean} isJobComplete - Whether the scrape job is complete
+ * @returns {object} Bot protection statistics with isPartial flag
+ */
+export function convertAbortInfoToStats(abortInfo, isJobComplete) {
+  if (!abortInfo || abortInfo.reason !== 'bot-protection') {
+    return null;
+  }
+
+  const { details } = abortInfo;
+  const blockedUrls = details.blockedUrls || [];
+  const highConfidenceUrls = blockedUrls.filter((url) => (url.confidence || 0) >= 0.95);
+
+  const stats = {
+    totalCount: details.blockedUrlsCount || 0,
+    byHttpStatus: details.byHttpStatus || {},
+    byBlockerType: details.byBlockerType || {},
+    urls: blockedUrls,
+    highConfidenceCount: highConfidenceUrls.length,
+    isPartial: !isJobComplete, // Flag indicating if scraping is still in progress
+    totalUrlsInJob: details.totalUrlsCount || 0,
+  };
+
+  return stats;
+}
+
+/**
+ * Gets bot protection information from database by querying specific ScrapeJob
+ * @param {string} jobId - The scrape job ID (more efficient than filtering by time)
+ * @param {object} context - Application context
+ * @returns {Promise<object|null>} Bot protection stats if detected, null otherwise
+ */
+export async function getBotProtectionFromDatabase(jobId, context) {
+  const { log } = context;
+
+  try {
+    if (!jobId) {
+      log.debug('No jobId provided for bot protection check');
+      return null;
+    }
+
+    const scrapeClient = ScrapeClient.createFrom(context);
+
+    // Query the specific job directly (much more efficient than getScrapeJobsByBaseURL + filter)
+    const job = await scrapeClient.getScrapeJobStatus(jobId);
+
+    if (!job) {
+      log.debug(`Scrape job not found: ${jobId}`);
+      return null;
+    }
+
+    const abortInfo = job.abortInfo || null;
+
+    if (!abortInfo || abortInfo.reason !== 'bot-protection') {
+      return null;
+    }
+
+    // isJobComplete determines if data is partial or complete
+    // - If job.status === 'COMPLETE': data is complete (isPartial = false)
+    // - If job.status === 'RUNNING': data is partial (isPartial = true)
+    const isJobComplete = job.status === 'COMPLETE';
+    const stats = convertAbortInfoToStats(abortInfo, isJobComplete);
+
+    log.info(
+      `Bot protection detected from database: jobId=${job.id}, `
+      + `status=${job.status}, blockedUrls=${stats.totalCount}, `
+      + `isPartial=${stats.isPartial}`,
+    );
+
+    return stats;
+  } catch (error) {
+    log.error('Failed to get bot protection from database:', error);
+    return null;
+  }
+}
+
+/**
  * Checks for bot protection and sends Slack alert if detected
- * Filters by time range and site URL to identify bot protection events.
+ * Queries the ScrapeJob database for abort information instead of CloudWatch logs.
  *
  * @param {Object} params - Parameters object
- * @param {string} params.siteUrl - The site URL
- * @param {number} params.searchStartTime - Search start timestamp (ms)
+ * @param {string} params.jobId - The scrape job ID (from isScrapingAvailable)
+ * @param {string} params.siteUrl - The site URL (for Slack message)
  * @param {Object} params.slackContext - Slack context for sending messages
  * @param {Object} params.context - Application context with env, log
  * @returns {Promise<Object|null>} Bot protection stats if detected, null otherwise
  */
 export async function checkAndAlertBotProtection({
+  jobId,
   siteUrl,
-  searchStartTime,
   slackContext,
   context,
 }) {
   const { log, env } = context;
 
-  // Query CloudWatch logs using time range
-  const logEvents = await queryBotProtectionLogs(context, searchStartTime);
+  // Log the bot protection check
+  log.info(
+    `[BOT-PROTECTION-CHECK] Checking bot protection for jobId=${jobId}, `
+    + `siteUrl=${siteUrl}`,
+  );
 
-  // Filter events by site URL
-  const filteredEvents = filterEventsBySiteUrl(logEvents, siteUrl, log);
+  // Query database for bot protection info using jobId (much more efficient)
+  const botProtectionStats = await getBotProtectionFromDatabase(jobId, context);
 
-  if (filteredEvents.length === 0) {
+  if (!botProtectionStats) {
+    log.info(
+      `[BOT-PROTECTION-CHECK] No bot protection detected for jobId=${jobId}, `
+      + `siteUrl=${siteUrl}`,
+    );
     return null;
   }
 
-  // Aggregate statistics
-  const botProtectionStats = aggregateBotProtectionStats(filteredEvents);
+  // Log detailed bot protection detection
   log.warn(
-    `[BOT-BLOCKED] Bot protection detected: ${botProtectionStats.totalCount} URLs blocked `
-    + `(from CloudWatch logs) for site ${siteUrl}`,
+    `[BOT-BLOCKED] Bot protection detected: jobId=${jobId}, `
+    + `siteUrl=${siteUrl}, `
+    + `blockedUrls=${botProtectionStats.totalCount}, `
+    + `totalUrlsInJob=${botProtectionStats.totalUrlsInJob}, `
+    + `isPartial=${botProtectionStats.isPartial} (${botProtectionStats.isPartial ? 'RUNNING' : 'COMPLETE'}), `
+    + `blockerTypes=${JSON.stringify(botProtectionStats.byBlockerType)}, `
+    + `httpStatuses=${JSON.stringify(botProtectionStats.byHttpStatus)}, `
+    + `highConfidence=${botProtectionStats.highConfidenceCount}`,
   );
 
   // Send Slack alert - import dynamically to avoid circular dependency
@@ -301,32 +358,4 @@ export async function getAuditStatus(auditType, siteId, onboardStartTime, contex
     log.error(`Error getting audit status for ${auditType}:`, error);
     return { executed: false, failureReason: null };
   }
-}
-
-/**
- * @deprecated Use getAuditStatus instead - this function is kept for backward compatibility
- * Checks if an audit was executed by searching Audit Worker logs
- * @param {string} auditType - The audit type to search for
- * @param {string} siteId - The site ID
- * @param {number} onboardStartTime - The onboarding start timestamp
- * @param {object} context - The context object with env and log
- * @returns {Promise<boolean>} Whether the audit was executed
- */
-export async function checkAuditExecution(auditType, siteId, onboardStartTime, context) {
-  const { executed } = await getAuditStatus(auditType, siteId, onboardStartTime, context);
-  return executed;
-}
-
-/**
- * @deprecated Use getAuditStatus instead - this function is kept for backward compatibility
- * Gets the failure reason for an audit by searching Audit Worker logs
- * @param {string} auditType - The audit type to search for
- * @param {string} siteId - The site ID
- * @param {number} onboardStartTime - The onboarding start timestamp
- * @param {object} context - The context object with env and log
- * @returns {Promise<string|null>} The failure reason or null if not found
- */
-export async function getAuditFailureReason(auditType, siteId, onboardStartTime, context) {
-  const { failureReason } = await getAuditStatus(auditType, siteId, onboardStartTime, context);
-  return failureReason;
 }
