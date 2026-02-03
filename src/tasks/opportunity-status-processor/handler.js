@@ -24,26 +24,43 @@ const TASK_TYPE = 'opportunity-status-processor';
 const AUDIT_WORKER_LOG_GROUP = '/aws/lambda/spacecat-services--audit-worker';
 
 /**
+ * Toggles the www subdomain in a hostname
+ * @param {string} hostname - The hostname to toggle
+ * @returns {string} The hostname with www toggled
+ */
+function toggleWWWHostname(hostname) {
+  return hostname.startsWith('www.') ? hostname.replace('www.', '') : `www.${hostname}`;
+}
+
+/**
  * Checks if RUM is available for a domain by attempting to get a domainkey
+ * Tries both with and without www prefix
  * @param {string} domain - The domain to check
  * @param {object} context - The context object with env and log
  * @returns {Promise<boolean>} True if RUM is available, false otherwise
  */
 async function isRUMAvailable(domain, context) {
   const { log } = context;
+  const rumClient = RUMAPIClient.createFrom(context);
 
   try {
-    const rumClient = RUMAPIClient.createFrom(context);
-
-    // Attempt to get domainkey - if this succeeds, RUM is available
     await rumClient.retrieveDomainkey(domain);
-
     log.info(`RUM is available for domain: ${domain}`);
     return true;
   } catch (error) {
-    log.info(`RUM is not available for domain: ${domain}. Reason: ${error.message}`);
-    return false;
+    log.warn(`RUM is not available for domain: ${domain}. Reason: ${error.message}`);
   }
+
+  // Try with www-toggled domain
+  const wwwToggledDomain = toggleWWWHostname(domain);
+  try {
+    await rumClient.retrieveDomainkey(wwwToggledDomain);
+    log.info(`RUM is available for domain: ${wwwToggledDomain}`);
+    return true;
+  } catch (error) {
+    log.warn(`RUM not available for ${wwwToggledDomain}: ${error.message}`);
+  }
+  return false;
 }
 
 /**
@@ -469,47 +486,55 @@ export async function runOpportunityStatusProcessor(message, context) {
     const needsScraping = requiredDependencies.has('scraping');
     const needsGSC = requiredDependencies.has('GSC');
 
-    // Only check data sources that are needed
-    if (siteUrl && (needsRUM || needsGSC || needsScraping)) {
-      try {
-        const resolvedUrl = await resolveCanonicalUrl(siteUrl);
-        log.info(`Resolved URL: ${resolvedUrl}`);
-        const domain = new URL(resolvedUrl).hostname;
+    if (!siteUrl) {
+      log.warn('No siteUrl provided, skipping RUM, GSC, and scraping checks');
+    } else {
+      let resolvedUrl = null;
+      if (needsRUM || needsGSC) {
+        resolvedUrl = await resolveCanonicalUrl(siteUrl);
+        log.info(`Resolved URL: ${resolvedUrl || 'null'} for ${siteUrl}`);
 
-        if (needsRUM) {
-          rumAvailable = await isRUMAvailable(domain, context);
-        }
-
-        if (needsGSC) {
-          gscConfigured = await isGSCConfigured(resolvedUrl, context);
-        }
-
-        if (needsScraping) {
-          const scrapingCheck = await isScrapingAvailable(siteUrl, context);
-          scrapingAvailable = scrapingCheck.available;
-
-          // Send Slack notification with scraping statistics if available
-          if (scrapingCheck.stats && slackContext) {
-            const { completed, failed, total } = scrapingCheck.stats;
-            const statsMessage = `:mag: *Scraping Statistics for ${siteUrl}*\n`
-              + `✅ Completed: ${completed}\n`
-              + `❌ Failed: ${failed}\n`
-              + `📊 Total: ${total}`;
-
-            if (failed > 0) {
-              await say(
-                env,
-                log,
-                slackContext,
-                `${statsMessage}\n:information_source: _${failed} failed URLs will be retried on re-onboarding._`,
-              );
-            } else {
-              await say(env, log, slackContext, statsMessage);
-            }
+        if (!resolvedUrl) {
+          log.warn(`Could not resolve canonical URL for: ${siteUrl}. Site may be unreachable.`);
+          if (slackContext) {
+            await say(env, log, slackContext, `:warning: Could not resolve canonical URL for \`${siteUrl}\`. Site may be unreachable.`);
           }
         }
-      } catch (error) {
-        log.warn(`Could not resolve canonical URL or parse siteUrl for data source checks: ${siteUrl}`, error);
+      }
+
+      if (needsRUM) {
+        const urlToCheck = resolvedUrl || siteUrl;
+        const domain = new URL(urlToCheck).hostname;
+        rumAvailable = await isRUMAvailable(domain, context);
+      }
+
+      if (needsGSC && resolvedUrl) {
+        gscConfigured = await isGSCConfigured(resolvedUrl, context);
+      }
+
+      if (needsScraping) {
+        const scrapingCheck = await isScrapingAvailable(siteUrl, context);
+        scrapingAvailable = scrapingCheck.available;
+
+        // Send Slack notification with scraping statistics if available
+        if (scrapingCheck.stats && slackContext) {
+          const { completed, failed, total } = scrapingCheck.stats;
+          const statsMessage = `:mag: *Scraping Statistics for ${siteUrl}*\n`
+            + `✅ Completed: ${completed}\n`
+            + `❌ Failed: ${failed}\n`
+            + `📊 Total: ${total}`;
+
+          if (failed > 0) {
+            await say(
+              env,
+              log,
+              slackContext,
+              `${statsMessage}\n:information_source: _${failed} failed URLs will be retried on re-onboarding._`,
+            );
+          } else {
+            await say(env, log, slackContext, statsMessage);
+          }
+        }
       }
     }
 
