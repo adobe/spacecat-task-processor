@@ -2577,7 +2577,7 @@ describe('Opportunity Status Processor', () => {
       }
     });
 
-    it('should detect bot protection from CloudWatch logs and send Slack alert', async function () {
+    it('should detect bot protection from database and send Slack alert', async function () {
       this.timeout(5000);
       const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
@@ -2614,8 +2614,14 @@ describe('Opportunity Status Processor', () => {
         getScrapeJobUrlResults: sinon.stub().resolves([
           { url: 'https://zepbound.lilly.com/', status: 'COMPLETE' },
         ]),
-        // Mock getScrapeJobStatus to return job with bot protection abortInfo
-        getScrapeJobStatus: sinon.stub().resolves({
+      };
+
+      // Create the stub - this must happen before handler execution
+      scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
+
+      // Mock ScrapeJob.findById to return job with bot protection abortInfo (for database query)
+      context.dataAccess.ScrapeJob = {
+        findById: sinon.stub().resolves({
           id: 'job-123',
           status: 'RUNNING',
           abortInfo: {
@@ -2644,9 +2650,6 @@ describe('Opportunity Status Processor', () => {
         }),
       };
 
-      // Create the stub - this must happen before handler execution
-      scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
-
       const result = await runOpportunityStatusProcessor(message, context);
 
       // Verify scraping was checked (handle both with and without trailing slash)
@@ -2655,8 +2658,8 @@ describe('Opportunity Status Processor', () => {
       expect(actualUrl?.replace(/\/$/, '')).to.equal('https://zepbound.lilly.com');
       expect(mockScrapeClientLocal.getScrapeJobUrlResults).to.have.been.calledWith('job-123');
 
-      // Verify getScrapeJobStatus was called to check for bot protection
-      expect(mockScrapeClientLocal.getScrapeJobStatus).to.have.been.calledWith('job-123');
+      // Verify database was queried for bot protection (new implementation)
+      expect(context.dataAccess.ScrapeJob.findById).to.have.been.calledWith('job-123');
 
       // Verify bot protection alert was sent via Slack
       expect(mockSlackClient.postMessage).to.have.been.called;
@@ -2724,7 +2727,12 @@ describe('Opportunity Status Processor', () => {
         getScrapeJobUrlResults: sinon.stub().resolves([
           { url: 'https://dev-test.com/', status: 'COMPLETE' },
         ]),
-        getScrapeJobStatus: sinon.stub().resolves({
+      };
+      scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
+
+      // Mock ScrapeJob.findById to return job with bot protection abortInfo (for database query)
+      context.dataAccess.ScrapeJob = {
+        findById: sinon.stub().resolves({
           id: 'job-dev',
           status: 'RUNNING',
           abortInfo: {
@@ -2746,7 +2754,6 @@ describe('Opportunity Status Processor', () => {
           },
         }),
       };
-      scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
 
       const result = await runOpportunityStatusProcessor(message, context);
 
@@ -2754,8 +2761,8 @@ describe('Opportunity Status Processor', () => {
       expect(mockScrapeClientLocal.getScrapeJobsByBaseURL).to.have.been.calledWith('https://dev-test.com');
       expect(mockScrapeClientLocal.getScrapeJobUrlResults).to.have.been.calledWith('job-dev');
 
-      // Verify getScrapeJobStatus was called to check for bot protection
-      expect(mockScrapeClientLocal.getScrapeJobStatus).to.have.been.calledWith('job-dev');
+      // Verify database was queried for bot protection (new implementation)
+      expect(context.dataAccess.ScrapeJob.findById).to.have.been.calledWith('job-dev');
 
       // Verify bot protection alert was sent via Slack
       expect(mockSlackClient.postMessage).to.have.been.called;
@@ -2805,19 +2812,28 @@ describe('Opportunity Status Processor', () => {
         // Ensure mockSite returns empty opportunities
         mockSite.getOpportunities.resolves([]);
 
-        // Mock CloudWatch to return EMPTY events (no bot protection)
-        context.mockCloudWatchSend.resolves({
-          events: [], // No bot protection events
-        });
-
         const mockJob = {
           id: 'job-no-bot',
           startedAt: new Date().toISOString(),
         };
 
-        mockScrapeClient.getScrapeJobsByBaseURL.resolves([mockJob]);
+        const mockScrapeClientLocal = {
+          getScrapeJobsByBaseURL: sinon.stub().resolves([mockJob]),
+          getScrapeJobUrlResults: sinon.stub().resolves([
+            { url: 'https://no-bot-protection.com/', status: 'COMPLETE' },
+          ]),
+        };
 
-        scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+        scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
+
+        // Mock database to return job WITHOUT bot protection abortInfo
+        context.dataAccess.ScrapeJob = {
+          findById: sinon.stub().resolves({
+            id: 'job-no-bot',
+            status: 'COMPLETE',
+            // No abortInfo property = no bot protection
+          }),
+        };
 
         const result = await runOpportunityStatusProcessor(message, context);
 
@@ -2879,7 +2895,12 @@ describe('Opportunity Status Processor', () => {
             { url: 'https://example.com/also-blocked', status: 'COMPLETE' },
             { url: 'https://example.com/success', status: 'COMPLETE' },
           ]),
-          getScrapeJobStatus: sinon.stub().resolves({
+        };
+        scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
+
+        // Mock database to return job WITH bot protection abortInfo
+        context.dataAccess.ScrapeJob = {
+          findById: sinon.stub().resolves({
             id: 'job-456',
             status: 'RUNNING',
             abortInfo: {
@@ -2907,7 +2928,6 @@ describe('Opportunity Status Processor', () => {
             },
           }),
         };
-        scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
 
         const result = await runOpportunityStatusProcessor(message, context);
 
