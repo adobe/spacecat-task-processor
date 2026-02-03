@@ -3441,4 +3441,159 @@ describe('Opportunity Status Processor', () => {
       }
     });
   });
+
+  describe('Missing Coverage - Lines 166-167, 268-270', () => {
+    it('should handle null baseUrl in isScrapingAvailable (lines 166-167)', async () => {
+      // Test the null baseUrl path in isScrapingAvailable
+      const esmock = (await import('esmock')).default;
+
+      const mockScrapeClient = {
+        getScrapeJobsByBaseURL: sinon.stub().resolves([]),
+      };
+      const mockScrapeClientClass = {
+        createFrom: sinon.stub().returns(mockScrapeClient),
+      };
+
+      const handler = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
+        '@adobe/spacecat-shared-scrape-client': { ScrapeClient: mockScrapeClientClass },
+        '../../../src/utils/cloudwatch-utils.js': {
+          checkAndAlertBotProtection: sinon.stub().resolves(null),
+          checkAuditExecution: sinon.stub().resolves(true),
+          getAuditFailureReason: sinon.stub().resolves(null),
+        },
+      });
+
+      // Temporarily add scraping dependency
+      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const originalAltText = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['alt-text'];
+
+      try {
+        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['alt-text'] = ['scraping'];
+
+        const testMessage = {
+          siteId: 'test-site-id',
+          siteUrl: null, // null URL to trigger line 166
+          organizationId: 'test-org-id',
+          taskContext: {
+            auditTypes: ['alt-text'],
+            slackContext: null,
+            onboardStartTime: Date.now() - 3600000,
+          },
+        };
+
+        const testContext = {
+          ...context,
+          dataAccess: {
+            Site: {
+              findById: sinon.stub().resolves({
+                getOpportunities: sinon.stub().resolves([]),
+              }),
+            },
+            SiteTopPage: {
+              allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+            },
+          },
+        };
+
+        await handler.runOpportunityStatusProcessor(testMessage, testContext);
+
+        // Should not call getScrapeJobsByBaseURL when baseUrl is null
+        expect(mockScrapeClient.getScrapeJobsByBaseURL.called).to.be.false;
+      } finally {
+        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['alt-text'] = originalAltText;
+      }
+    });
+
+    it('should handle opportunity with no related audits - continue path (lines 268-270)', async () => {
+      // Test the case where an opportunity type has no related audits
+      // This happens when getOpportunitiesForAudit returns empty array
+      const esmock = (await import('esmock')).default;
+
+      const handler = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
+        '../../../src/utils/cloudwatch-utils.js': {
+          checkAndAlertBotProtection: sinon.stub().resolves(null),
+          checkAuditExecution: sinon.stub().resolves(true),
+          getAuditFailureReason: sinon.stub().resolves(null),
+        },
+      });
+
+      const testMessage = {
+        siteId: 'test-site-id',
+        siteUrl: 'https://example.com',
+        organizationId: 'test-org-id',
+        taskContext: {
+          auditTypes: ['non-existent-audit'], // This audit type doesn't exist in AUDIT_OPPORTUNITY_MAP
+          slackContext: null,
+          onboardStartTime: Date.now() - 3600000,
+        },
+      };
+
+      const testContext = {
+        ...context,
+        dataAccess: {
+          Site: {
+            findById: sinon.stub().resolves({
+              getOpportunities: sinon.stub().resolves([]),
+            }),
+          },
+          SiteTopPage: {
+            allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+          },
+        },
+      };
+
+      const result = await handler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      // Should complete successfully even with non-existent audit type
+      expect(result.status).to.equal(200);
+    });
+
+    it('should handle opportunity type with no matching audits in auditTypes array (lines 268-270)', async () => {
+      // Test when opportunity exists but none of the provided auditTypes can generate it
+      const esmock = (await import('esmock')).default;
+
+      const handler = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
+        '../../../src/utils/cloudwatch-utils.js': {
+          checkAndAlertBotProtection: sinon.stub().resolves(null),
+          checkAuditExecution: sinon.stub().resolves(true),
+          getAuditFailureReason: sinon.stub().resolves(null),
+        },
+      });
+
+      // Mock the audit-opportunity-map to create a scenario where
+      // we're looking for 'cwv' opportunity but only 'alt-text' audit is in auditTypes
+      const testMessage = {
+        siteId: 'test-site-id',
+        siteUrl: 'https://example.com',
+        organizationId: 'test-org-id',
+        taskContext: {
+          auditTypes: ['alt-text'], // This audit generates 'alt-text' opportunities, not 'cwv'
+          slackContext: null,
+          onboardStartTime: Date.now() - 3600000,
+        },
+      };
+
+      const testContext = {
+        ...context,
+        dataAccess: {
+          Site: {
+            findById: sinon.stub().resolves({
+              // Site has no opportunities at all, so we'll be checking for missing 'alt-text'
+              // But the filter in analyzeMissingOpportunities will check if 'alt-text' is in
+              // the opportunities that can be generated by 'alt-text' audit
+              getOpportunities: sinon.stub().resolves([]),
+            }),
+          },
+          SiteTopPage: {
+            allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+          },
+        },
+      };
+
+      const result = await handler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      // Should complete successfully
+      expect(result.status).to.equal(200);
+    });
+  });
 });
