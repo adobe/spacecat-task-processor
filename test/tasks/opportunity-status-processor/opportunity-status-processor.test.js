@@ -770,6 +770,26 @@ describe('Opportunity Status Processor', () => {
     });
 
     it('should handle missing opportunities with unmet dependencies', async () => {
+      // Use esmock to mock all dependencies including CloudWatch
+      const esmock = (await import('esmock')).default;
+
+      const mockScrapeClientLocal = {
+        getScrapeJobsByBaseURL: sinon.stub().resolves([]),
+      };
+      const mockScrapeClientClass = {
+        createFrom: sinon.stub().returns(mockScrapeClientLocal),
+      };
+
+      const handler = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
+        '@adobe/spacecat-shared-scrape-client': { ScrapeClient: mockScrapeClientClass },
+        '../../../src/utils/cloudwatch-utils.js': {
+          checkAndAlertBotProtection: sinon.stub().resolves(null),
+          // Audit not executed (unmet dependencies)
+          checkAuditExecution: sinon.stub().resolves(false),
+          getAuditFailureReason: sinon.stub().resolves(null),
+        },
+      });
+
       // Set up audit types
       message.taskContext.auditTypes = ['cwv'];
       message.taskContext.onboardStartTime = Date.now() - 3600000;
@@ -777,19 +797,10 @@ describe('Opportunity Status Processor', () => {
       // Mock site with no opportunities
       mockSite.getOpportunities.resolves([]);
 
-      // Mock ScrapeClient to prevent hanging
-      const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
-      const mockScrapeClientLocal = {
-        getScrapeJobsByBaseURL: sinon.stub().resolves([]),
-      };
-      const scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
-
-      await runOpportunityStatusProcessor(message, context);
+      await handler.runOpportunityStatusProcessor(message, context);
 
       // Should detect missing cwv opportunity
       expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
-
-      scrapeClientStub.restore();
     });
 
     it('should log all expected opportunities when present', async () => {
