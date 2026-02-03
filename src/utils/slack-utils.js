@@ -144,13 +144,10 @@ export function formatBotProtectionSlackMessage({
     + `• *Total Blocked:* ${totalCount} URLs\n`
     + `• *High Confidence:* ${highConfidenceCount} URLs\n\n`
     + '*By HTTP Status:*\n'
-    /* c8 ignore next */
     + `${statusBreakdown || '  • No status data available'}\n\n`
     + '*By Blocker Type:*\n'
-    /* c8 ignore next */
     + `${blockerBreakdown || '  • No blocker data available'}\n\n`
     + '*🔍 Sample Blocked URLs*\n'
-    /* c8 ignore next */
     + `${sampleUrls || '  • No URL details available'}\n`;
 
   if (totalCount > 3) {

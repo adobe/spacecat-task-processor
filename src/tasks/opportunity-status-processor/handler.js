@@ -124,6 +124,32 @@ function getOpportunityTitle(opportunityType) {
 }
 
 /**
+ * Filters scrape jobs created after a given timestamp
+ * @param {Array} jobs - Array of scrape jobs
+ * @param {number} onboardStartTime - Timestamp to filter by
+ * @returns {Array} Filtered jobs
+ */
+function filterJobsByTimestamp(jobs, onboardStartTime) {
+  return jobs.filter((job) => {
+    const jobTimestamp = new Date(job.startedAt || job.createdAt || 0).getTime();
+    return jobTimestamp >= onboardStartTime;
+  });
+}
+
+/**
+ * Sorts scrape jobs by date (latest first)
+ * @param {Array} jobs - Array of scrape jobs
+ * @returns {Array} Sorted jobs
+ */
+function sortJobsByDate(jobs) {
+  return jobs.sort((a, b) => {
+    const dateA = new Date(b.startedAt || b.createdAt || 0);
+    const dateB = new Date(a.startedAt || a.createdAt || 0);
+    return dateA - dateB;
+  });
+}
+
+/**
  * Checks if scraping functionality is available for a site by analyzing recent scrape jobs
  * Fetches latest scrape job results and provides detailed URL-level status
  *
@@ -136,13 +162,9 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
   const { log } = context;
 
   try {
-    /* c8 ignore start */
-    // Defensive check: Cannot be tested as caller (line 458) already validates siteUrl is truthy
-    // before calling this function, making this path unreachable in normal flow
     if (!baseUrl) {
       return { available: false, results: [] };
     }
-    /* c8 ignore stop */
 
     // Create scrape client
     const scrapeClient = ScrapeClient.createFrom(context);
@@ -155,10 +177,7 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     }
 
     // Filter jobs created after onboardStartTime
-    const filteredJobs = jobs.filter((job) => {
-      const jobTimestamp = new Date(job.startedAt || job.createdAt || 0).getTime();
-      return jobTimestamp >= onboardStartTime;
-    });
+    const filteredJobs = filterJobsByTimestamp(jobs, onboardStartTime);
     log.info(`Filtered ${filteredJobs.length} jobs created after onboardStartTime from ${jobs.length} total jobs`);
 
     if (filteredJobs.length === 0) {
@@ -166,11 +185,7 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     }
 
     // Sort jobs by date (latest first)
-    const sortedJobs = filteredJobs.sort((a, b) => {
-      const dateA = new Date(b.startedAt || b.createdAt || 0);
-      const dateB = new Date(a.startedAt || a.createdAt || 0);
-      return dateA - dateB;
-    });
+    const sortedJobs = sortJobsByDate(filteredJobs);
 
     // Find the first job that has URL results
     let jobWithResults = null;
@@ -249,14 +264,10 @@ async function analyzeMissingOpportunities(
       return opportunities.includes(opportunityType);
     });
 
-    /* c8 ignore start */
-    // Edge case: Opportunity type exists in dependency map but no configured audit generates it.
-    // Requires adding orphan opportunity types to test, complex to mock without production impact.
     if (relatedAudits.length === 0) {
       // eslint-disable-next-line no-continue
       continue;
     }
-    /* c8 ignore stop */
 
     for (const auditType of relatedAudits) {
       // Get audit execution status and failure reason in a single call
@@ -285,13 +296,9 @@ async function analyzeMissingOpportunities(
           unmetDeps.push('RUM');
         } else if (dep === 'AHREFSImport' && !serviceStatus.ahrefsImport) {
           unmetDeps.push('AHREFS Import');
-        /* c8 ignore start */
-        // Edge case: Scraping unavailable scenario - requires all scrape jobs to fail.
-        // Covered by test but specific branch condition difficult to isolate in coverage.
         } else if (dep === 'scraping' && !serviceStatus.scraping) {
           unmetDeps.push('Scraping');
         }
-        /* c8 ignore stop */
       }
 
       if (unmetDeps.length > 0) {

@@ -75,7 +75,7 @@ describe('CloudWatch Utils', () => {
     it('should handle malformed log messages gracefully', async () => {
       cloudWatchStub.resolves({
         events: [
-          { message: 'INVALID_LOG_FORMAT no json here' }, // Doesn't match pattern
+          { message: 'INVALID_LOG_FORMAT no json here' }, // Doesn't match pattern, returns null silently
           { message: '[BOT-BLOCKED] Bot Protection Detection in Scraper: { invalid: json }' }, // Matches pattern but invalid JSON, logs warning
           { message: `[BOT-BLOCKED] Bot Protection Detection in Scraper: ${JSON.stringify({ jobId: 'test', httpStatus: 403, url: 'https://example.com/test' })}` },
         ],
@@ -86,8 +86,8 @@ describe('CloudWatch Utils', () => {
 
       expect(result).to.have.lengthOf(1);
       expect(result[0]).to.deep.equal({ jobId: 'test', httpStatus: 403, url: 'https://example.com/test' });
-      // Two warnings: first message doesn't match pattern, second matches but has invalid JSON
-      expect(mockContext.log.warn).to.have.been.calledTwice;
+      // Only one warning: second message matches pattern but has invalid JSON
+      expect(mockContext.log.warn).to.have.been.calledOnce;
     });
   });
 

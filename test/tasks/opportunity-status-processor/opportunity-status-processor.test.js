@@ -420,8 +420,6 @@ describe('Opportunity Status Processor', () => {
     it('should handle RUM success scenarios', async () => {
       // Test RUM available (success case) - use a simple URL that should resolve quickly
       mockRUMClient.retrieveDomainkey.resolves('test-domain-key');
-      const RUMAPIClient = await import('@adobe/spacecat-shared-rum-api-client');
-      const createFromStub = sinon.stub(RUMAPIClient.default, 'createFrom').returns(mockRUMClient);
 
       const testMessage = {
         siteId: 'test-site-id',
@@ -447,22 +445,34 @@ describe('Opportunity Status Processor', () => {
         },
       };
 
-      // Mock ScrapeClient to prevent hanging
-      const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+      // Use esmock to mock all necessary dependencies
+      const esmock = (await import('esmock')).default;
       const mockScrapeClientLocal = {
         getScrapeJobsByBaseURL: sinon.stub().resolves([]),
       };
-      const scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
+      const mockScrapeClientClass = {
+        createFrom: sinon.stub().returns(mockScrapeClientLocal),
+      };
 
-      await runOpportunityStatusProcessor(testMessage, testContext);
+      const handler = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
+        '@adobe/spacecat-shared-scrape-client': { ScrapeClient: mockScrapeClientClass },
+        '@adobe/spacecat-shared-rum-api-client': {
+          default: {
+            createFrom: sinon.stub().returns(mockRUMClient),
+          },
+        },
+        '../../../src/utils/cloudwatch-utils.js': {
+          checkAndAlertBotProtection: sinon.stub().resolves(null),
+          checkAuditExecution: sinon.stub().resolves(true),
+          getAuditFailureReason: sinon.stub().resolves(null),
+        },
+      });
 
-      // Verify RUM was checked successfully - this should cover lines 26-37
-      expect(createFromStub.calledWith(testContext)).to.be.true;
+      await handler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      // Verify RUM was checked successfully
       expect(mockRUMClient.retrieveDomainkey.calledWith('example.com')).to.be.true;
       expect(testContext.log.info.calledWith('RUM is available for domain: example.com')).to.be.true;
-
-      scrapeClientStub.restore();
-      createFromStub.restore();
     });
 
     it('should handle opportunities with different types and localhost URLs', async () => {

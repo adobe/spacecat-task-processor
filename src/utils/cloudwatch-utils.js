@@ -123,9 +123,6 @@ export async function queryBotProtectionLogs(context, onboardStartTime) {
           if (messageMatch) {
             return JSON.parse(messageMatch[1]);
           }
-          /* c8 ignore start */
-          log.warn(`Event message did not match expected pattern: ${event.message?.substring(0, 100)}`);
-          /* c8 ignore stop */
           return null;
         } catch (parseError) {
           log.warn(`Failed to parse bot protection log event: ${event.message}`);
