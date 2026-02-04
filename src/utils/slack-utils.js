@@ -101,7 +101,8 @@ export async function say(env, log, slackContext, message) {
  * Formats bot protection details for Slack notifications with detailed statistics
  * @param {Object} options - Options
  * @param {string} options.siteUrl - Site URL
- * @param {Object} options.stats - Bot protection statistics (from aggregateBotProtectionStats)
+ * @param {Object} options.stats - Bot protection statistics
+ *   (from database via convertAbortInfoToStats)
  * @param {Array<string>} options.allowlistIps - Array of IPs to allowlist
  * @param {string} options.allowlistUserAgent - User-Agent to allowlist
  * @returns {string} Formatted Slack message

@@ -14,7 +14,6 @@ import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cl
 import { ScrapeClient } from '@adobe/spacecat-shared-scrape-client';
 
 const AUDIT_WORKER_LOG_GROUP = '/aws/lambda/spacecat-services--audit-worker';
-const CONTENT_SCRAPER_LOG_GROUP = '/aws/lambda/spacecat-services--content-scraper';
 
 /**
  * Creates a CloudWatch Logs client
@@ -37,113 +36,6 @@ function calculateSearchWindow(onboardStartTime, bufferMs = 5 * 60 * 1000) {
   return onboardStartTime
     ? onboardStartTime - bufferMs
     : Date.now() - 30 * 60 * 1000; // 30 minutes ago as fallback
-}
-
-/**
- * Queries CloudWatch logs for bot protection errors from content scraper
- * @param {object} context - Context with env and log
- * @param {number} onboardStartTime - Onboard start timestamp (ms) to limit search window
- * @returns {Promise<Array>} Array of bot protection events
- */
-export async function queryBotProtectionLogs(context, onboardStartTime) {
-  const { env, log } = context;
-
-  const cloudwatchClient = createCloudWatchClient(env);
-  const logGroupName = env.CONTENT_SCRAPER_LOG_GROUP || CONTENT_SCRAPER_LOG_GROUP;
-
-  // Query logs from 5 minutes before onboard start time to now
-  // Buffer handles clock skew and CloudWatch log ingestion delays
-  const BUFFER_MS = 5 * 60 * 1000; // 5 minutes
-  const startTime = onboardStartTime - BUFFER_MS;
-  const endTime = Date.now();
-
-  try {
-    // Filter by [BOT-BLOCKED] pattern
-    const filterPattern = '"[BOT-BLOCKED]"';
-
-    const command = new FilterLogEventsCommand({
-      logGroupName,
-      startTime,
-      endTime,
-      // Filter pattern to find bot protection logs for this site in the time window
-      // Using text pattern since logs have prefix:
-      // [BOT-BLOCKED] Bot Protection Detection in Scraper: {...}
-      filterPattern,
-      limit: 100, // Max URLs per job
-    });
-
-    const response = await cloudwatchClient.send(command);
-
-    if (!response.events || response.events.length === 0) {
-      log.debug('No bot protection logs found in time window');
-      return [];
-    }
-
-    log.info(`Found ${response.events.length} bot protection events in CloudWatch logs`);
-
-    // Parse log events
-    const botProtectionEvents = response.events
-      .map((event) => {
-        try {
-          // Checking if the logs have bot protection detection in scraper
-          const messageMatch = event.message.match(/\[BOT-BLOCKED\]\s+Bot Protection Detection in Scraper:\s*({.*})/);
-          if (messageMatch) {
-            return JSON.parse(messageMatch[1]);
-          }
-          return null;
-        } catch (parseError) {
-          log.warn(`Failed to parse bot protection log event: ${event.message}`);
-          return null;
-        }
-      })
-      .filter((event) => event !== null);
-
-    return botProtectionEvents;
-  } catch (error) {
-    log.error('Failed to query CloudWatch logs for bot protection:', error);
-    // Don't fail the entire task processor run
-    return [];
-  }
-}
-
-/**
- * Aggregates bot protection events by HTTP status code and blocker type
- * @param {Array} events - Array of bot protection events from logs
- * @returns {object} Aggregated statistics
- */
-export function aggregateBotProtectionStats(events) {
-  const stats = {
-    totalCount: events.length,
-    byHttpStatus: {},
-    byBlockerType: {},
-    urls: [],
-    highConfidenceCount: 0, // confidence >= 0.95
-  };
-
-  for (const event of events) {
-    // Count by HTTP status
-    const status = event.httpStatus || 'unknown';
-    stats.byHttpStatus[status] = (stats.byHttpStatus[status] || 0) + 1;
-
-    // Count by blocker type
-    const blockerType = event.blockerType || 'unknown';
-    stats.byBlockerType[blockerType] = (stats.byBlockerType[blockerType] || 0) + 1;
-
-    // Track high confidence detections
-    if (event.confidence >= 0.95) {
-      stats.highConfidenceCount += 1;
-    }
-
-    // Collect URLs (with details)
-    stats.urls.push({
-      url: event.url,
-      httpStatus: event.httpStatus,
-      blockerType: event.blockerType,
-      confidence: event.confidence,
-    });
-  }
-
-  return stats;
 }
 
 /**
@@ -185,20 +77,18 @@ export async function getBotProtectionFromDatabase(jobId, context) {
 
   try {
     if (!jobId) {
-      log.debug('No jobId provided for bot protection check');
       return null;
     }
 
     const scrapeClient = ScrapeClient.createFrom(context);
-
-    // Query the specific job directly (much more efficient than getScrapeJobsByBaseURL + filter)
     const job = await scrapeClient.getScrapeJobStatus(jobId);
 
     if (!job) {
-      log.debug(`Scrape job not found: ${jobId}`);
       return null;
     }
 
+    // ScrapeClient returns a plain JSON object (via ScrapeJobDto)
+    // so abortInfo is always a property, never a method
     const abortInfo = job.abortInfo || null;
 
     if (!abortInfo || abortInfo.reason !== 'bot-protection') {
@@ -212,7 +102,7 @@ export async function getBotProtectionFromDatabase(jobId, context) {
     const stats = convertAbortInfoToStats(abortInfo, isJobComplete);
 
     log.info(
-      `Bot protection detected from database: jobId=${job.id}, `
+      `Bot protection detected from database: jobId=${job.id || jobId}, `
       + `status=${job.status}, blockedUrls=${stats.totalCount}, `
       + `isPartial=${stats.isPartial}`,
     );
@@ -243,20 +133,10 @@ export async function checkAndAlertBotProtection({
 }) {
   const { log, env } = context;
 
-  // Log the bot protection check
-  log.info(
-    `[BOT-PROTECTION-CHECK] Checking bot protection for jobId=${jobId}, `
-    + `siteUrl=${siteUrl}`,
-  );
-
   // Query database for bot protection info using jobId (much more efficient)
   const botProtectionStats = await getBotProtectionFromDatabase(jobId, context);
 
   if (!botProtectionStats) {
-    log.info(
-      `[BOT-PROTECTION-CHECK] No bot protection detected for jobId=${jobId}, `
-      + `siteUrl=${siteUrl}`,
-    );
     return null;
   }
 

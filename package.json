@@ -82,7 +82,7 @@
     "@adobe/spacecat-shared-http-utils": "1.19.4",
     "@adobe/spacecat-shared-ims-client": "1.11.9",
     "@adobe/spacecat-shared-rum-api-client": "2.40.6",
-    "@adobe/spacecat-shared-scrape-client": "2.3.7",
+    "@adobe/spacecat-shared-scrape-client": "https://gist.github.com/tkotthakota-adobe/ad09408910e8dd90cf04fdeba3621906/raw/f16089fa8d5f2e727a07ce3d2bfb529f7aa91ff3/adobe-spacecat-shared-scrape-client-2.3.6.tgz",
     "@adobe/spacecat-shared-slack-client": "1.5.33",
     "@adobe/spacecat-shared-utils": "https://gist.github.com/tkotthakota-adobe/548b36fa040a16c892068072b73938e7/raw/5420291a7f4a632bdf84e02d3f23b7b3967a5664/adobe-spacecat-shared-utils-1.90.1.tgz",
     "@aws-sdk/client-s3": "3.980.0",
