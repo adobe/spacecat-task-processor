@@ -180,13 +180,25 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     // Get all scrape jobs for this baseUrl (all processing types)
     const jobs = await scrapeClient.getScrapeJobsByBaseURL(baseUrl);
 
+    /* c8 ignore start */
+    log.info(`[SCRAPING-CHECK-DEBUG] Query result for baseUrl=${baseUrl}: found ${jobs?.length || 0} jobs`);
+    /* c8 ignore stop */
+
     if (!jobs || jobs.length === 0) {
+      /* c8 ignore start */
+      log.info(`[SCRAPING-CHECK-DEBUG] No jobs found for baseUrl=${baseUrl}`);
+      /* c8 ignore stop */
       return { available: false, results: [] };
     }
 
     // Filter jobs created after onboardStartTime
     const filteredJobs = filterJobsByTimestamp(jobs, onboardStartTime);
-    log.info(`Filtered ${filteredJobs.length} jobs created after onboardStartTime from ${jobs.length} total jobs`);
+    /* c8 ignore start */
+    log.info(
+      `[SCRAPING-CHECK-DEBUG] Filtered ${filteredJobs.length} jobs created after onboardStartTime from ${jobs.length} total jobs for baseUrl=${baseUrl}. `
+      + `All job IDs: [${jobs.map((j) => j.id).join(', ')}]. `
+      + `Filtered job IDs: [${filteredJobs.map((j) => j.id).join(', ')}]`,
+    );
 
     if (filteredJobs.length === 0) {
       return { available: false, results: [] };
@@ -202,6 +214,9 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     /* eslint-disable no-await-in-loop */
     for (const job of sortedJobs) {
       const results = await scrapeClient.getScrapeJobUrlResults(job.id);
+      /* c8 ignore start */
+      log.info(`[SCRAPING-CHECK-DEBUG] Job ${job.id}: ${results?.length || 0} URL results`);
+      /* c8 ignore stop */
       if (results && results.length > 0) {
         jobWithResults = job;
         urlResults = results;
@@ -211,7 +226,12 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     /* eslint-enable no-await-in-loop */
 
     if (!jobWithResults) {
-      log.info(`Scraping check: No jobs with URL results found for ${baseUrl}`);
+      /* c8 ignore start */
+      log.info(
+        `[SCRAPING-CHECK-DEBUG] No jobs with URL results found for ${baseUrl}. `
+        + `Checked ${sortedJobs.length} jobs: [${sortedJobs.map((j) => j.id).join(', ')}]`,
+      );
+      /* c8 ignore stop */
       return { available: false, results: [] };
     }
     // Count successful and failed scrapes
@@ -221,6 +241,13 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
 
     // Check if at least one URL was successfully scraped (status === 'COMPLETE')
     const hasSuccessfulScrape = completedCount > 0;
+
+    /* c8 ignore start */
+    log.info(
+      `[SCRAPING-CHECK-DEBUG] Found job with results: jobId=${jobWithResults.id}, `
+      + `baseURL=${baseUrl}, urlCount=${totalCount}, completed=${completedCount}, failed=${failedCount}`,
+    );
+    /* c8 ignore stop */
 
     return {
       available: hasSuccessfulScrape,
@@ -233,7 +260,9 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
       },
     };
   } catch (error) {
-    log.error(`Scraping check failed for ${baseUrl}:`, error);
+    /* c8 ignore start */
+    log.error(`[SCRAPING-CHECK-DEBUG] Exception in isScrapingAvailable for ${baseUrl}:`, error);
+    /* c8 ignore stop */
     return { available: false, results: [] };
   }
 }
