@@ -440,8 +440,9 @@ export async function runOpportunityStatusProcessor(message, context) {
     // Only check data sources that are needed
     if (siteUrl && (needsRUM || needsGSC || needsScraping)) {
       try {
-        const resolvedUrl = await resolveCanonicalUrl(siteUrl);
-        log.info(`Resolved URL: ${resolvedUrl}`);
+        // Resolve URL for RUM and GSC checks (they need canonical URL)
+        const resolvedUrl = needsRUM || needsGSC ? await resolveCanonicalUrl(siteUrl) : siteUrl;
+        log.info(`Resolved URL: ${resolvedUrl} (for RUM/GSC)`);
         const domain = new URL(resolvedUrl).hostname;
 
         if (needsRUM) {
@@ -453,16 +454,17 @@ export async function runOpportunityStatusProcessor(message, context) {
         }
 
         if (needsScraping) {
-          // First, get scraping availability (use resolvedUrl for consistency)
-          const scrapingCheck = await isScrapingAvailable(resolvedUrl, context, onboardStartTime);
+          // Use siteUrl directly (NOT resolvedUrl) because scrape jobs are created with siteUrl
+          // from site.getBaseURL(), not the resolved/redirected URL
+          const scrapingCheck = await isScrapingAvailable(siteUrl, context, onboardStartTime);
           scrapingAvailable = scrapingCheck.available;
 
           /* c8 ignore start */
           // Log scraping check result with jobId
           log.info(
             `[SCRAPING-CHECK] Scraping check complete: siteUrl=${siteUrl}, `
-            + `resolvedUrl=${resolvedUrl}, available=${scrapingAvailable}, `
-            + `hasJobId=${!!scrapingCheck.jobId}, jobId=${scrapingCheck.jobId || 'none'}`,
+            + `available=${scrapingAvailable}, hasJobId=${!!scrapingCheck.jobId}, `
+            + `jobId=${scrapingCheck.jobId || 'none'}`,
           );
           /* c8 ignore stop */
 

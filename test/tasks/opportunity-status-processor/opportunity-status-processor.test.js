@@ -2034,8 +2034,8 @@ describe('Opportunity Status Processor', () => {
         await handler.runOpportunityStatusProcessor(message, context);
 
         // Verify that scraping check was performed (all processing types)
-        // Note: resolveCanonicalUrl adds trailing slash
-        expect(mockScrapeClient.getScrapeJobsByBaseURL.calledWith('https://example.com/')).to.be.true;
+        // Note: Uses siteUrl directly, not resolvedUrl
+        expect(mockScrapeClient.getScrapeJobsByBaseURL.calledWith('https://example.com')).to.be.true;
       } finally {
         // Cleanup
         dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
@@ -2251,8 +2251,8 @@ describe('Opportunity Status Processor', () => {
 
         // Should detect successful scrape (at least one COMPLETE)
         // Verify that scraping was checked and completed successfully (all processing types)
-        // Note: resolveCanonicalUrl adds trailing slash
-        expect(mockScrapeClient.getScrapeJobsByBaseURL.calledWith('https://example.com/')).to.be.true;
+        // Note: Uses siteUrl directly, not resolvedUrl
+        expect(mockScrapeClient.getScrapeJobsByBaseURL.calledWith('https://example.com')).to.be.true;
         expect(mockScrapeClient.getScrapeJobUrlResults.calledOnce).to.be.true;
 
         // Cleanup
@@ -2754,8 +2754,8 @@ describe('Opportunity Status Processor', () => {
       const result = await runOpportunityStatusProcessor(message, context);
 
       // Verify scraping was checked
-      // Note: resolveCanonicalUrl adds trailing slash
-      expect(mockScrapeClientLocal.getScrapeJobsByBaseURL).to.have.been.calledWith('https://dev-test.com/');
+      // Note: Uses siteUrl directly, not resolvedUrl
+      expect(mockScrapeClientLocal.getScrapeJobsByBaseURL).to.have.been.calledWith('https://dev-test.com');
       expect(mockScrapeClientLocal.getScrapeJobUrlResults).to.have.been.calledWith('job-dev');
 
       // Verify bot protection was checked via getScrapeJobStatus
