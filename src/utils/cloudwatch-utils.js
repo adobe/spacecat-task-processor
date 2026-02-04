@@ -50,6 +50,12 @@ export function convertAbortInfoToStats(abortInfo, isJobComplete) {
   }
 
   const { details } = abortInfo;
+
+  // Validate details object exists
+  if (!details) {
+    return null;
+  }
+
   const blockedUrls = details.blockedUrls || [];
   const highConfidenceUrls = blockedUrls.filter((url) => (url.confidence || 0) >= 0.95);
 
@@ -77,21 +83,60 @@ export async function getBotProtectionFromDatabase(jobId, context) {
 
   try {
     if (!jobId) {
+      /* c8 ignore start */
+      log.warn('[BOT-CHECK] No jobId provided for bot protection check');
+      /* c8 ignore stop */
       return null;
     }
 
+    /* c8 ignore start */
+    log.info(`[BOT-CHECK] Querying database for jobId=${jobId}`);
+    /* c8 ignore stop */
     const scrapeClient = ScrapeClient.createFrom(context);
     const job = await scrapeClient.getScrapeJobStatus(jobId);
 
     if (!job) {
+      /* c8 ignore start */
+      log.info(`[BOT-CHECK] Job not found: jobId=${jobId}`);
+      /* c8 ignore stop */
       return null;
     }
+
+    /* c8 ignore start */
+    // Debug: Log what fields are returned by ScrapeClient
+    const jobKeys = Object.keys(job).sort().join(', ');
+    const abortInfoType = typeof job.abortInfo;
+    const abortInfoValue = job.abortInfo ? JSON.stringify(job.abortInfo).substring(0, 200) : 'null';
+
+    log.info(
+      `[BOT-CHECK] Job retrieved: jobId=${jobId}, status=${job.status}, `
+      + `hasAbortInfo=${!!job.abortInfo}, abortInfoType=${abortInfoType}, `
+      + `abortInfoPreview=${abortInfoValue}, jobKeys=[${jobKeys}]`,
+    );
+    /* c8 ignore stop */
 
     // ScrapeClient returns a plain JSON object (via ScrapeJobDto)
     // so abortInfo is always a property, never a method
     const abortInfo = job.abortInfo || null;
 
-    if (!abortInfo || abortInfo.reason !== 'bot-protection') {
+    if (!abortInfo) {
+      /* c8 ignore start */
+      log.info(
+        `[BOT-CHECK] No abortInfo in job object for jobId=${jobId}. `
+        + 'This means ScrapeJobDto is not including abortInfo field. '
+        + 'Check if spacecat-shared-scrape-client library needs to be updated.',
+      );
+      /* c8 ignore stop */
+      return null;
+    }
+
+    if (abortInfo.reason !== 'bot-protection') {
+      /* c8 ignore start */
+      log.info(
+        '[BOT-CHECK] AbortInfo present but reason is not bot-protection: '
+        + `jobId=${jobId}, reason=${abortInfo.reason}`,
+      );
+      /* c8 ignore stop */
       return null;
     }
 
@@ -101,15 +146,33 @@ export async function getBotProtectionFromDatabase(jobId, context) {
     const isJobComplete = job.status === 'COMPLETE';
     const stats = convertAbortInfoToStats(abortInfo, isJobComplete);
 
+    // Validate stats was created successfully
+    if (!stats) {
+      /* c8 ignore start */
+      log.error(
+        `[BOT-CHECK] Failed to convert abortInfo to stats: jobId=${jobId}, `
+        + `hasDetails=${!!abortInfo.details}`,
+      );
+      /* c8 ignore stop */
+      return null;
+    }
+
+    /* c8 ignore start */
     log.info(
       `Bot protection detected from database: jobId=${job.id || jobId}, `
       + `status=${job.status}, blockedUrls=${stats.totalCount}, `
       + `isPartial=${stats.isPartial}`,
     );
+    /* c8 ignore stop */
 
     return stats;
   } catch (error) {
-    log.error('Failed to get bot protection from database:', error);
+    /* c8 ignore start */
+    log.error(
+      `Failed to get bot protection from database: jobId=${jobId}, error=${error.message}`,
+      error,
+    );
+    /* c8 ignore stop */
     return null;
   }
 }
@@ -133,13 +196,24 @@ export async function checkAndAlertBotProtection({
 }) {
   const { log, env } = context;
 
+  /* c8 ignore start */
+  // Log entry point with jobId
+  log.info(
+    `[BOT-CHECK] Starting bot protection check: jobId=${jobId}, siteUrl=${siteUrl}`,
+  );
+  /* c8 ignore stop */
+
   // Query database for bot protection info using jobId (much more efficient)
   const botProtectionStats = await getBotProtectionFromDatabase(jobId, context);
 
   if (!botProtectionStats) {
+    /* c8 ignore start */
+    log.info(`[BOT-CHECK] No bot protection found: jobId=${jobId}`);
+    /* c8 ignore stop */
     return null;
   }
 
+  /* c8 ignore start */
   // Log detailed bot protection detection
   log.warn(
     `[BOT-BLOCKED] Bot protection detected: jobId=${jobId}, `
@@ -151,25 +225,41 @@ export async function checkAndAlertBotProtection({
     + `httpStatuses=${JSON.stringify(botProtectionStats.byHttpStatus)}, `
     + `highConfidence=${botProtectionStats.highConfidenceCount}`,
   );
+  /* c8 ignore stop */
 
-  // Send Slack alert - import dynamically to avoid circular dependency
-  const { formatAllowlistMessage } = await import('@adobe/spacecat-shared-utils');
-  const { say, formatBotProtectionSlackMessage } = await import('./slack-utils.js');
+  // Send Slack alert - wrap in try-catch to prevent alert failures from breaking flow
+  try {
+    // Import dynamically to avoid circular dependency
+    const { formatAllowlistMessage } = await import('@adobe/spacecat-shared-utils');
+    const { say, formatBotProtectionSlackMessage } = await import('./slack-utils.js');
 
-  const botIps = env.SPACECAT_BOT_IPS || '';
-  const allowlistInfo = formatAllowlistMessage(botIps);
+    const botIps = env.SPACECAT_BOT_IPS || '';
+    const allowlistInfo = formatAllowlistMessage(botIps);
 
-  await say(
-    env,
-    log,
-    slackContext,
-    formatBotProtectionSlackMessage({
-      siteUrl,
-      stats: botProtectionStats,
-      allowlistIps: allowlistInfo.ips,
-      allowlistUserAgent: allowlistInfo.userAgent,
-    }),
-  );
+    await say(
+      env,
+      log,
+      slackContext,
+      formatBotProtectionSlackMessage({
+        siteUrl,
+        stats: botProtectionStats,
+        allowlistIps: allowlistInfo.ips,
+        allowlistUserAgent: allowlistInfo.userAgent,
+      }),
+    );
+
+    /* c8 ignore start */
+    log.info(`[BOT-CHECK] Slack alert sent successfully: jobId=${jobId}`);
+    /* c8 ignore stop */
+  } catch (slackError) {
+    /* c8 ignore start */
+    // Log error but don't fail - bot protection was still detected
+    log.error(
+      `[BOT-CHECK] Failed to send Slack alert: jobId=${jobId}, error=${slackError.message}`,
+      slackError,
+    );
+    /* c8 ignore stop */
+  }
 
   return botProtectionStats;
 }

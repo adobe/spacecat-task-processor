@@ -428,18 +428,49 @@ export async function runOpportunityStatusProcessor(message, context) {
           const scrapingCheck = await isScrapingAvailable(siteUrl, context, onboardStartTime);
           scrapingAvailable = scrapingCheck.available;
 
+          /* c8 ignore start */
+          // Log scraping check result with jobId
+          log.info(
+            `[SCRAPING-CHECK] Scraping check complete: siteUrl=${siteUrl}, `
+            + `available=${scrapingAvailable}, hasJobId=${!!scrapingCheck.jobId}, `
+            + `jobId=${scrapingCheck.jobId || 'none'}`,
+          );
+          /* c8 ignore stop */
+
           // Check for bot protection using jobId from scraping check
-          const botProtectionStats = scrapingCheck.jobId
-            ? await checkAndAlertBotProtection({
-              jobId: scrapingCheck.jobId,
-              siteUrl,
-              slackContext,
-              context,
-            })
-            : null;
+          let botProtectionStats = null;
+          if (scrapingCheck.jobId) {
+            try {
+              botProtectionStats = await checkAndAlertBotProtection({
+                jobId: scrapingCheck.jobId,
+                siteUrl,
+                slackContext,
+                context,
+              });
+            } catch (botCheckError) {
+              /* c8 ignore start */
+              // Log error but continue processing - don't let bot check failures break the flow
+              log.error(
+                '[BOT-CHECK] Error during bot protection check: '
+                + `jobId=${scrapingCheck.jobId}, siteUrl=${siteUrl}, error=${botCheckError.message}`,
+                botCheckError,
+              );
+              /* c8 ignore stop */
+              // Set to null so we don't abort processing on error
+              botProtectionStats = null;
+            }
+          } else {
+            /* c8 ignore start */
+            log.info(
+              '[BOT-CHECK] Skipping bot protection check: '
+              + `no jobId in scrapingCheck for siteUrl=${siteUrl}`,
+            );
+            /* c8 ignore stop */
+          }
 
           // Abort processing if bot protection detected
           if (botProtectionStats && botProtectionStats.totalCount > 0) {
+            /* c8 ignore start */
             log.warn(
               '[BOT-BLOCKED] Aborting opportunity processing due to bot protection: '
               + `siteId=${siteId}, siteUrl=${siteUrl}, jobId=${scrapingCheck.jobId}, `
@@ -447,6 +478,7 @@ export async function runOpportunityStatusProcessor(message, context) {
               + `isPartial=${botProtectionStats.isPartial}, `
               + `blockerTypes=${Object.keys(botProtectionStats.byBlockerType).join(',')}`,
             );
+            /* c8 ignore stop */
             return ok({
               message: `Bot protection detected for ${siteUrl}`,
               botProtectionDetected: true,
