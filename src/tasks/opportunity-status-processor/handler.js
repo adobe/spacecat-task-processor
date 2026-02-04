@@ -424,16 +424,16 @@ export async function runOpportunityStatusProcessor(message, context) {
         }
 
         if (needsScraping) {
-          // First, get scraping availability
-          const scrapingCheck = await isScrapingAvailable(siteUrl, context, onboardStartTime);
+          // First, get scraping availability (use resolvedUrl for consistency)
+          const scrapingCheck = await isScrapingAvailable(resolvedUrl, context, onboardStartTime);
           scrapingAvailable = scrapingCheck.available;
 
           /* c8 ignore start */
           // Log scraping check result with jobId
           log.info(
             `[SCRAPING-CHECK] Scraping check complete: siteUrl=${siteUrl}, `
-            + `available=${scrapingAvailable}, hasJobId=${!!scrapingCheck.jobId}, `
-            + `jobId=${scrapingCheck.jobId || 'none'}`,
+            + `resolvedUrl=${resolvedUrl}, available=${scrapingAvailable}, `
+            + `hasJobId=${!!scrapingCheck.jobId}, jobId=${scrapingCheck.jobId || 'none'}`,
           );
           /* c8 ignore stop */
 
