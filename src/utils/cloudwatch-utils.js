@@ -108,10 +108,30 @@ export async function getBotProtectionFromDatabase(jobId, context) {
     const abortInfoType = typeof job.abortInfo;
     const abortInfoValue = job.abortInfo ? JSON.stringify(job.abortInfo).substring(0, 200) : 'null';
 
+    // Also check directly from database to compare
+    let directDbAbortInfo = null;
+    try {
+      const { dataAccess } = context;
+      const { ScrapeJob } = dataAccess;
+      const directJob = await ScrapeJob.findById(jobId);
+      if (directJob) {
+        directDbAbortInfo = directJob.getAbortInfo?.() || null;
+        log.info(
+          `[BOT-CHECK] Direct DB query: jobId=${jobId}, `
+          + `hasAbortInfo=${!!directDbAbortInfo}, `
+          + `abortInfoType=${typeof directDbAbortInfo}, `
+          + `hasGetAbortInfoMethod=${typeof directJob.getAbortInfo === 'function'}`,
+        );
+      }
+    } catch (dbError) {
+      log.warn(`[BOT-CHECK] Direct DB query failed: ${dbError.message}`);
+    }
+
     log.info(
       `[BOT-CHECK] Job retrieved: jobId=${jobId}, status=${job.status}, `
       + `hasAbortInfo=${!!job.abortInfo}, abortInfoType=${abortInfoType}, `
-      + `abortInfoPreview=${abortInfoValue}, jobKeys=[${jobKeys}]`,
+      + `abortInfoPreview=${abortInfoValue}, jobKeys=[${jobKeys}], `
+      + `directDbHasAbortInfo=${!!directDbAbortInfo}`,
     );
     /* c8 ignore stop */
 
@@ -121,11 +141,21 @@ export async function getBotProtectionFromDatabase(jobId, context) {
 
     if (!abortInfo) {
       /* c8 ignore start */
-      log.info(
-        `[BOT-CHECK] No abortInfo in job object for jobId=${jobId}. `
-        + 'This means ScrapeJobDto is not including abortInfo field. '
-        + 'Check if spacecat-shared-scrape-client library needs to be updated.',
-      );
+      const hasAbortInfoField = 'abortInfo' in job;
+      if (!hasAbortInfoField) {
+        log.warn(
+          `[BOT-CHECK] abortInfo field missing from job object for jobId=${jobId}. `
+          + 'This means ScrapeJobDto is not including abortInfo field. '
+          + 'Check if spacecat-shared-scrape-client library version is correct and deployed.',
+        );
+      } else {
+        log.info(
+          `[BOT-CHECK] abortInfo field exists but is null for jobId=${jobId}. `
+          + 'This means the job does not have abortInfo saved in the database yet. '
+          + 'Possible causes: Content Processor has not saved it yet, or save failed. '
+          + `Job status=${job.status}, check Content Processor logs for save confirmation.`,
+        );
+      }
       /* c8 ignore stop */
       return null;
     }

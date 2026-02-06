@@ -181,6 +181,9 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     const jobs = await scrapeClient.getScrapeJobsByBaseURL(baseUrl);
 
     if (!jobs || jobs.length === 0) {
+      /* c8 ignore start */
+      log.info(`[SCRAPING-CHECK] No scrape jobs found for baseUrl=${baseUrl}`);
+      /* c8 ignore stop */
       return { available: false, results: [] };
     }
 
@@ -189,6 +192,12 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     log.info(`Filtered ${filteredJobs.length} jobs created after onboardStartTime from ${jobs.length} total jobs`);
 
     if (filteredJobs.length === 0) {
+      /* c8 ignore start */
+      log.info(
+        '[SCRAPING-CHECK] No jobs found after filtering by onboardStartTime: '
+        + `baseUrl=${baseUrl}, onboardStartTime=${onboardStartTime}`,
+      );
+      /* c8 ignore stop */
       return { available: false, results: [] };
     }
 
@@ -211,7 +220,12 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     /* eslint-enable no-await-in-loop */
 
     if (!jobWithResults) {
-      log.info(`Scraping check: No jobs with URL results found for ${baseUrl}`);
+      /* c8 ignore start */
+      log.info(
+        `[SCRAPING-CHECK] No jobs with URL results found: baseUrl=${baseUrl}, `
+        + `checkedJobs=${sortedJobs.length}`,
+      );
+      /* c8 ignore stop */
       return { available: false, results: [] };
     }
     // Count successful and failed scrapes
@@ -221,6 +235,14 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
 
     // Check if at least one URL was successfully scraped (status === 'COMPLETE')
     const hasSuccessfulScrape = completedCount > 0;
+
+    /* c8 ignore start */
+    log.info(
+      `[SCRAPING-CHECK] Scraping check complete: siteUrl=${baseUrl}, `
+      + `available=${hasSuccessfulScrape}, hasJobId=true, jobId=${jobWithResults.id}, `
+      + `completed=${completedCount}, failed=${failedCount}, total=${totalCount}`,
+    );
+    /* c8 ignore stop */
 
     return {
       available: hasSuccessfulScrape,
@@ -234,6 +256,12 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     };
   } catch (error) {
     log.error(`Scraping check failed for ${baseUrl}:`, error);
+    /* c8 ignore start */
+    log.info(
+      `[SCRAPING-CHECK] Scraping check error: siteUrl=${baseUrl}, `
+      + `error=${error.message}, hasJobId=false, jobId=none`,
+    );
+    /* c8 ignore stop */
     return { available: false, results: [] };
   }
 }
@@ -445,6 +473,15 @@ export async function runOpportunityStatusProcessor(message, context) {
           const scrapingCheck = await isScrapingAvailable(siteUrl, context, onboardStartTime);
           scrapingAvailable = scrapingCheck.available;
 
+          /* c8 ignore start */
+          if (!scrapingCheck.jobId) {
+            log.warn(
+              '[SCRAPING-CHECK] Skipping bot protection check: no jobId in scrapingCheck '
+              + `for siteUrl=${siteUrl}, available=${scrapingCheck.available}`,
+            );
+          }
+          /* c8 ignore stop */
+
           // Check for bot protection using jobId from scraping check
           let botProtectionStats = null;
           if (scrapingCheck.jobId) {
@@ -456,6 +493,13 @@ export async function runOpportunityStatusProcessor(message, context) {
                 context,
               });
             } catch (botCheckError) {
+              /* c8 ignore start */
+              log.error(
+                `[BOT-CHECK] Error checking bot protection: jobId=${scrapingCheck.jobId}, `
+                + `error=${botCheckError.message}`,
+                botCheckError,
+              );
+              /* c8 ignore stop */
               botProtectionStats = null;
             }
           }
