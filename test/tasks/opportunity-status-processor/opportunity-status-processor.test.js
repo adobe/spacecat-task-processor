@@ -3878,7 +3878,7 @@ describe('Opportunity Status Processor', () => {
         }
       });
 
-      it('should retry up to 3 times with exponential backoff (1, 2, 4 minutes)', async function () {
+      it('should retry up to 3 times with exponential backoff (30 seconds, 1 min, 2 min)', async function () {
         this.timeout(20000);
         const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
         const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
@@ -4084,7 +4084,7 @@ describe('Opportunity Status Processor', () => {
         }
       });
 
-      it('should find bot protection on third retry after 1 and 2 minute waits', async function () {
+      it('should find bot protection on third retry after 30 seconds and 1 minute waits', async function () {
         this.timeout(20000);
         const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
         const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];

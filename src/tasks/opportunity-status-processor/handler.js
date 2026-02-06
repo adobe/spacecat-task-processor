@@ -483,12 +483,12 @@ export async function runOpportunityStatusProcessor(message, context) {
           /* c8 ignore stop */
 
           // Check for bot protection using jobId from scraping check
-          // Retry with exponential backoff (1, 2, 4 minutes) if job is still running
+          // Retry with exponential backoff (30 seconds, 1 min, 2 min) if job is still running
           let botProtectionStats = null;
           if (scrapingCheck.jobId) {
             const maxRetries = 3;
-            // 1, 2, 4 minutes in ms
-            const waitTimes = [1 * 60 * 1000, 2 * 60 * 1000, 4 * 60 * 1000];
+            // 30 seconds, 1 min, 2 min in ms
+            const waitTimes = [30 * 1000, 60 * 1000, 2 * 60 * 1000];
 
             // eslint-disable-next-line no-await-in-loop -- Sequential retries with delays required
             for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
@@ -524,10 +524,15 @@ export async function runOpportunityStatusProcessor(message, context) {
 
                   // Job still running, wait and retry
                   const waitTime = waitTimes[attempt];
+                  const waitTimeMinutes = waitTime / 1000 / 60;
+                  const waitTimeSeconds = waitTime / 1000;
+                  const waitTimeText = waitTimeSeconds < 60
+                    ? `${waitTimeSeconds} seconds`
+                    : `${waitTimeMinutes} minute${waitTimeMinutes > 1 ? 's' : ''}`;
                   /* c8 ignore start */
                   log.info(
                     '[BOT-CHECK] No bot protection found yet, job still running. '
-                    + `Retrying in ${waitTime / 1000 / 60} minutes `
+                    + `Retrying in ${waitTimeText} `
                     + `(attempt ${attempt + 1}/${maxRetries}): `
                     + `jobId=${scrapingCheck.jobId}, status=${job?.status || 'unknown'}`,
                   );
