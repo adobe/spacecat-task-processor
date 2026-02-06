@@ -12,7 +12,10 @@
 
 import { expect } from 'chai';
 import sinon from 'sinon';
-import { convertAbortInfoToStats, getBotProtectionFromDatabase } from '../../src/utils/cloudwatch-utils.js';
+import {
+  convertAbortInfoToStats,
+  checkAndAlertBotProtection,
+} from '../../src/utils/bot-detection.js';
 
 describe('CloudWatch Utils', () => {
   let mockContext;
@@ -105,43 +108,72 @@ describe('CloudWatch Utils', () => {
     });
   });
 
-  describe('getBotProtectionFromDatabase', () => {
-    it('should return null when jobId is not provided', async () => {
-      const result = await getBotProtectionFromDatabase(null, mockContext);
-      expect(result).to.be.null;
+  describe('checkAndAlertBotProtection', () => {
+    let mockSlackContext;
+    let mockScrapeClient;
+
+    beforeEach(() => {
+      mockSlackContext = {
+        channelId: 'test-channel',
+        threadTs: 'test-thread',
+      };
+      mockContext.env.SPACECAT_BOT_IPS = '1.2.3.4,5.6.7.8';
+      mockScrapeClient = {
+        getScrapeJobStatus: sandbox.stub(),
+      };
     });
 
-    it('should return null when job is not found', async () => {
-      const mockScrapeClient = {
-        getScrapeJobStatus: sandbox.stub().resolves(null),
-      };
+    it('should return null and log warning when jobId is not provided', async () => {
+      const result = await checkAndAlertBotProtection({
+        jobId: null,
+        siteUrl: 'https://test.com',
+        slackContext: mockSlackContext,
+        context: mockContext,
+      });
 
+      expect(result).to.be.null;
+      expect(mockContext.log.warn).to.have.been.calledWithMatch(/No jobId provided for bot protection check/);
+    });
+
+    it('should return null and log debug when job is not found', async () => {
       const ScrapeClientModule = await import('@adobe/spacecat-shared-scrape-client');
       sandbox.stub(ScrapeClientModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+      mockScrapeClient.getScrapeJobStatus.resolves(null);
 
-      const result = await getBotProtectionFromDatabase('job-123', mockContext);
+      const result = await checkAndAlertBotProtection({
+        jobId: 'job-123',
+        siteUrl: 'https://test.com',
+        slackContext: mockSlackContext,
+        context: mockContext,
+      });
+
       expect(result).to.be.null;
+      expect(mockContext.log.debug).to.have.been.calledWithMatch(/Job not found: jobId=job-123/);
     });
 
-    it('should return null when abortInfo is not present', async () => {
+    it('should return null and log debug when abortInfo is not present', async () => {
       const mockJob = {
         id: 'job-123',
         status: 'COMPLETE',
         abortInfo: null,
       };
 
-      const mockScrapeClient = {
-        getScrapeJobStatus: sandbox.stub().resolves(mockJob),
-      };
-
       const ScrapeClientModule = await import('@adobe/spacecat-shared-scrape-client');
       sandbox.stub(ScrapeClientModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+      mockScrapeClient.getScrapeJobStatus.resolves(mockJob);
 
-      const result = await getBotProtectionFromDatabase('job-123', mockContext);
+      const result = await checkAndAlertBotProtection({
+        jobId: 'job-123',
+        siteUrl: 'https://test.com',
+        slackContext: mockSlackContext,
+        context: mockContext,
+      });
+
       expect(result).to.be.null;
+      expect(mockContext.log.debug).to.have.been.calledWithMatch(/No abortInfo found: jobId=job-123/);
     });
 
-    it('should return null when abortInfo reason is not bot-protection', async () => {
+    it('should return null and log debug when abortInfo reason is not bot-protection', async () => {
       const mockJob = {
         id: 'job-123',
         status: 'COMPLETE',
@@ -151,18 +183,70 @@ describe('CloudWatch Utils', () => {
         },
       };
 
-      const mockScrapeClient = {
-        getScrapeJobStatus: sandbox.stub().resolves(mockJob),
+      const ScrapeClientModule = await import('@adobe/spacecat-shared-scrape-client');
+      sandbox.stub(ScrapeClientModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+      mockScrapeClient.getScrapeJobStatus.resolves(mockJob);
+
+      const result = await checkAndAlertBotProtection({
+        jobId: 'job-123',
+        siteUrl: 'https://test.com',
+        slackContext: mockSlackContext,
+        context: mockContext,
+      });
+
+      expect(result).to.be.null;
+      expect(mockContext.log.debug).to.have.been.calledWithMatch(
+        /AbortInfo present but reason is not bot-protection/,
+      );
+    });
+
+    it('should return null and log error when database query fails', async () => {
+      const ScrapeClientModule = await import('@adobe/spacecat-shared-scrape-client');
+      sandbox.stub(ScrapeClientModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+      mockScrapeClient.getScrapeJobStatus.rejects(new Error('Database connection error'));
+
+      const result = await checkAndAlertBotProtection({
+        jobId: 'job-123',
+        siteUrl: 'https://test.com',
+        slackContext: mockSlackContext,
+        context: mockContext,
+      });
+
+      expect(result).to.be.null;
+      expect(mockContext.log.error).to.have.been.calledWithMatch(
+        /Failed to get bot protection stats from ScrapeJob/,
+      );
+    });
+
+    it('should return null and log debug when convertAbortInfoToStats returns null', async () => {
+      const mockJob = {
+        id: 'job-123',
+        status: 'COMPLETE',
+        abortInfo: {
+          reason: 'bot-protection',
+          details: null, // This will cause convertAbortInfoToStats to return null
+        },
       };
 
       const ScrapeClientModule = await import('@adobe/spacecat-shared-scrape-client');
       sandbox.stub(ScrapeClientModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+      mockScrapeClient.getScrapeJobStatus.resolves(mockJob);
 
-      const result = await getBotProtectionFromDatabase('job-123', mockContext);
+      const result = await checkAndAlertBotProtection({
+        jobId: 'job-123',
+        siteUrl: 'https://test.com',
+        slackContext: mockSlackContext,
+        context: mockContext,
+      });
+
       expect(result).to.be.null;
+      expect(mockContext.log.debug).to.have.been.calledWithMatch(/No bot protection found: jobId=job-123/);
     });
 
-    it('should return bot protection stats when abortInfo is present', async () => {
+    it('should detect bot protection and send Slack alert successfully', async function () {
+      this.timeout(5000);
+      const esmock = (await import('esmock')).default;
+
       const mockJob = {
         id: 'job-123',
         status: 'COMPLETE',
@@ -178,33 +262,102 @@ describe('CloudWatch Utils', () => {
         },
       };
 
-      const mockScrapeClient = {
-        getScrapeJobStatus: sandbox.stub().resolves(mockJob),
-      };
+      const mockSay = sandbox.stub().resolves();
+      const mockFormatBotProtectionSlackMessage = sandbox.stub().returns('Test message');
+      const mockFetchRecentThreadMessages = sandbox.stub().resolves([]);
+      const mockFormatAllowlistMessage = sandbox.stub().returns({
+        ips: '1.2.3.4,5.6.7.8',
+        userAgent: 'test-agent',
+      });
 
       const ScrapeClientModule = await import('@adobe/spacecat-shared-scrape-client');
       sandbox.stub(ScrapeClientModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+      mockScrapeClient.getScrapeJobStatus.resolves(mockJob);
 
-      const result = await getBotProtectionFromDatabase('job-123', mockContext);
+      const { checkAndAlertBotProtection: checkAndAlert } = await esmock(
+        '../../src/utils/bot-detection.js',
+        {
+          '@adobe/spacecat-shared-utils': {
+            formatAllowlistMessage: mockFormatAllowlistMessage,
+          },
+          '../../src/utils/slack-utils.js': {
+            say: mockSay,
+            formatBotProtectionSlackMessage: mockFormatBotProtectionSlackMessage,
+            fetchRecentThreadMessages: mockFetchRecentThreadMessages,
+          },
+        },
+      );
+
+      const result = await checkAndAlert({
+        jobId: 'job-123',
+        siteUrl: 'https://test.com',
+        slackContext: mockSlackContext,
+        context: mockContext,
+      });
 
       expect(result).to.not.be.null;
       expect(result.totalCount).to.equal(5);
       expect(result.isPartial).to.be.false;
-      expect(mockContext.log.info).to.have.been.calledWithMatch(/Bot protection detected from database/);
+      expect(mockSay).to.have.been.called;
+      expect(mockContext.log.warn).to.have.been.calledWithMatch(/Bot protection detected/);
     });
 
-    it('should handle database errors gracefully', async () => {
-      const mockScrapeClient = {
-        getScrapeJobStatus: sandbox.stub().rejects(new Error('Database error')),
+    it('should handle Slack alert failure gracefully and still return stats', async function () {
+      this.timeout(5000);
+      const esmock = (await import('esmock')).default;
+
+      const mockJob = {
+        id: 'job-123',
+        status: 'RUNNING',
+        abortInfo: {
+          reason: 'bot-protection',
+          details: {
+            blockedUrlsCount: 3,
+            totalUrlsCount: 10,
+            byBlockerType: { cloudflare: 3 },
+            byHttpStatus: { 403: 3 },
+            blockedUrls: [],
+          },
+        },
       };
+
+      const mockSay = sandbox.stub().rejects(new Error('Slack API error'));
+      const mockFormatBotProtectionSlackMessage = sandbox.stub().returns('Test message');
+      const mockFetchRecentThreadMessages = sandbox.stub().resolves([]);
+      const mockFormatAllowlistMessage = sandbox.stub().returns({
+        ips: '1.2.3.4,5.6.7.8',
+        userAgent: 'test-agent',
+      });
 
       const ScrapeClientModule = await import('@adobe/spacecat-shared-scrape-client');
       sandbox.stub(ScrapeClientModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+      mockScrapeClient.getScrapeJobStatus.resolves(mockJob);
 
-      const result = await getBotProtectionFromDatabase('job-123', mockContext);
+      const { checkAndAlertBotProtection: checkAndAlert } = await esmock(
+        '../../src/utils/bot-detection.js',
+        {
+          '@adobe/spacecat-shared-utils': {
+            formatAllowlistMessage: mockFormatAllowlistMessage,
+          },
+          '../../src/utils/slack-utils.js': {
+            say: mockSay,
+            formatBotProtectionSlackMessage: mockFormatBotProtectionSlackMessage,
+            fetchRecentThreadMessages: mockFetchRecentThreadMessages,
+          },
+        },
+      );
 
-      expect(result).to.be.null;
-      expect(mockContext.log.error).to.have.been.calledWithMatch(/Failed to get bot protection from database/);
+      const result = await checkAndAlert({
+        jobId: 'job-123',
+        siteUrl: 'https://test.com',
+        slackContext: mockSlackContext,
+        context: mockContext,
+      });
+
+      expect(result).to.not.be.null;
+      expect(result.totalCount).to.equal(3);
+      expect(result.isPartial).to.be.true;
+      expect(mockContext.log.error).to.have.been.calledWithMatch(/Failed to send Slack alert/);
     });
   });
 });

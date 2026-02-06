@@ -15,10 +15,8 @@ import RUMAPIClient from '@adobe/spacecat-shared-rum-api-client';
 import GoogleClient from '@adobe/spacecat-shared-google-client';
 import { ScrapeClient } from '@adobe/spacecat-shared-scrape-client';
 import { resolveCanonicalUrl } from '@adobe/spacecat-shared-utils';
-import {
-  checkAndAlertBotProtection,
-  getAuditStatus,
-} from '../../utils/cloudwatch-utils.js';
+import { getAuditStatus } from '../../utils/cloudwatch-utils.js';
+import { checkAndAlertBotProtection } from '../../utils/bot-detection.js';
 import { say } from '../../utils/slack-utils.js';
 import { getOpportunitiesForAudit } from './audit-opportunity-map.js';
 import { OPPORTUNITY_DEPENDENCY_MAP } from './opportunity-dependency-map.js';
@@ -473,99 +471,22 @@ export async function runOpportunityStatusProcessor(message, context) {
           const scrapingCheck = await isScrapingAvailable(siteUrl, context, onboardStartTime);
           scrapingAvailable = scrapingCheck.available;
 
-          /* c8 ignore start */
           if (!scrapingCheck.jobId) {
             log.warn(
               '[SCRAPING-CHECK] Skipping bot protection check: no jobId in scrapingCheck '
               + `for siteUrl=${siteUrl}, available=${scrapingCheck.available}`,
             );
           }
-          /* c8 ignore stop */
 
           // Check for bot protection using jobId from scraping check
-          // Retry with exponential backoff (30 seconds, 1 min, 2 min) if job is still running
           let botProtectionStats = null;
           if (scrapingCheck.jobId) {
-            const maxRetries = 3;
-            // 30 seconds, 1 min, 2 min in ms
-            const waitTimes = [30 * 1000, 60 * 1000, 2 * 60 * 1000];
-
-            // eslint-disable-next-line no-await-in-loop -- Sequential retries with delays required
-            for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-              try {
-                // eslint-disable-next-line no-await-in-loop -- Sequential retries required
-                botProtectionStats = await checkAndAlertBotProtection({
-                  jobId: scrapingCheck.jobId,
-                  siteUrl,
-                  slackContext,
-                  context,
-                });
-
-                // If bot protection found, exit retry loop
-                if (botProtectionStats && botProtectionStats.totalCount > 0) {
-                  break;
-                }
-
-                // If no bot protection and not last attempt, check if job is still running
-                if (attempt < maxRetries) {
-                  const scrapeClient = ScrapeClient.createFrom(context);
-                  // eslint-disable-next-line no-await-in-loop -- Sequential retries required
-                  const job = await scrapeClient.getScrapeJobStatus(scrapingCheck.jobId);
-
-                  // If job is complete, no need to retry
-                  if (job && job.status === 'COMPLETE') {
-                    /* c8 ignore start */
-                    log.info(
-                      `[BOT-CHECK] Job completed, no bot protection detected: jobId=${scrapingCheck.jobId}`,
-                    );
-                    /* c8 ignore stop */
-                    break;
-                  }
-
-                  // Job still running, wait and retry
-                  const waitTime = waitTimes[attempt];
-                  const waitTimeMinutes = waitTime / 1000 / 60;
-                  const waitTimeSeconds = waitTime / 1000;
-                  const waitTimeText = waitTimeSeconds < 60
-                    ? `${waitTimeSeconds} seconds`
-                    : `${waitTimeMinutes} minute${waitTimeMinutes > 1 ? 's' : ''}`;
-                  /* c8 ignore start */
-                  log.info(
-                    '[BOT-CHECK] No bot protection found yet, job still running. '
-                    + `Retrying in ${waitTimeText} `
-                    + `(attempt ${attempt + 1}/${maxRetries}): `
-                    + `jobId=${scrapingCheck.jobId}, status=${job?.status || 'unknown'}`,
-                  );
-                  /* c8 ignore stop */
-
-                  // Wait with exponential backoff
-                  // eslint-disable-next-line no-await-in-loop -- Sequential delays required
-                  await new Promise((resolve) => {
-                    setTimeout(resolve, waitTime);
-                  });
-                }
-              } catch (botCheckError) {
-                /* c8 ignore start */
-                log.error(
-                  '[BOT-CHECK] Error checking bot protection '
-                  + `(attempt ${attempt + 1}/${maxRetries + 1}): `
-                  + `jobId=${scrapingCheck.jobId}, error=${botCheckError.message}`,
-                  botCheckError,
-                );
-                /* c8 ignore stop */
-
-                // On error, retry if not last attempt
-                if (attempt < maxRetries) {
-                  const waitTime = waitTimes[attempt];
-                  // eslint-disable-next-line no-await-in-loop -- Sequential delays required
-                  await new Promise((resolve) => {
-                    setTimeout(resolve, waitTime);
-                  });
-                } else {
-                  botProtectionStats = null;
-                }
-              }
-            }
+            botProtectionStats = await checkAndAlertBotProtection({
+              jobId: scrapingCheck.jobId,
+              siteUrl,
+              slackContext,
+              context,
+            });
           }
 
           // Abort processing if bot protection detected
