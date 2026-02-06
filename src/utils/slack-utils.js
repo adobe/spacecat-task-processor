@@ -71,6 +71,7 @@ export async function say(env, log, slackContext, message) {
     const slackClientContext = {
       channelId: slackContext.channelId,
       threadTs: slackContext.threadTs,
+      log, // BaseSlackClient.createFrom expects log in context
       env: {
         SLACK_BOT_TOKEN: env.SLACK_BOT_TOKEN,
         SLACK_SIGNING_SECRET: env.SLACK_SIGNING_SECRET,

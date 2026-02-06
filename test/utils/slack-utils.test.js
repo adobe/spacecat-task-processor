@@ -86,6 +86,7 @@ describe('slack-utils', () => {
       expect(mockBaseSlackClient.createFrom.calledWith({
         channelId: 'C12345678',
         threadTs: '12345.67890',
+        log, // BaseSlackClient.createFrom expects log in context
         env: {
           SLACK_BOT_TOKEN: 'test-bot-token',
           SLACK_SIGNING_SECRET: 'test-signing-secret',

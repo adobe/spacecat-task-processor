@@ -180,25 +180,13 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     // Get all scrape jobs for this baseUrl (all processing types)
     const jobs = await scrapeClient.getScrapeJobsByBaseURL(baseUrl);
 
-    /* c8 ignore start */
-    log.info(`[SCRAPING-CHECK-DEBUG] Query result for baseUrl=${baseUrl}: found ${jobs?.length || 0} jobs`);
-    /* c8 ignore stop */
-
     if (!jobs || jobs.length === 0) {
-      /* c8 ignore start */
-      log.info(`[SCRAPING-CHECK-DEBUG] No jobs found for baseUrl=${baseUrl}`);
-      /* c8 ignore stop */
       return { available: false, results: [] };
     }
 
     // Filter jobs created after onboardStartTime
     const filteredJobs = filterJobsByTimestamp(jobs, onboardStartTime);
-    /* c8 ignore start */
-    log.info(
-      `[SCRAPING-CHECK-DEBUG] Filtered ${filteredJobs.length} jobs created after onboardStartTime from ${jobs.length} total jobs for baseUrl=${baseUrl}. `
-      + `All job IDs: [${jobs.map((j) => j.id).join(', ')}]. `
-      + `Filtered job IDs: [${filteredJobs.map((j) => j.id).join(', ')}]`,
-    );
+    log.info(`Filtered ${filteredJobs.length} jobs created after onboardStartTime from ${jobs.length} total jobs`);
 
     if (filteredJobs.length === 0) {
       return { available: false, results: [] };
@@ -214,9 +202,6 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     /* eslint-disable no-await-in-loop */
     for (const job of sortedJobs) {
       const results = await scrapeClient.getScrapeJobUrlResults(job.id);
-      /* c8 ignore start */
-      log.info(`[SCRAPING-CHECK-DEBUG] Job ${job.id}: ${results?.length || 0} URL results`);
-      /* c8 ignore stop */
       if (results && results.length > 0) {
         jobWithResults = job;
         urlResults = results;
@@ -226,12 +211,7 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     /* eslint-enable no-await-in-loop */
 
     if (!jobWithResults) {
-      /* c8 ignore start */
-      log.info(
-        `[SCRAPING-CHECK-DEBUG] No jobs with URL results found for ${baseUrl}. `
-        + `Checked ${sortedJobs.length} jobs: [${sortedJobs.map((j) => j.id).join(', ')}]`,
-      );
-      /* c8 ignore stop */
+      log.info(`Scraping check: No jobs with URL results found for ${baseUrl}`);
       return { available: false, results: [] };
     }
     // Count successful and failed scrapes
@@ -241,13 +221,6 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
 
     // Check if at least one URL was successfully scraped (status === 'COMPLETE')
     const hasSuccessfulScrape = completedCount > 0;
-
-    /* c8 ignore start */
-    log.info(
-      `[SCRAPING-CHECK-DEBUG] Found job with results: jobId=${jobWithResults.id}, `
-      + `baseURL=${baseUrl}, urlCount=${totalCount}, completed=${completedCount}, failed=${failedCount}`,
-    );
-    /* c8 ignore stop */
 
     return {
       available: hasSuccessfulScrape,
@@ -260,9 +233,7 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
       },
     };
   } catch (error) {
-    /* c8 ignore start */
-    log.error(`[SCRAPING-CHECK-DEBUG] Exception in isScrapingAvailable for ${baseUrl}:`, error);
-    /* c8 ignore stop */
+    log.error(`Scraping check failed for ${baseUrl}:`, error);
     return { available: false, results: [] };
   }
 }
@@ -442,31 +413,37 @@ export async function runOpportunityStatusProcessor(message, context) {
       try {
         // Resolve URL for RUM and GSC checks (they need canonical URL)
         const resolvedUrl = needsRUM || needsGSC ? await resolveCanonicalUrl(siteUrl) : siteUrl;
-        log.info(`Resolved URL: ${resolvedUrl} (for RUM/GSC)`);
-        const domain = new URL(resolvedUrl).hostname;
 
-        if (needsRUM) {
-          rumAvailable = await isRUMAvailable(domain, context);
+        if (!resolvedUrl) {
+          log.warn(`Could not resolve canonical URL for ${siteUrl}, skipping RUM/GSC checks`);
+        } else {
+          log.info(`Resolved URL: ${resolvedUrl} (for RUM/GSC)`);
+
+          // Extract domain from resolved URL for RUM check
+          let domain = null;
+          try {
+            domain = new URL(resolvedUrl).hostname;
+          } catch (urlError) {
+            log.warn(`Invalid resolved URL format: ${resolvedUrl}, skipping RUM/GSC checks`, urlError);
+            // Skip RUM/GSC checks if URL parsing fails
+          }
+
+          if (domain) {
+            if (needsRUM) {
+              rumAvailable = await isRUMAvailable(domain, context);
+            }
+
+            if (needsGSC) {
+              gscConfigured = await isGSCConfigured(resolvedUrl, context);
+            }
+          }
         }
 
-        if (needsGSC) {
-          gscConfigured = await isGSCConfigured(resolvedUrl, context);
-        }
-
+        // Scraping check doesn't require resolved URL - use siteUrl directly
+        // because scrape jobs are created with siteUrl from site.getBaseURL()
         if (needsScraping) {
-          // Use siteUrl directly (NOT resolvedUrl) because scrape jobs are created with siteUrl
-          // from site.getBaseURL(), not the resolved/redirected URL
           const scrapingCheck = await isScrapingAvailable(siteUrl, context, onboardStartTime);
           scrapingAvailable = scrapingCheck.available;
-
-          /* c8 ignore start */
-          // Log scraping check result with jobId
-          log.info(
-            `[SCRAPING-CHECK] Scraping check complete: siteUrl=${siteUrl}, `
-            + `available=${scrapingAvailable}, hasJobId=${!!scrapingCheck.jobId}, `
-            + `jobId=${scrapingCheck.jobId || 'none'}`,
-          );
-          /* c8 ignore stop */
 
           // Check for bot protection using jobId from scraping check
           let botProtectionStats = null;
@@ -479,37 +456,12 @@ export async function runOpportunityStatusProcessor(message, context) {
                 context,
               });
             } catch (botCheckError) {
-              /* c8 ignore start */
-              // Log error but continue processing - don't let bot check failures break the flow
-              log.error(
-                '[BOT-CHECK] Error during bot protection check: '
-                + `jobId=${scrapingCheck.jobId}, siteUrl=${siteUrl}, error=${botCheckError.message}`,
-                botCheckError,
-              );
-              /* c8 ignore stop */
-              // Set to null so we don't abort processing on error
               botProtectionStats = null;
             }
-          } else {
-            /* c8 ignore start */
-            log.info(
-              '[BOT-CHECK] Skipping bot protection check: '
-              + `no jobId in scrapingCheck for siteUrl=${siteUrl}`,
-            );
-            /* c8 ignore stop */
           }
 
           // Abort processing if bot protection detected
           if (botProtectionStats && botProtectionStats.totalCount > 0) {
-            /* c8 ignore start */
-            log.warn(
-              '[BOT-BLOCKED] Aborting opportunity processing due to bot protection: '
-              + `siteId=${siteId}, siteUrl=${siteUrl}, jobId=${scrapingCheck.jobId}, `
-              + `blockedUrls=${botProtectionStats.totalCount}/${botProtectionStats.totalUrlsInJob}, `
-              + `isPartial=${botProtectionStats.isPartial}, `
-              + `blockerTypes=${Object.keys(botProtectionStats.byBlockerType).join(',')}`,
-            );
-            /* c8 ignore stop */
             return ok({
               message: `Bot protection detected for ${siteUrl}`,
               botProtectionDetected: true,
