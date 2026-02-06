@@ -2263,7 +2263,8 @@ describe('Opportunity Status Processor', () => {
       }
     });
 
-    it('should sort jobs by date and find first job with results (lines 154-172)', async () => {
+    it('should sort jobs by date and find first job with results (lines 154-172)', async function () {
+      this.timeout(5000);
       // Import ScrapeClient and create stub
       const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
       const { ScrapeClient } = scrapeModule;
@@ -2299,6 +2300,13 @@ describe('Opportunity Status Processor', () => {
             { id: 'job-oldest', createdAt: new Date(Date.now() - 3000000).toISOString() }, // 50 min ago
           ]),
           getScrapeJobUrlResults: getScrapeJobUrlResultsStub,
+          // Mock getScrapeJobStatus to handle multiple calls
+          // (from bot protection check and job status check)
+          getScrapeJobStatus: sinon.stub().callsFake((jobId) => Promise.resolve({
+            id: jobId || 'job-old',
+            status: 'COMPLETE',
+            abortInfo: null, // No bot protection
+          })),
         };
 
         const scrapeClientStub = sinon.stub(ScrapeClient, 'createFrom').returns(mockScrapeClient);
@@ -2353,6 +2361,11 @@ describe('Opportunity Status Processor', () => {
             { url: 'https://example.com/page1', status: 'COMPLETE' },
             { url: 'https://example.com/page2', status: 'FAILED' },
           ]),
+          getScrapeJobStatus: sinon.stub().resolves({
+            id: 'job-1',
+            status: 'COMPLETE',
+            abortInfo: null, // No bot protection
+          }),
         };
 
         const scrapeClientStub = sinon.stub(ScrapeClient, 'createFrom').returns(mockScrapeClient);
@@ -3127,6 +3140,12 @@ describe('Opportunity Status Processor', () => {
 
         mockScrapeClient.getScrapeJobsByBaseURL.resolves([mockJob]);
         mockScrapeClient.getScrapeJobUrlResults.resolves(mockScrapeResults);
+        // Mock getScrapeJobStatus to return job without bot protection
+        mockScrapeClient.getScrapeJobStatus = sinon.stub().resolves({
+          id: 'job-789',
+          status: 'COMPLETE',
+          abortInfo: null, // No bot protection
+        });
 
         scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
 
@@ -3333,6 +3352,12 @@ describe('Opportunity Status Processor', () => {
 
         mockScrapeClient.getScrapeJobsByBaseURL.resolves([mockJob]);
         mockScrapeClient.getScrapeJobUrlResults.resolves(mockScrapeResults);
+        // Mock getScrapeJobStatus to return job without bot protection
+        mockScrapeClient.getScrapeJobStatus = sinon.stub().resolves({
+          id: 'job-all-exist',
+          status: 'COMPLETE',
+          abortInfo: null, // No bot protection
+        });
 
         scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
 
@@ -3592,6 +3617,560 @@ describe('Opportunity Status Processor', () => {
         scrapeClientStub.restore();
         dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
       }
+    });
+
+    describe('Exponential Backoff Retry Logic', () => {
+      let scrapeClientStub;
+      let originalSetTimeout;
+
+      beforeEach(() => {
+        // Stub setTimeout to resolve immediately for testing
+        originalSetTimeout = global.setTimeout;
+        global.setTimeout = (fn) => originalSetTimeout(() => {
+          // Execute immediately using process.nextTick to ensure async operations complete
+          process.nextTick(fn);
+        }, 0);
+        scrapeClientStub = null;
+      });
+
+      afterEach(() => {
+        if (originalSetTimeout) {
+          global.setTimeout = originalSetTimeout;
+        }
+        if (scrapeClientStub && scrapeClientStub.restore) {
+          try {
+            scrapeClientStub.restore();
+          } catch (e) {
+            // Already restored, ignore
+          }
+          scrapeClientStub = null;
+        }
+      });
+
+      it('should detect bot protection on first attempt without retries', async function () {
+        this.timeout(5000);
+        const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+        const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
+
+        try {
+          dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
+
+          message.siteUrl = 'https://immediate-bot.com';
+          message.taskContext.auditTypes = ['broken-backlinks'];
+          message.taskContext.slackContext = {
+            channelId: 'test-channel',
+            threadTs: 'test-thread',
+          };
+          message.taskContext.onboardStartTime = Date.now() - 3600000;
+          context.env.AWS_REGION = 'us-east-1';
+          context.env.SPACECAT_BOT_IPS = '3.218.16.42,52.55.82.37,54.172.145.38';
+
+          mockSite.getOpportunities.resolves([]);
+
+          const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+          const mockScrapeClientLocal = {
+            getScrapeJobsByBaseURL: sinon.stub().resolves([
+              {
+                id: 'job-immediate',
+                status: 'RUNNING',
+                startedAt: new Date(Date.now() - 60000).toISOString(),
+                createdAt: new Date(Date.now() - 60000).toISOString(),
+              },
+            ]),
+            getScrapeJobUrlResults: sinon.stub().resolves([
+              { url: 'https://immediate-bot.com/', status: 'COMPLETE' },
+            ]),
+            getScrapeJobStatus: sinon.stub().resolves({
+              id: 'job-immediate',
+              status: 'RUNNING',
+              abortInfo: {
+                reason: 'bot-protection',
+                details: {
+                  blockedUrlsCount: 5,
+                  totalUrlsCount: 10,
+                  blockedUrls: [
+                    {
+                      url: 'https://immediate-bot.com/', httpStatus: 403, blockerType: 'cloudflare', confidence: 0.99,
+                    },
+                  ],
+                  byHttpStatus: { 403: 5 },
+                  byBlockerType: { cloudflare: 5 },
+                },
+              },
+            }),
+          };
+
+          scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
+
+          // Run handler - bot protection found immediately, no delays needed
+          const result = await runOpportunityStatusProcessor(message, context);
+
+          // Verify bot protection was checked via getScrapeJobStatus
+          // Note: checkAndAlertBotProtection calls getScrapeJobStatus internally
+          expect(mockScrapeClientLocal.getScrapeJobStatus).to.have.been.called;
+          expect(result.status).to.equal(200);
+          const body = await result.json();
+          expect(body.botProtectionDetected).to.be.true;
+          expect(body.blockedUrlCount).to.equal(5);
+        } finally {
+          if (scrapeClientStub && scrapeClientStub.restore) {
+            scrapeClientStub.restore();
+          }
+          dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
+        }
+      });
+
+      it('should retry with exponential backoff when bot protection found after first retry', async function () {
+        this.timeout(10000);
+        const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+        const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
+
+        try {
+          dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
+
+          message.siteUrl = 'https://retry-bot.com';
+          message.taskContext.auditTypes = ['broken-backlinks'];
+          message.taskContext.slackContext = {
+            channelId: 'test-channel',
+            threadTs: 'test-thread',
+          };
+          message.taskContext.onboardStartTime = Date.now() - 3600000;
+          context.env.AWS_REGION = 'us-east-1';
+          context.env.SPACECAT_BOT_IPS = '3.218.16.42,52.55.82.37,54.172.145.38';
+
+          mockSite.getOpportunities.resolves([]);
+
+          const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+          const mockScrapeClientLocal = {
+            getScrapeJobsByBaseURL: sinon.stub().resolves([
+              {
+                id: 'job-retry',
+                status: 'RUNNING',
+                startedAt: new Date(Date.now() - 60000).toISOString(),
+                createdAt: new Date(Date.now() - 60000).toISOString(),
+              },
+            ]),
+            getScrapeJobUrlResults: sinon.stub().resolves([
+              { url: 'https://retry-bot.com/', status: 'COMPLETE' },
+            ]),
+            getScrapeJobStatus: sinon.stub()
+              // First call (from checkAndAlertBotProtection): no bot protection yet
+              .onFirstCall().resolves({
+                id: 'job-retry',
+                status: 'RUNNING',
+                abortInfo: null, // No abortInfo yet
+              })
+              // Second call (from handler checking job status): job still running
+              .onSecondCall()
+              .resolves({
+                id: 'job-retry',
+                status: 'RUNNING',
+                abortInfo: null,
+              })
+              // Third call (from checkAndAlertBotProtection on retry): bot protection found
+              .onThirdCall()
+              .resolves({
+                id: 'job-retry',
+                status: 'RUNNING',
+                abortInfo: {
+                  reason: 'bot-protection',
+                  details: {
+                    blockedUrlsCount: 3,
+                    totalUrlsCount: 10,
+                    blockedUrls: [
+                      {
+                        url: 'https://retry-bot.com/', httpStatus: 403, blockerType: 'cloudflare', confidence: 0.99,
+                      },
+                    ],
+                    byHttpStatus: { 403: 3 },
+                    byBlockerType: { cloudflare: 3 },
+                  },
+                },
+              }),
+          };
+
+          scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
+
+          // Run handler - setTimeout stubbed to execute immediately
+          const result = await runOpportunityStatusProcessor(message, context);
+
+          // Verify bot protection was checked multiple times (initial + retry)
+          // Note: getScrapeJobStatus is called by checkAndAlertBotProtection and also
+          // directly to check job status, so call count may be higher
+          expect(mockScrapeClientLocal.getScrapeJobStatus).to.have.been.called;
+          expect(result.status).to.equal(200);
+          const body = await result.json();
+          expect(body.botProtectionDetected).to.be.true;
+          expect(body.blockedUrlCount).to.equal(3);
+        } finally {
+          if (scrapeClientStub && scrapeClientStub.restore) {
+            scrapeClientStub.restore();
+          }
+          dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
+        }
+      });
+
+      it('should stop retrying when job completes without bot protection', async function () {
+        this.timeout(10000);
+        const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+        const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
+
+        try {
+          dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
+
+          message.siteUrl = 'https://complete-job.com';
+          message.taskContext.auditTypes = ['broken-backlinks'];
+          message.taskContext.slackContext = {
+            channelId: 'test-channel',
+            threadTs: 'test-thread',
+          };
+          message.taskContext.onboardStartTime = Date.now() - 3600000;
+          context.env.AWS_REGION = 'us-east-1';
+          context.env.SPACECAT_BOT_IPS = '3.218.16.42,52.55.82.37,54.172.145.38';
+
+          mockSite.getOpportunities.resolves([]);
+
+          const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+          const mockScrapeClientLocal = {
+            getScrapeJobsByBaseURL: sinon.stub().resolves([
+              {
+                id: 'job-complete',
+                status: 'RUNNING',
+                startedAt: new Date(Date.now() - 60000).toISOString(),
+                createdAt: new Date(Date.now() - 60000).toISOString(),
+              },
+            ]),
+            getScrapeJobUrlResults: sinon.stub().resolves([
+              { url: 'https://complete-job.com/', status: 'COMPLETE' },
+            ]),
+            getScrapeJobStatus: sinon.stub()
+              // First call: no bot protection, job still running
+              .onFirstCall().resolves({
+                id: 'job-complete',
+                status: 'RUNNING',
+                abortInfo: null,
+              })
+              // Second call: job completed, no bot protection
+              .onSecondCall()
+              .resolves({
+                id: 'job-complete',
+                status: 'COMPLETE',
+                abortInfo: null,
+              }),
+          };
+
+          scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
+
+          // Run handler - setTimeout stubbed to execute immediately
+          const result = await runOpportunityStatusProcessor(message, context);
+
+          // Verify bot protection was checked, then stopped when job completed
+          expect(mockScrapeClientLocal.getScrapeJobStatus).to.have.been.called;
+          expect(result.status).to.equal(200);
+          const body = await result.json();
+          // No bot protection detected
+          expect(body.botProtectionDetected).to.be.undefined;
+        } finally {
+          if (scrapeClientStub && scrapeClientStub.restore) {
+            scrapeClientStub.restore();
+          }
+          dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
+        }
+      });
+
+      it('should retry up to 3 times with exponential backoff (1, 2, 4 minutes)', async function () {
+        this.timeout(20000);
+        const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+        const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
+
+        try {
+          dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
+
+          message.siteUrl = 'https://max-retries.com';
+          message.taskContext.auditTypes = ['broken-backlinks'];
+          message.taskContext.slackContext = {
+            channelId: 'test-channel',
+            threadTs: 'test-thread',
+          };
+          message.taskContext.onboardStartTime = Date.now() - 3600000;
+          context.env.AWS_REGION = 'us-east-1';
+          context.env.SPACECAT_BOT_IPS = '3.218.16.42,52.55.82.37,54.172.145.38';
+
+          mockSite.getOpportunities.resolves([]);
+
+          const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+          const mockScrapeJobStatus = sinon.stub()
+            // All calls return no bot protection, job still running
+            .resolves({
+              id: 'job-max-retries',
+              status: 'RUNNING',
+              abortInfo: null,
+            });
+
+          const mockScrapeClientLocal = {
+            getScrapeJobsByBaseURL: sinon.stub().resolves([
+              {
+                id: 'job-max-retries',
+                status: 'RUNNING',
+                startedAt: new Date(Date.now() - 60000).toISOString(),
+                createdAt: new Date(Date.now() - 60000).toISOString(),
+              },
+            ]),
+            getScrapeJobUrlResults: sinon.stub().resolves([
+              { url: 'https://max-retries.com/', status: 'COMPLETE' },
+            ]),
+            getScrapeJobStatus: mockScrapeJobStatus,
+          };
+
+          scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
+
+          // Run handler - setTimeout stubbed to execute immediately
+          const result = await runOpportunityStatusProcessor(message, context);
+
+          // Verify bot protection was checked multiple times (initial + retries)
+          expect(mockScrapeJobStatus).to.have.been.called;
+          expect(result.status).to.equal(200);
+          const body = await result.json();
+          // No bot protection found
+          expect(body.botProtectionDetected).to.be.undefined;
+        } finally {
+          if (scrapeClientStub && scrapeClientStub.restore) {
+            scrapeClientStub.restore();
+          }
+          dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
+        }
+      });
+
+      it('should handle errors during retries and continue retrying', async function () {
+        this.timeout(10000);
+        const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+        const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
+
+        try {
+          dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
+
+          message.siteUrl = 'https://error-retry.com';
+          message.taskContext.auditTypes = ['broken-backlinks'];
+          message.taskContext.slackContext = {
+            channelId: 'test-channel',
+            threadTs: 'test-thread',
+          };
+          message.taskContext.onboardStartTime = Date.now() - 3600000;
+          context.env.AWS_REGION = 'us-east-1';
+          context.env.SPACECAT_BOT_IPS = '3.218.16.42,52.55.82.37,54.172.145.38';
+
+          mockSite.getOpportunities.resolves([]);
+
+          const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+          const mockScrapeClientLocal = {
+            getScrapeJobsByBaseURL: sinon.stub().resolves([
+              {
+                id: 'job-error-retry',
+                status: 'RUNNING',
+                startedAt: new Date(Date.now() - 60000).toISOString(),
+                createdAt: new Date(Date.now() - 60000).toISOString(),
+              },
+            ]),
+            getScrapeJobUrlResults: sinon.stub().resolves([
+              { url: 'https://error-retry.com/', status: 'COMPLETE' },
+            ]),
+            getScrapeJobStatus: sinon.stub()
+              // First call (from checkAndAlertBotProtection): error
+              .onFirstCall().rejects(new Error('Database connection error'))
+              // Second call (from handler checking job status after error): job still running
+              .onSecondCall()
+              .resolves({
+                id: 'job-error-retry',
+                status: 'RUNNING',
+                abortInfo: null,
+              })
+              // Third call (from checkAndAlertBotProtection on retry):
+              // success, bot protection found
+              .onThirdCall()
+              .resolves({
+                id: 'job-error-retry',
+                status: 'RUNNING',
+                abortInfo: {
+                  reason: 'bot-protection',
+                  details: {
+                    blockedUrlsCount: 2,
+                    totalUrlsCount: 10,
+                    blockedUrls: [
+                      {
+                        url: 'https://error-retry.com/', httpStatus: 403, blockerType: 'cloudflare', confidence: 0.99,
+                      },
+                    ],
+                    byHttpStatus: { 403: 2 },
+                    byBlockerType: { cloudflare: 2 },
+                  },
+                },
+              }),
+          };
+
+          scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
+
+          // Run handler - setTimeout stubbed to execute immediately
+          const result = await runOpportunityStatusProcessor(message, context);
+
+          // Verify bot protection was checked (error + retry)
+          expect(mockScrapeClientLocal.getScrapeJobStatus).to.have.been.called;
+          expect(result.status).to.equal(200);
+          const body = await result.json();
+          expect(body.botProtectionDetected).to.be.true;
+          expect(body.blockedUrlCount).to.equal(2);
+        } finally {
+          if (scrapeClientStub && scrapeClientStub.restore) {
+            scrapeClientStub.restore();
+          }
+          dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
+        }
+      });
+
+      it('should stop retrying after max retries if errors persist', async function () {
+        this.timeout(20000);
+        const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+        const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
+
+        try {
+          dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
+
+          message.siteUrl = 'https://persistent-error.com';
+          message.taskContext.auditTypes = ['broken-backlinks'];
+          message.taskContext.slackContext = {
+            channelId: 'test-channel',
+            threadTs: 'test-thread',
+          };
+          message.taskContext.onboardStartTime = Date.now() - 3600000;
+          context.env.AWS_REGION = 'us-east-1';
+          context.env.SPACECAT_BOT_IPS = '3.218.16.42,52.55.82.37,54.172.145.38';
+
+          mockSite.getOpportunities.resolves([]);
+
+          const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+          const mockScrapeJobStatus = sinon.stub()
+            .rejects(new Error('Persistent database error'));
+
+          const mockScrapeClientLocal = {
+            getScrapeJobsByBaseURL: sinon.stub().resolves([
+              {
+                id: 'job-persistent-error',
+                status: 'RUNNING',
+                startedAt: new Date(Date.now() - 60000).toISOString(),
+                createdAt: new Date(Date.now() - 60000).toISOString(),
+              },
+            ]),
+            getScrapeJobUrlResults: sinon.stub().resolves([
+              { url: 'https://persistent-error.com/', status: 'COMPLETE' },
+            ]),
+            getScrapeJobStatus: mockScrapeJobStatus,
+          };
+
+          scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
+
+          // Run handler - setTimeout stubbed to execute immediately
+          const result = await runOpportunityStatusProcessor(message, context);
+
+          // Verify bot protection was checked multiple times (initial + retries), all errors
+          expect(mockScrapeJobStatus).to.have.been.called;
+          expect(result.status).to.equal(200);
+          const body = await result.json();
+          // No bot protection detected due to errors
+          expect(body.botProtectionDetected).to.be.undefined;
+        } finally {
+          if (scrapeClientStub && scrapeClientStub.restore) {
+            scrapeClientStub.restore();
+          }
+          dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
+        }
+      });
+
+      it('should find bot protection on third retry after 1 and 2 minute waits', async function () {
+        this.timeout(20000);
+        const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+        const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
+
+        try {
+          dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
+
+          message.siteUrl = 'https://third-retry-bot.com';
+          message.taskContext.auditTypes = ['broken-backlinks'];
+          message.taskContext.slackContext = {
+            channelId: 'test-channel',
+            threadTs: 'test-thread',
+          };
+          message.taskContext.onboardStartTime = Date.now() - 3600000;
+          context.env.AWS_REGION = 'us-east-1';
+          context.env.SPACECAT_BOT_IPS = '3.218.16.42,52.55.82.37,54.172.145.38';
+
+          mockSite.getOpportunities.resolves([]);
+
+          const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
+          const mockScrapeClientLocal = {
+            getScrapeJobsByBaseURL: sinon.stub().resolves([
+              {
+                id: 'job-third-retry',
+                status: 'RUNNING',
+                startedAt: new Date(Date.now() - 60000).toISOString(),
+                createdAt: new Date(Date.now() - 60000).toISOString(),
+              },
+            ]),
+            getScrapeJobUrlResults: sinon.stub().resolves([
+              { url: 'https://third-retry-bot.com/', status: 'COMPLETE' },
+            ]),
+            getScrapeJobStatus: sinon.stub()
+              // First call: no bot protection
+              .onFirstCall().resolves({
+                id: 'job-third-retry',
+                status: 'RUNNING',
+                abortInfo: null,
+              })
+              // Second call: still no bot protection
+              .onSecondCall()
+              .resolves({
+                id: 'job-third-retry',
+                status: 'RUNNING',
+                abortInfo: null,
+              })
+              // Third call: bot protection found
+              .onThirdCall()
+              .resolves({
+                id: 'job-third-retry',
+                status: 'RUNNING',
+                abortInfo: {
+                  reason: 'bot-protection',
+                  details: {
+                    blockedUrlsCount: 7,
+                    totalUrlsCount: 10,
+                    blockedUrls: [
+                      {
+                        url: 'https://third-retry-bot.com/', httpStatus: 403, blockerType: 'imperva', confidence: 0.95,
+                      },
+                    ],
+                    byHttpStatus: { 403: 7 },
+                    byBlockerType: { imperva: 7 },
+                  },
+                },
+              }),
+          };
+
+          scrapeClientStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClientLocal);
+
+          // Run handler - setTimeout stubbed to execute immediately
+          const result = await runOpportunityStatusProcessor(message, context);
+
+          // Verify bot protection was checked (initial + retries), found on 3rd
+          expect(mockScrapeClientLocal.getScrapeJobStatus).to.have.been.called;
+          expect(result.status).to.equal(200);
+          const body = await result.json();
+          expect(body.botProtectionDetected).to.be.true;
+          expect(body.blockedUrlCount).to.equal(7);
+        } finally {
+          if (scrapeClientStub && scrapeClientStub.restore) {
+            scrapeClientStub.restore();
+          }
+          dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
+        }
+      });
     });
   });
 

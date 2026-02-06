@@ -483,24 +483,83 @@ export async function runOpportunityStatusProcessor(message, context) {
           /* c8 ignore stop */
 
           // Check for bot protection using jobId from scraping check
+          // Retry with exponential backoff (1, 2, 4 minutes) if job is still running
           let botProtectionStats = null;
           if (scrapingCheck.jobId) {
-            try {
-              botProtectionStats = await checkAndAlertBotProtection({
-                jobId: scrapingCheck.jobId,
-                siteUrl,
-                slackContext,
-                context,
-              });
-            } catch (botCheckError) {
-              /* c8 ignore start */
-              log.error(
-                `[BOT-CHECK] Error checking bot protection: jobId=${scrapingCheck.jobId}, `
-                + `error=${botCheckError.message}`,
-                botCheckError,
-              );
-              /* c8 ignore stop */
-              botProtectionStats = null;
+            const maxRetries = 3;
+            // 1, 2, 4 minutes in ms
+            const waitTimes = [1 * 60 * 1000, 2 * 60 * 1000, 4 * 60 * 1000];
+
+            // eslint-disable-next-line no-await-in-loop -- Sequential retries with delays required
+            for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+              try {
+                // eslint-disable-next-line no-await-in-loop -- Sequential retries required
+                botProtectionStats = await checkAndAlertBotProtection({
+                  jobId: scrapingCheck.jobId,
+                  siteUrl,
+                  slackContext,
+                  context,
+                });
+
+                // If bot protection found, exit retry loop
+                if (botProtectionStats && botProtectionStats.totalCount > 0) {
+                  break;
+                }
+
+                // If no bot protection and not last attempt, check if job is still running
+                if (attempt < maxRetries) {
+                  const scrapeClient = ScrapeClient.createFrom(context);
+                  // eslint-disable-next-line no-await-in-loop -- Sequential retries required
+                  const job = await scrapeClient.getScrapeJobStatus(scrapingCheck.jobId);
+
+                  // If job is complete, no need to retry
+                  if (job && job.status === 'COMPLETE') {
+                    /* c8 ignore start */
+                    log.info(
+                      `[BOT-CHECK] Job completed, no bot protection detected: jobId=${scrapingCheck.jobId}`,
+                    );
+                    /* c8 ignore stop */
+                    break;
+                  }
+
+                  // Job still running, wait and retry
+                  const waitTime = waitTimes[attempt];
+                  /* c8 ignore start */
+                  log.info(
+                    '[BOT-CHECK] No bot protection found yet, job still running. '
+                    + `Retrying in ${waitTime / 1000 / 60} minutes `
+                    + `(attempt ${attempt + 1}/${maxRetries}): `
+                    + `jobId=${scrapingCheck.jobId}, status=${job?.status || 'unknown'}`,
+                  );
+                  /* c8 ignore stop */
+
+                  // Wait with exponential backoff
+                  // eslint-disable-next-line no-await-in-loop -- Sequential delays required
+                  await new Promise((resolve) => {
+                    setTimeout(resolve, waitTime);
+                  });
+                }
+              } catch (botCheckError) {
+                /* c8 ignore start */
+                log.error(
+                  '[BOT-CHECK] Error checking bot protection '
+                  + `(attempt ${attempt + 1}/${maxRetries + 1}): `
+                  + `jobId=${scrapingCheck.jobId}, error=${botCheckError.message}`,
+                  botCheckError,
+                );
+                /* c8 ignore stop */
+
+                // On error, retry if not last attempt
+                if (attempt < maxRetries) {
+                  const waitTime = waitTimes[attempt];
+                  // eslint-disable-next-line no-await-in-loop -- Sequential delays required
+                  await new Promise((resolve) => {
+                    setTimeout(resolve, waitTime);
+                  });
+                } else {
+                  botProtectionStats = null;
+                }
+              }
             }
           }
 
