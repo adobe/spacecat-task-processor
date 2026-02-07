@@ -85,7 +85,6 @@
     "@adobe/spacecat-shared-scrape-client": "https://gist.github.com/tkotthakota-adobe/24bd8c6b6b8b40fd8d4c40c6244c3862/raw/5b625c86c88efcce5af987d8464e750c303f5aca/adobe-spacecat-shared-scrape-client-2.4.0.tgz",
     "@adobe/spacecat-shared-slack-client": "1.5.33",
     "@adobe/spacecat-shared-utils": "https://gist.github.com/tkotthakota-adobe/d381b2367c348e301d3c69e741a7135f/raw/e6662416fc610a7cc4179fa361f6cdebf69b450c/adobe-spacecat-shared-utils-1.90.2.tgz",
-    "@slack/web-api": "^7.0.0",
     "@aws-sdk/client-s3": "3.980.0",
     "@aws-sdk/client-cloudwatch-logs": "3.980.0",
     "@aws-sdk/client-lambda": "3.980.0",

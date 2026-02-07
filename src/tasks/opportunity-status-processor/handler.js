@@ -149,9 +149,9 @@ function filterJobsByTimestamp(jobs, onboardStartTime) {
  */
 function sortJobsByDate(jobs) {
   return jobs.sort((a, b) => {
-    const dateA = new Date(b.startedAt || b.createdAt || 0);
-    const dateB = new Date(a.startedAt || a.createdAt || 0);
-    return dateA - dateB;
+    const dateA = new Date(a.startedAt || a.createdAt || 0);
+    const dateB = new Date(b.startedAt || b.createdAt || 0);
+    return dateB - dateA;
   });
 }
 

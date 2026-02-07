@@ -418,8 +418,10 @@ describe('Opportunity Status Processor', () => {
             return url;
           }),
         },
-        '../../../src/utils/cloudwatch-utils.js': {
+        '../../../src/utils/bot-detection.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
+        },
+        '../../../src/utils/cloudwatch-utils.js': {
           getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
         },
       });
@@ -506,8 +508,10 @@ describe('Opportunity Status Processor', () => {
         '@adobe/spacecat-shared-utils': {
           resolveCanonicalUrl: sinon.stub().resolves('https://example.com'),
         },
-        '../../../src/utils/cloudwatch-utils.js': {
+        '../../../src/utils/bot-detection.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
+        },
+        '../../../src/utils/cloudwatch-utils.js': {
           getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
         },
       });
@@ -569,8 +573,10 @@ describe('Opportunity Status Processor', () => {
         '@adobe/spacecat-shared-utils': {
           resolveCanonicalUrl: sinon.stub().resolves('not-a-valid-url-format'),
         },
-        '../../../src/utils/cloudwatch-utils.js': {
+        '../../../src/utils/bot-detection.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
+        },
+        '../../../src/utils/cloudwatch-utils.js': {
           getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
         },
       });
@@ -892,8 +898,10 @@ describe('Opportunity Status Processor', () => {
 
       const handler = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
         '@adobe/spacecat-shared-scrape-client': { ScrapeClient: mockScrapeClientClass },
-        '../../../src/utils/cloudwatch-utils.js': {
+        '../../../src/utils/bot-detection.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
+        },
+        '../../../src/utils/cloudwatch-utils.js': {
           // Audit not executed (unmet dependencies)
           getAuditStatus: sinon.stub().resolves({ executed: false, failureReason: null }),
         },
@@ -2129,10 +2137,11 @@ describe('Opportunity Status Processor', () => {
         const esmock = (await import('esmock')).default;
         const handler = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
           '@adobe/spacecat-shared-scrape-client': { ScrapeClient: mockScrapeClientClass },
-          '../../../src/utils/cloudwatch-utils.js': {
+          '../../../src/utils/bot-detection.js': {
             checkAndAlertBotProtection: sinon.stub().resolves(null),
-            checkAuditExecution: sinon.stub().resolves(true),
-            getAuditFailureReason: sinon.stub().resolves(null),
+          },
+          '../../../src/utils/cloudwatch-utils.js': {
+            getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
           },
         });
 
@@ -3384,88 +3393,6 @@ describe('Opportunity Status Processor', () => {
       }
     });
 
-    it.skip('should use fallback stats when CloudWatch returns no logs', async function () {
-      this.timeout(5000);
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
-      const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
-
-      const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
-      let localScrapeStub = null;
-
-      try {
-        // Set up broken-backlinks to require scraping
-        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
-
-        message.siteUrl = 'https://no-cw-logs.com';
-        message.taskContext.auditTypes = ['broken-backlinks'];
-        message.taskContext.slackContext = {
-          channelId: 'test-channel',
-          threadTs: 'test-thread',
-        };
-        message.taskContext.onboardStartTime = Date.now() - 3600000;
-        context.env.S3_SCRAPER_BUCKET_NAME = 'test-bucket';
-        context.env.AWS_REGION = 'us-east-1';
-        context.env.SPACECAT_BOT_IPS = '3.218.16.42,52.55.82.37,54.172.145.38';
-
-        // Ensure site returns empty opportunities
-        mockSite.getOpportunities.resolves([]);
-
-        // Mock scrape results WITH bot protection metadata
-        const mockScrapeResults = [
-          {
-            url: 'https://no-cw-logs.com/blocked',
-            status: 'COMPLETE',
-            path: 'scrapes/job-no-cw/url-1/scrape.json',
-            metadata: {
-              botProtectionDetected: true,
-            },
-          },
-        ];
-
-        // Mock CloudWatch to return empty events array (no logs found)
-        context.mockCloudWatchSend.resolves({
-          events: [], // No events found - triggers fallback stats
-        });
-
-        const mockJob = {
-          id: 'job-no-cw',
-          startedAt: new Date().toISOString(),
-        };
-
-        mockScrapeClient.getScrapeJobsByBaseURL.resolves([mockJob]);
-        mockScrapeClient.getScrapeJobUrlResults.resolves(mockScrapeResults);
-
-        localScrapeStub = sinon.stub(scrapeModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
-
-        const result = await runOpportunityStatusProcessor(message, context);
-
-        // Verify bot protection alert was sent
-        expect(mockSlackClient.postMessage).to.have.been.called;
-
-        // Should send alert with fallback "unknown" stats
-        const botProtectionCall = mockSlackClient.postMessage.getCalls().find((call) => {
-          const args = call.args[0];
-          return args && args.text && args.text.includes('Bot Protection Detected');
-        });
-
-        expect(botProtectionCall).to.exist;
-        const slackMessage = botProtectionCall.args[0].text;
-        expect(slackMessage).to.include('unknown'); // Fallback blocker type (lowercase)
-
-        expect(result.status).to.equal(200);
-      } finally {
-        if (localScrapeStub && localScrapeStub.restore) {
-          try {
-            localScrapeStub.restore();
-          } catch (e) {
-            // Already restored
-          }
-          localScrapeStub = null;
-        }
-        dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
-      }
-    });
-
     it('should use fallback stats when no scrape job ID is available', async () => {
       const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
@@ -3898,8 +3825,10 @@ describe('Opportunity Status Processor', () => {
 
       const handler = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
         '@adobe/spacecat-shared-scrape-client': { ScrapeClient: mockScrapeClientClass },
-        '../../../src/utils/cloudwatch-utils.js': {
+        '../../../src/utils/bot-detection.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
+        },
+        '../../../src/utils/cloudwatch-utils.js': {
           getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
         },
       });
@@ -3951,8 +3880,10 @@ describe('Opportunity Status Processor', () => {
       const esmock = (await import('esmock')).default;
 
       const handler = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
-        '../../../src/utils/cloudwatch-utils.js': {
+        '../../../src/utils/bot-detection.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
+        },
+        '../../../src/utils/cloudwatch-utils.js': {
           getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
         },
       });
@@ -3993,8 +3924,10 @@ describe('Opportunity Status Processor', () => {
       const esmock = (await import('esmock')).default;
 
       const handler = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
-        '../../../src/utils/cloudwatch-utils.js': {
+        '../../../src/utils/bot-detection.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
+        },
+        '../../../src/utils/cloudwatch-utils.js': {
           getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
         },
       });
@@ -4043,8 +3976,10 @@ describe('Opportunity Status Processor', () => {
         '@adobe/spacecat-shared-utils': {
           resolveCanonicalUrl: sinon.stub().resolves('https://example.com'),
         },
-        '../../../src/utils/cloudwatch-utils.js': {
+        '../../../src/utils/bot-detection.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
+        },
+        '../../../src/utils/cloudwatch-utils.js': {
           getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
         },
       });
@@ -4116,7 +4051,7 @@ describe('Opportunity Status Processor', () => {
         '@adobe/spacecat-shared-utils': {
           resolveCanonicalUrl: mockResolveCanonicalUrl,
         },
-        '../../../src/utils/cloudwatch-utils.js': {
+        '../../../src/utils/bot-detection.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
         },
       });

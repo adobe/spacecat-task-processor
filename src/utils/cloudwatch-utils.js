@@ -37,13 +37,6 @@ function calculateSearchWindow(onboardStartTime, bufferMs = 5 * 60 * 1000) {
     : Date.now() - 30 * 60 * 1000; // 30 minutes ago as fallback
 }
 
-// Bot detection functions have been moved to bot-detection.js
-// Re-export for backward compatibility
-export {
-  convertAbortInfoToStats,
-  checkAndAlertBotProtection,
-} from './bot-detection.js';
-
 /**
  * Gets the execution status and failure reason for an audit by searching Audit Worker logs.
  * This replaces the separate checkAuditExecution and getAuditFailureReason functions,

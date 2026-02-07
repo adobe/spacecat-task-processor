@@ -121,7 +121,6 @@ export function formatBotProtectionSlackMessage({
     urls,
     highConfidenceCount,
     isPartial,
-    totalUrlsInJob,
   } = stats;
 
   // Determine data completeness status
@@ -148,16 +147,8 @@ export function formatBotProtectionSlackMessage({
 
   const ipList = allowlistIps.map((ip) => `  • \`${ip}\``).join('\n');
 
-  // Calculate impact percentage if total URLs is known
-  const impactPercentage = totalUrlsInJob > 0
-    ? Math.round((totalCount / totalUrlsInJob) * 100)
-    : null;
-  const impactText = impactPercentage !== null
-    ? ` (${impactPercentage}% of ${totalUrlsInJob} total URLs)`
-    : '';
-
   let message = ':rotating_light: :warning: *Bot Protection Detected*\n\n'
-    + `*Summary:* ${totalCount} URL${totalCount > 1 ? 's' : ''} blocked by bot protection${impactText}\n`
+    + `*Summary:* ${totalCount} URL${totalCount > 1 ? 's' : ''} blocked by bot protection\n`
     + `${dataStatusText}\n\n`
     + '*📊 Detection Statistics*\n'
     + `• *Total Blocked:* ${totalCount} URLs\n`
