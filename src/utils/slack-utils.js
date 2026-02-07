@@ -106,7 +106,6 @@ export async function say(env, log, slackContext, message) {
  *   (from database via convertAbortInfoToStats)
  * @param {Array<string>} options.allowlistIps - Array of IPs to allowlist
  * @param {string} options.allowlistUserAgent - User-Agent to allowlist
- * @param {Array<string>} options.recentMessages - Recent messages from the thread to append
  * @returns {string} Formatted Slack message
  */
 export function formatBotProtectionSlackMessage({
@@ -114,7 +113,6 @@ export function formatBotProtectionSlackMessage({
   stats,
   allowlistIps = [],
   allowlistUserAgent,
-  recentMessages = [],
 }) {
   const {
     totalCount,
@@ -189,66 +187,5 @@ export function formatBotProtectionSlackMessage({
     + `*Site:* ${siteUrl}\n\n`
     + ':bulb: _After allowlisting, re-run onboarding or trigger a new scrape._';
 
-  if (recentMessages && recentMessages.length > 0) {
-    message += '\n\n*Recent Messages in this Thread:*\n';
-    recentMessages.forEach((msg, index) => {
-      message += `  ${index + 1}. ${msg}\n`;
-    });
-  }
-
   return message;
-}
-
-/**
- * Fetches recent messages from a Slack thread, filtering out bot protection and onboarding messages
- * @param {object} env - Environment variables
- * @param {object} log - Logger instance
- * @param {object} slackContext - Slack context with channelId and threadTs
- * @param {number} limit - Maximum number of messages to return (default: 3)
- * @returns {Promise<Array<string>>} Array of message texts
- */
-export async function fetchRecentThreadMessages(env, log, slackContext, limit = 3) {
-  if (!slackContext?.channelId || !slackContext?.threadTs) {
-    return [];
-  }
-
-  try {
-    const { WebClient } = await import('@slack/web-api');
-    const token = env.SLACK_TOKEN_WORKSPACE_INTERNAL || env.SLACK_BOT_TOKEN;
-    if (!token) {
-      log.warn('[BOT-CHECK] No Slack token available to fetch thread messages');
-      return [];
-    }
-
-    const client = new WebClient(token);
-    const result = await client.conversations.replies({
-      channel: slackContext.channelId,
-      ts: slackContext.threadTs,
-      limit: limit + 10, // Fetch more to filter out bot messages
-      oldest: true, // Get messages in chronological order
-    });
-
-    if (!result.messages || result.messages.length === 0) {
-      return [];
-    }
-
-    // Filter out bot protection messages and get the first non-bot messages
-    // Exclude messages that contain "Bot Protection Detected"
-    const filteredMessages = result.messages
-      .filter((msg) => {
-        const text = msg.text || '';
-        return !text.includes('Bot Protection Detected')
-          && !text.includes('Onboarding setup completed')
-          && !text.includes('Disabled imports')
-          && !text.includes('enabled imports and audits may differ');
-      })
-      .slice(0, limit)
-      .map((msg) => msg.text || '')
-      .filter((text) => text.length > 0);
-
-    return filteredMessages;
-  } catch (error) {
-    log.error('[BOT-CHECK] Error fetching thread messages:', error);
-    return [];
-  }
 }

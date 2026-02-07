@@ -4034,5 +4034,139 @@ describe('Opportunity Status Processor', () => {
       // Should complete successfully
       expect(result.status).to.equal(200);
     });
+
+    it('should continue when relatedAudits is empty (covers lines 302-304)', async () => {
+      // Test the continue statement when an opportunity has no related audits
+      const esmock = (await import('esmock')).default;
+
+      const handler = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
+        '@adobe/spacecat-shared-utils': {
+          resolveCanonicalUrl: sinon.stub().resolves('https://example.com'),
+        },
+        '../../../src/utils/cloudwatch-utils.js': {
+          checkAndAlertBotProtection: sinon.stub().resolves(null),
+          getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
+        },
+      });
+
+      // Create a scenario where an opportunity type exists but no audits in auditTypes
+      // can generate it
+      const testMessage = {
+        siteId: 'test-site-id',
+        siteUrl: 'https://example.com',
+        organizationId: 'test-org-id',
+        taskContext: {
+          auditTypes: ['alt-text'], // Only alt-text audit
+          slackContext: {
+            channelId: 'test-channel',
+            threadTs: 'test-thread',
+          },
+          onboardStartTime: Date.now() - 3600000,
+        },
+      };
+
+      const mockOpportunity = {
+        getType: sinon.stub().returns('cwv'), // cwv opportunity
+      };
+
+      const testContext = {
+        ...context,
+        dataAccess: {
+          Site: {
+            findById: sinon.stub().resolves({
+              // Site has cwv opportunity
+              getOpportunities: sinon.stub().resolves([mockOpportunity]),
+              getBaseURL: sinon.stub().returns('https://example.com'),
+            }),
+          },
+          SiteTopPage: {
+            allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+          },
+        },
+      };
+
+      // Mock getOpportunitiesForAudit to return empty for 'alt-text' audit
+      // checking 'cwv' opportunity
+      const auditMapModule = await import('../../../src/tasks/opportunity-status-processor/audit-opportunity-map.js');
+      const originalMap = { ...auditMapModule.AUDIT_OPPORTUNITY_MAP };
+
+      try {
+        // Ensure alt-text audit doesn't generate cwv opportunities
+        auditMapModule.AUDIT_OPPORTUNITY_MAP['alt-text'] = ['alt-text']; // Only generates alt-text
+
+        const result = await handler.runOpportunityStatusProcessor(testMessage, testContext);
+
+        // Should complete successfully - the continue statement should skip this opportunity
+        expect(result.status).to.equal(200);
+      } finally {
+        // Restore original map
+        if (auditMapModule.AUDIT_OPPORTUNITY_MAP && originalMap) {
+          Object.assign(auditMapModule.AUDIT_OPPORTUNITY_MAP, originalMap);
+        }
+      }
+    });
+
+    it('should handle URL resolution errors gracefully (covers lines 524-525)', async () => {
+      // Test the catch block when URL resolution or parsing fails
+      const esmock = (await import('esmock')).default;
+
+      const mockResolveCanonicalUrl = sinon.stub().rejects(new Error('Network timeout'));
+
+      const handler = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
+        '@adobe/spacecat-shared-utils': {
+          resolveCanonicalUrl: mockResolveCanonicalUrl,
+        },
+        '../../../src/utils/cloudwatch-utils.js': {
+          checkAndAlertBotProtection: sinon.stub().resolves(null),
+        },
+      });
+
+      const testMessage = {
+        siteId: 'test-site-id',
+        siteUrl: 'https://example.com',
+        organizationId: 'test-org-id',
+        taskContext: {
+          auditTypes: ['cwv'],
+          slackContext: {
+            channelId: 'test-channel',
+            threadTs: 'test-thread',
+          },
+          onboardStartTime: Date.now() - 3600000,
+          profile: {
+            opportunities: {
+              cwv: {
+                needsRUM: true,
+                needsGSC: true,
+                needsScraping: true,
+              },
+            },
+          },
+        },
+      };
+
+      const testContext = {
+        ...context,
+        dataAccess: {
+          Site: {
+            findById: sinon.stub().resolves({
+              getOpportunities: sinon.stub().resolves([]),
+              getBaseURL: sinon.stub().returns('https://example.com'),
+            }),
+          },
+          SiteTopPage: {
+            allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+          },
+        },
+      };
+
+      const result = await handler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      // Should complete successfully despite URL resolution error
+      expect(result.status).to.equal(200);
+      expect(testContext.log.warn).to.have.been.calledWith(
+        'Could not resolve canonical URL or parse siteUrl for data source checks: https://example.com',
+        sinon.match.instanceOf(Error),
+      );
+    });
   });
 });

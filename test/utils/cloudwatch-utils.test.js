@@ -106,6 +106,75 @@ describe('CloudWatch Utils', () => {
       expect(stats.highConfidenceCount).to.equal(0);
       expect(stats.urls).to.have.lengthOf(0);
     });
+
+    it('should return null when abortInfo is null', () => {
+      const stats = convertAbortInfoToStats(null, true);
+      expect(stats).to.be.null;
+    });
+
+    it('should return null when abortInfo reason is not bot-protection', () => {
+      const abortInfo = {
+        reason: 'timeout',
+        details: {
+          blockedUrlsCount: 5,
+        },
+      };
+
+      const stats = convertAbortInfoToStats(abortInfo, true);
+      expect(stats).to.be.null;
+    });
+
+    it('should return null when details is null', () => {
+      const abortInfo = {
+        reason: 'bot-protection',
+        details: null,
+      };
+
+      const stats = convertAbortInfoToStats(abortInfo, true);
+      expect(stats).to.be.null;
+    });
+
+    it('should calculate highConfidenceCount correctly with mixed confidence levels', () => {
+      const abortInfo = {
+        reason: 'bot-protection',
+        details: {
+          blockedUrlsCount: 5,
+          totalUrlsCount: 10,
+          byBlockerType: { cloudflare: 5 },
+          byHttpStatus: { 403: 5 },
+          blockedUrls: [
+            { url: 'https://test.com/1', confidence: 0.99 },
+            { url: 'https://test.com/2', confidence: 0.95 },
+            { url: 'https://test.com/3', confidence: 0.90 },
+            { url: 'https://test.com/4', confidence: 0.98 },
+            { url: 'https://test.com/5', confidence: 0.85 },
+          ],
+        },
+      };
+
+      const stats = convertAbortInfoToStats(abortInfo, true);
+      expect(stats.highConfidenceCount).to.equal(3); // 0.99, 0.95, 0.98 (>= 0.95)
+    });
+
+    it('should handle blockedUrls with missing confidence field', () => {
+      const abortInfo = {
+        reason: 'bot-protection',
+        details: {
+          blockedUrlsCount: 2,
+          totalUrlsCount: 10,
+          byBlockerType: { cloudflare: 2 },
+          byHttpStatus: { 403: 2 },
+          blockedUrls: [
+            { url: 'https://test.com/1' }, // No confidence field
+            { url: 'https://test.com/2', confidence: 0.99 },
+          ],
+        },
+      };
+
+      const stats = convertAbortInfoToStats(abortInfo, true);
+      expect(stats.highConfidenceCount).to.equal(1); // Only one with confidence >= 0.95
+      expect(stats.urls).to.have.lengthOf(2);
+    });
   });
 
   describe('checkAndAlertBotProtection', () => {
@@ -126,6 +195,18 @@ describe('CloudWatch Utils', () => {
     it('should return null and log warning when jobId is not provided', async () => {
       const result = await checkAndAlertBotProtection({
         jobId: null,
+        siteUrl: 'https://test.com',
+        slackContext: mockSlackContext,
+        context: mockContext,
+      });
+
+      expect(result).to.be.null;
+      expect(mockContext.log.warn).to.have.been.calledWithMatch(/No jobId provided for bot protection check/);
+    });
+
+    it('should return null and log warning when jobId is empty string', async () => {
+      const result = await checkAndAlertBotProtection({
+        jobId: '',
         siteUrl: 'https://test.com',
         slackContext: mockSlackContext,
         context: mockContext,
@@ -299,7 +380,7 @@ describe('CloudWatch Utils', () => {
       expect(result.totalCount).to.equal(5);
       expect(result.isPartial).to.be.false;
       expect(mockSay).to.have.been.called;
-      expect(mockContext.log.warn).to.have.been.calledWithMatch(/Bot protection detected/);
+      expect(mockContext.log.debug).to.have.been.calledWithMatch(/\[BOT-BLOCKED\] Bot protection detected/);
     });
 
     it('should handle Slack alert failure gracefully and still return stats', async function () {
@@ -358,6 +439,87 @@ describe('CloudWatch Utils', () => {
       expect(result.totalCount).to.equal(3);
       expect(result.isPartial).to.be.true;
       expect(mockContext.log.error).to.have.been.calledWithMatch(/Failed to send Slack alert/);
+    });
+
+    it('should handle empty SPACECAT_BOT_IPS', async function () {
+      this.timeout(5000);
+      const esmock = (await import('esmock')).default;
+
+      const mockJob = {
+        id: 'job-123',
+        status: 'COMPLETE',
+        abortInfo: {
+          reason: 'bot-protection',
+          details: {
+            blockedUrlsCount: 5,
+            totalUrlsCount: 10,
+            byBlockerType: { cloudflare: 5 },
+            byHttpStatus: { 403: 5 },
+            blockedUrls: [],
+          },
+        },
+      };
+
+      const mockSay = sandbox.stub().resolves();
+      const mockFormatBotProtectionSlackMessage = sandbox.stub().returns('Test message');
+      const mockFetchRecentThreadMessages = sandbox.stub().resolves([]);
+      const mockFormatAllowlistMessage = sandbox.stub().returns({
+        ips: [],
+        userAgent: 'test-agent',
+      });
+
+      const ScrapeClientModule = await import('@adobe/spacecat-shared-scrape-client');
+      sandbox.stub(ScrapeClientModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+      mockScrapeClient.getScrapeJobStatus.resolves(mockJob);
+
+      mockContext.env.SPACECAT_BOT_IPS = '';
+
+      const { checkAndAlertBotProtection: checkAndAlert } = await esmock(
+        '../../src/utils/bot-detection.js',
+        {
+          '@adobe/spacecat-shared-utils': {
+            formatAllowlistMessage: mockFormatAllowlistMessage,
+          },
+          '../../src/utils/slack-utils.js': {
+            say: mockSay,
+            formatBotProtectionSlackMessage: mockFormatBotProtectionSlackMessage,
+            fetchRecentThreadMessages: mockFetchRecentThreadMessages,
+          },
+        },
+      );
+
+      const result = await checkAndAlert({
+        jobId: 'job-123',
+        siteUrl: 'https://test.com',
+        slackContext: mockSlackContext,
+        context: mockContext,
+      });
+
+      expect(result).to.not.be.null;
+      expect(mockFormatAllowlistMessage).to.have.been.calledWith('');
+      expect(mockSay).to.have.been.called;
+    });
+
+    it('should handle job with undefined abortInfo', async () => {
+      const mockJob = {
+        id: 'job-123',
+        status: 'COMPLETE',
+        // abortInfo is undefined
+      };
+
+      const ScrapeClientModule = await import('@adobe/spacecat-shared-scrape-client');
+      sandbox.stub(ScrapeClientModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+      mockScrapeClient.getScrapeJobStatus.resolves(mockJob);
+
+      const result = await checkAndAlertBotProtection({
+        jobId: 'job-123',
+        siteUrl: 'https://test.com',
+        slackContext: mockSlackContext,
+        context: mockContext,
+      });
+
+      expect(result).to.be.null;
+      expect(mockContext.log.debug).to.have.been.calledWithMatch(/No abortInfo found: jobId=job-123/);
     });
   });
 });

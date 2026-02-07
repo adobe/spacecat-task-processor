@@ -168,10 +168,6 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
   const { log } = context;
 
   try {
-    if (!baseUrl) {
-      return { available: false, results: [] };
-    }
-
     // Create scrape client
     const scrapeClient = ScrapeClient.createFrom(context);
 
