@@ -102,7 +102,7 @@ export async function checkAndAlertBotProtection({
 
     // isJobComplete determines if data is partial or complete
     // - If job.status === 'COMPLETE': data is complete (isPartial = false)
-    // - If job.status === 'RUNNING': data is partial (isPartial = true)
+    // - If job.status === 'RUNNING' or undefined: data is partial (isPartial = true)
     const isJobComplete = job.status === 'COMPLETE';
     botProtectionStats = convertAbortInfoToStats(abortInfo, isJobComplete);
   } catch (error) {
@@ -119,7 +119,7 @@ export async function checkAndAlertBotProtection({
   }
 
   // Log detailed bot protection detection
-  log.debug(
+  log.info(
     `[BOT-BLOCKED] Bot protection detected: jobId=${jobId}, `
     + `siteUrl=${siteUrl}, `
     + `blockedUrls=${botProtectionStats.totalCount}, `

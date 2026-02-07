@@ -90,11 +90,13 @@ export async function say(env, log, slackContext, message) {
       });
     }
   } catch (error) {
-    log.error('Error sending Slack message:', {
-      error: error.message,
-      stack: error.stack,
-      errorType: error.name,
-    });
+    if (log) {
+      log.error('Error sending Slack message:', {
+        error: error.message,
+        stack: error.stack,
+        errorType: error.name,
+      });
+    }
   }
 }
 
