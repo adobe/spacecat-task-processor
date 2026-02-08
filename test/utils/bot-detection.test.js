@@ -380,7 +380,7 @@ describe('Bot Detection Utils', () => {
       expect(result.totalCount).to.equal(5);
       expect(result.isPartial).to.be.false;
       expect(mockSay).to.have.been.called;
-      expect(mockContext.log.debug).to.have.been.calledWithMatch(/\[BOT-BLOCKED\] Bot protection detected/);
+      expect(mockContext.log.info).to.have.been.calledWithMatch(/\[BOT-BLOCKED\] Bot protection detected/);
     });
 
     it('should handle Slack alert failure gracefully and still return stats', async function () {
