@@ -20,7 +20,7 @@ import {
   badRequest,
 } from '@adobe/spacecat-shared-http-utils';
 import { imsClientWrapper } from '@adobe/spacecat-shared-ims-client';
-import { isNonEmptyObject, sqsEventAdapter } from '@adobe/spacecat-shared-utils';
+import { isNonEmptyObject, sqsEventAdapter, sqsWrapper } from '@adobe/spacecat-shared-utils';
 
 import { runOpportunityStatusProcessor as opportunityStatusProcessor } from './tasks/opportunity-status-processor/handler.js';
 import { runDisableImportAuditProcessor as disableImportAuditProcessor } from './tasks/disable-import-audit-processor/handler.js';
@@ -86,6 +86,7 @@ async function processTask(message, context) {
 
 const runSQS = wrap(processTask)
   .with(dataAccess)
+  .with(sqsWrapper)
   .with(sqsEventAdapter)
   .with(imsClientWrapper)
   .with(secrets, { name: getSecretName })
@@ -93,6 +94,7 @@ const runSQS = wrap(processTask)
 
 const runDirect = wrap(processTask)
   .with(dataAccess)
+  .with(sqsWrapper)
   .with(imsClientWrapper)
   .with(secrets, { name: getSecretName })
   .with(helixStatus);

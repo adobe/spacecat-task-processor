@@ -136,6 +136,7 @@ describe('CWV Demo Suggestions Processor Task', () => {
       mockSite.getOpportunities.resolves([]);
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
+      const resultBody = await result.json();
 
       expect(sayStub.calledWith(
         mockContext.env,
@@ -143,7 +144,7 @@ describe('CWV Demo Suggestions Processor Task', () => {
         mockContext.slackContext,
         'No CWV opportunities found for site, skipping generic suggestions',
       )).to.be.true;
-      expect(result.message).to.equal('No CWV opportunities found');
+      expect(resultBody.message).to.equal('No CWV opportunities found');
     });
 
     it('should skip processing when opportunity already has suggestions with issues', async () => {
@@ -155,6 +156,7 @@ describe('CWV Demo Suggestions Processor Task', () => {
       mockOpportunity.getSuggestions.resolves(suggestionsWithIssues);
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
+      const resultBody = await result.json();
 
       expect(sayStub.calledWith(
         mockContext.env,
@@ -162,7 +164,7 @@ describe('CWV Demo Suggestions Processor Task', () => {
         mockContext.slackContext,
         'ℹ️ Opportunity test-opportunity-id already has suggestions, skipping generic suggestions',
       )).to.be.true;
-      expect(result.message).to.include('CWV demo suggestions processor completed');
+      expect(resultBody.message).to.include('CWV demo suggestions processor completed');
     });
 
     it('should add generic suggestions to opportunities without issues', async () => {
@@ -170,18 +172,20 @@ describe('CWV Demo Suggestions Processor Task', () => {
       mockOpportunity.getSuggestions.resolves(mockSuggestions);
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
+      const resultBody = await result.json();
 
-      expect(result.message).to.include('CWV demo suggestions processor completed');
-      expect(result.opportunitiesProcessed).to.equal(1);
+      expect(resultBody.message).to.include('CWV demo suggestions processor completed');
+      expect(resultBody.opportunitiesProcessed).to.equal(1);
     });
 
     it('should handle site not found gracefully', async () => {
       mockContext.dataAccess.Site.findById.resolves(null);
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
+      const resultBody = await result.json();
 
       expect(mockContext.log.error.calledWith('Site not found for siteId: test-site-id')).to.be.true;
-      expect(result.message).to.equal('Site not found');
+      expect(resultBody.message).to.equal('Site not found');
     });
 
     it('should process only first 2 suggestions with CWV issues', async () => {
@@ -196,8 +200,9 @@ describe('CWV Demo Suggestions Processor Task', () => {
       mockOpportunity.getSuggestions.resolves(manySuggestions);
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
+      const resultBody = await result.json();
 
-      expect(result.message).to.include('CWV demo suggestions processor completed');
+      expect(resultBody.message).to.include('CWV demo suggestions processor completed');
     });
 
     it('should handle suggestion not found during update', async () => {
@@ -205,8 +210,9 @@ describe('CWV Demo Suggestions Processor Task', () => {
       mockOpportunity.getSuggestions.resolves(mockSuggestions);
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
+      const resultBody = await result.json();
 
-      expect(result.message).to.include('CWV demo suggestions processor completed');
+      expect(resultBody.message).to.include('CWV demo suggestions processor completed');
     });
 
     it('should handle case when no suggestions meet CWV criteria', async () => {
@@ -220,10 +226,11 @@ describe('CWV Demo Suggestions Processor Task', () => {
       mockOpportunity.getSuggestions.resolves(suggestionsWithoutCWVIssues);
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
+      const resultBody = await result.json();
 
       // Should complete successfully but not add any generic suggestions
-      expect(result.message).to.include('CWV demo suggestions processor completed');
-      expect(result.opportunitiesProcessed).to.equal(1);
+      expect(resultBody.message).to.include('CWV demo suggestions processor completed');
+      expect(resultBody.opportunitiesProcessed).to.equal(1);
     });
 
     it('should handle suggestions with missing metrics property', async () => {
@@ -235,11 +242,12 @@ describe('CWV Demo Suggestions Processor Task', () => {
       mockOpportunity.getSuggestions.resolves(suggestionsWithMissingMetrics);
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
+      const resultBody = await result.json();
 
       // Should complete successfully but not add any generic suggestions since no metrics
-      expect(result.message).to.include('CWV demo suggestions processor completed');
-      expect(result.opportunitiesProcessed).to.equal(1);
-      expect(result.suggestionsAdded).to.equal(0);
+      expect(resultBody.message).to.include('CWV demo suggestions processor completed');
+      expect(resultBody.opportunitiesProcessed).to.equal(1);
+      expect(resultBody.suggestionsAdded).to.equal(0);
     });
 
     it('should skip processing for non-demo profiles', async () => {
@@ -250,10 +258,11 @@ describe('CWV Demo Suggestions Processor Task', () => {
       };
 
       const result = await runCwvDemoSuggestionsProcessor(nonDemoMessage, mockContext);
+      const resultBody = await result.json();
 
-      expect(result.message).to.equal('CWV processing skipped - not a demo profile');
-      expect(result.reason).to.equal('non-demo-profile');
-      expect(result.profile).to.equal('default');
+      expect(resultBody.message).to.equal('CWV processing skipped - not a demo profile');
+      expect(resultBody.reason).to.equal('non-demo-profile');
+      expect(resultBody.profile).to.equal('default');
     });
 
     it('should handle missing taskContext and metrics gracefully', async () => {
@@ -278,21 +287,23 @@ describe('CWV Demo Suggestions Processor Task', () => {
       mockOpportunity.getSuggestions.resolves(suggestionsWithoutMetrics);
 
       const result = await runCwvDemoSuggestionsProcessor(messageWithoutTaskContext, mockContext);
+      const resultBody = await result.json();
 
-      expect(result.message).to.equal('CWV processing skipped - not a demo profile');
-      expect(result.reason).to.equal('non-demo-profile');
-      expect(result.profile).to.be.undefined;
+      expect(resultBody.message).to.equal('CWV processing skipped - not a demo profile');
+      expect(resultBody.reason).to.equal('non-demo-profile');
+      expect(resultBody.profile).to.be.undefined;
     });
 
     it('should handle main function errors gracefully', async () => {
       mockContext.dataAccess.Site.findById.rejects(new Error('Site database error'));
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
+      const resultBody = await result.json();
 
       expect(mockContext.log.error.calledWith('Error in CWV demo suggestions processor:', sinon.match.any)).to.be.true;
-      expect(result.message).to.equal('CWV demo suggestions processor completed with errors');
-      expect(result.error).to.equal('Site database error');
-      expect(result.suggestionsAdded).to.equal(0);
+      expect(resultBody.message).to.equal('CWV demo suggestions processor completed with errors');
+      expect(resultBody.error).to.equal('Site database error');
+      expect(resultBody.suggestionsAdded).to.equal(0);
     });
 
     it('should handle opportunity processing errors gracefully', async () => {
@@ -301,11 +312,12 @@ describe('CWV Demo Suggestions Processor Task', () => {
       mockOpportunity.getSuggestions.rejects(new Error('Failed to fetch suggestions'));
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
+      const resultBody = await result.json();
 
       expect(mockContext.log.error.calledWith('Error processing opportunity test-opportunity-id:', sinon.match.any)).to.be.true;
-      expect(result.message).to.include('CWV demo suggestions processor completed');
+      expect(resultBody.message).to.include('CWV demo suggestions processor completed');
       // The handler is resilient and may still add suggestions despite file reading errors
-      expect(result.suggestionsAdded).to.be.a('number');
+      expect(resultBody.suggestionsAdded).to.be.a('number');
     });
 
     it('should handle missing CWV reference suggestions gracefully', async () => {
@@ -333,7 +345,8 @@ describe('CWV Demo Suggestions Processor Task', () => {
 
       try {
         const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
-        expect(result.message).to.include('CWV demo suggestions processor completed');
+        const resultBody = await result.json();
+        expect(resultBody.message).to.include('CWV demo suggestions processor completed');
       } finally {
         // Restore original lcp suggestions
         if (module.cwvReferenceSuggestions && originalLcp) {
@@ -375,12 +388,13 @@ describe('CWV Demo Suggestions Processor Task', () => {
       mockSuggestionDataAccess.findById.withArgs('suggestion-test').resolves(mockSuggestionTest);
 
       const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
+      const resultBody = await result.json();
 
       // Should complete without errors even when markdown files are missing
-      expect(result.message).to.include('CWV demo suggestions processor completed');
+      expect(resultBody.message).to.include('CWV demo suggestions processor completed');
 
       // The system should still function even when markdown files are missing
-      expect(result.suggestionsAdded).to.be.a('number');
+      expect(resultBody.suggestionsAdded).to.be.a('number');
     });
 
     it('should handle file reading errors in readStaticFile', async () => {
@@ -400,10 +414,11 @@ describe('CWV Demo Suggestions Processor Task', () => {
       const testHandler = handlerModule.runCwvDemoSuggestionsProcessor;
 
       const result = await testHandler(mockMessage, mockContext);
+      const resultBody = await result.json();
 
-      expect(result.message).to.include('CWV demo suggestions processor completed');
+      expect(resultBody.message).to.include('CWV demo suggestions processor completed');
       // The handler is resilient and may still add suggestions despite file reading errors
-      expect(result.suggestionsAdded).to.be.a('number');
+      expect(resultBody.suggestionsAdded).to.be.a('number');
     });
 
     it('should handle empty suggestions array in getRandomSuggestion', async () => {
@@ -431,10 +446,11 @@ describe('CWV Demo Suggestions Processor Task', () => {
       const testHandler = handlerModule.runCwvDemoSuggestionsProcessor;
 
       const result = await testHandler(mockMessage, mockContext);
+      const resultBody = await result.json();
 
-      expect(result.message).to.include('CWV demo suggestions processor completed');
+      expect(resultBody.message).to.include('CWV demo suggestions processor completed');
       // The handler is resilient and may still add suggestions despite file reading errors
-      expect(result.suggestionsAdded).to.be.a('number');
+      expect(resultBody.suggestionsAdded).to.be.a('number');
     });
 
     it('should handle readStaticFile returning null in getRandomSuggestion', async () => {
@@ -461,10 +477,11 @@ describe('CWV Demo Suggestions Processor Task', () => {
       const testHandler = handlerModule.runCwvDemoSuggestionsProcessor;
 
       const result = await testHandler(mockMessage, mockContext);
+      const resultBody = await result.json();
 
-      expect(result.message).to.include('CWV demo suggestions processor completed');
+      expect(resultBody.message).to.include('CWV demo suggestions processor completed');
       // The handler is resilient and may still add suggestions despite file reading errors
-      expect(result.suggestionsAdded).to.be.a('number');
+      expect(resultBody.suggestionsAdded).to.be.a('number');
     });
 
     it('should handle errors in updateSuggestionWithGenericIssues', async () => {
@@ -483,11 +500,24 @@ describe('CWV Demo Suggestions Processor Task', () => {
       const mockSuggestion = suggestionsWithCWVIssues[0];
       mockSuggestion.save.rejects(new Error('Database save failed'));
 
-      const result = await runCwvDemoSuggestionsProcessor(mockMessage, mockContext);
+      // Mock fs.readFileSync to return valid content so getRandomSuggestion works
+      const handlerModule = await esmock('../../../src/tasks/cwv-demo-suggestions-processor/handler.js', {
+        '../../../src/utils/slack-utils.js': {
+          say: sayStub,
+        },
+        fs: {
+          readFileSync: sandbox.stub().returns('Test suggestion content'),
+        },
+      });
+      const testHandler = handlerModule.runCwvDemoSuggestionsProcessor;
 
-      expect(result.message).to.include('CWV demo suggestions processor completed');
-      // The handler is resilient and may still add suggestions despite file reading errors
-      expect(result.suggestionsAdded).to.be.a('number');
+      const result = await testHandler(mockMessage, mockContext);
+      const resultBody = await result.json();
+
+      expect(resultBody.message).to.include('CWV demo suggestions processor completed');
+      // The handler is resilient and returns suggestionsToUpdate.length even if save fails
+      expect(resultBody.suggestionsAdded).to.be.a('number');
+      expect(resultBody.suggestionsAdded).to.equal(1); // Should be 1 suggestion attempted
     });
   });
 });

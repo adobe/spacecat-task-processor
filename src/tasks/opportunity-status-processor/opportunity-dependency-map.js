@@ -21,11 +21,11 @@ export const OPPORTUNITY_DEPENDENCY_MAP = {
   cwv: ['RUM'],
   'high-organic-low-ctr': ['RUM'],
   'broken-internal-links': ['RUM', 'AHREFSImport'],
-  'meta-tags': ['AHREFSImport'],
-  'broken-backlinks': ['AHREFSImport'],
-  'alt-text': ['AHREFSImport'],
-  'form-accessibility': ['RUM'],
-  'forms-opportunities': ['RUM'],
+  'meta-tags': ['AHREFSImport', 'scraping'], // meta-tags audit uses scraping
+  'broken-backlinks': ['AHREFSImport', 'scraping'], // broken-backlinks audit uses scraping
+  'alt-text': ['AHREFSImport', 'scraping'], // alt-text audit uses scraping
+  'form-accessibility': ['RUM', 'scraping'], // forms audit uses scraping
+  'forms-opportunities': ['RUM', 'scraping'], // forms audit uses scraping
 };
 
 /**
