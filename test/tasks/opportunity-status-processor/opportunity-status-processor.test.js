@@ -611,6 +611,26 @@ describe('Opportunity Status Processor', () => {
         },
       ];
 
+      // Mock ScrapeClient to prevent timeout
+      const mockScrapeClientLocal = {
+        getScrapeJobsByBaseURL: sinon.stub().resolves([]),
+      };
+      const mockScrapeClientClass = {
+        createFrom: sinon.stub().returns(mockScrapeClientLocal),
+      };
+
+      const esmock = (await import('esmock')).default;
+      const handlerModule = await esmock(
+        '../../../src/tasks/opportunity-status-processor/handler.js',
+        {
+          '@adobe/spacecat-shared-utils': {
+            resolveCanonicalUrl: sinon.stub().callsFake(async (url) => url),
+          },
+          '@adobe/spacecat-shared-scrape-client': { ScrapeClient: mockScrapeClientClass },
+        },
+      );
+      const runOpportunityStatusProcessorLocal = handlerModule.runOpportunityStatusProcessor;
+
       await Promise.all(testCases.map(async (testCase) => {
         const testMessage = {
           siteId: 'test-site-id',
@@ -638,7 +658,7 @@ describe('Opportunity Status Processor', () => {
           },
         };
 
-        await runOpportunityStatusProcessor(testMessage, testContext);
+        await runOpportunityStatusProcessorLocal(testMessage, testContext);
 
         // Verify that the processor completes successfully even with localhost URLs
         expect(testSiteMock.getOpportunities.called).to.be.true;
