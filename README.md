@@ -17,6 +17,7 @@ SpaceCat Task Processor is a Node.js service that processes messages from the AW
 - **agent-executor**: Runs registered AI/LLM agents (e.g., the brand-profile agent) asynchronously after onboarding flows
 - **slack-notify**: Sends Slack notifications (text or block messages) from workflows
 
+
 ## Setup
 1. Clone the repository
 2. Install dependencies:
