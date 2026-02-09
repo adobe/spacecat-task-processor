@@ -122,12 +122,6 @@ function getOpportunityTitle(opportunityType) {
 }
 
 /**
- * Filters scrape jobs created after a given timestamp
- * @param {Array} jobs - Array of scrape jobs
- * @param {number} onboardStartTime - Timestamp to filter by
- * @returns {Array} Filtered jobs
- */
-/**
  * Filters scrape jobs to only include those created after onboardStartTime
  * This ensures we only check jobs from the CURRENT onboarding session,
  * not old scrape jobs from previous runs
@@ -171,13 +165,10 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     // Create scrape client
     const scrapeClient = ScrapeClient.createFrom(context);
 
-    // Get all scrape jobs for this baseUrl (all processing types)
-    const jobs = await scrapeClient.getScrapeJobsByBaseURL(baseUrl);
+    // Get scrape jobs for this baseUrl (default processing type only)
+    const jobs = await scrapeClient.getScrapeJobsByBaseURL(baseUrl, 'default');
 
     if (!jobs || jobs.length === 0) {
-      /* c8 ignore start */
-      log.info(`[SCRAPING-CHECK] No scrape jobs found for baseUrl=${baseUrl}`);
-      /* c8 ignore stop */
       return { available: false, results: [] };
     }
 
@@ -186,12 +177,6 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     log.info(`Filtered ${filteredJobs.length} jobs created after onboardStartTime from ${jobs.length} total jobs`);
 
     if (filteredJobs.length === 0) {
-      /* c8 ignore start */
-      log.info(
-        '[SCRAPING-CHECK] No jobs found after filtering by onboardStartTime: '
-        + `baseUrl=${baseUrl}, onboardStartTime=${onboardStartTime}`,
-      );
-      /* c8 ignore stop */
       return { available: false, results: [] };
     }
 
@@ -214,12 +199,6 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     /* eslint-enable no-await-in-loop */
 
     if (!jobWithResults) {
-      /* c8 ignore start */
-      log.info(
-        `[SCRAPING-CHECK] No jobs with URL results found: baseUrl=${baseUrl}, `
-        + `checkedJobs=${sortedJobs.length}`,
-      );
-      /* c8 ignore stop */
       return { available: false, results: [] };
     }
     // Count successful and failed scrapes
@@ -230,13 +209,11 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     // Check if at least one URL was successfully scraped (status === 'COMPLETE')
     const hasSuccessfulScrape = completedCount > 0;
 
-    /* c8 ignore start */
     log.info(
       `[SCRAPING-CHECK] Scraping check complete: siteUrl=${baseUrl}, `
       + `available=${hasSuccessfulScrape}, hasJobId=true, jobId=${jobWithResults.id}, `
       + `completed=${completedCount}, failed=${failedCount}, total=${totalCount}`,
     );
-    /* c8 ignore stop */
 
     return {
       available: hasSuccessfulScrape,
@@ -250,12 +227,6 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     };
   } catch (error) {
     log.error(`Scraping check failed for ${baseUrl}:`, error);
-    /* c8 ignore start */
-    log.info(
-      `[SCRAPING-CHECK] Scraping check error: siteUrl=${baseUrl}, `
-      + `error=${error.message}, hasJobId=false, jobId=none`,
-    );
-    /* c8 ignore stop */
     return { available: false, results: [] };
   }
 }

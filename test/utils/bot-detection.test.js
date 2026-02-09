@@ -345,7 +345,6 @@ describe('Bot Detection Utils', () => {
 
       const mockSay = sandbox.stub().resolves();
       const mockFormatBotProtectionSlackMessage = sandbox.stub().returns('Test message');
-      const mockFetchRecentThreadMessages = sandbox.stub().resolves([]);
       const mockFormatAllowlistMessage = sandbox.stub().returns({
         ips: '1.2.3.4,5.6.7.8',
         userAgent: 'test-agent',
@@ -364,7 +363,6 @@ describe('Bot Detection Utils', () => {
           '../../src/utils/slack-utils.js': {
             say: mockSay,
             formatBotProtectionSlackMessage: mockFormatBotProtectionSlackMessage,
-            fetchRecentThreadMessages: mockFetchRecentThreadMessages,
           },
         },
       );
@@ -404,7 +402,6 @@ describe('Bot Detection Utils', () => {
 
       const mockSay = sandbox.stub().rejects(new Error('Slack API error'));
       const mockFormatBotProtectionSlackMessage = sandbox.stub().returns('Test message');
-      const mockFetchRecentThreadMessages = sandbox.stub().resolves([]);
       const mockFormatAllowlistMessage = sandbox.stub().returns({
         ips: '1.2.3.4,5.6.7.8',
         userAgent: 'test-agent',
@@ -423,7 +420,6 @@ describe('Bot Detection Utils', () => {
           '../../src/utils/slack-utils.js': {
             say: mockSay,
             formatBotProtectionSlackMessage: mockFormatBotProtectionSlackMessage,
-            fetchRecentThreadMessages: mockFetchRecentThreadMessages,
           },
         },
       );
@@ -462,7 +458,6 @@ describe('Bot Detection Utils', () => {
 
       const mockSay = sandbox.stub().resolves();
       const mockFormatBotProtectionSlackMessage = sandbox.stub().returns('Test message');
-      const mockFetchRecentThreadMessages = sandbox.stub().resolves([]);
       const mockFormatAllowlistMessage = sandbox.stub().returns({
         ips: [],
         userAgent: 'test-agent',
@@ -483,7 +478,6 @@ describe('Bot Detection Utils', () => {
           '../../src/utils/slack-utils.js': {
             say: mockSay,
             formatBotProtectionSlackMessage: mockFormatBotProtectionSlackMessage,
-            fetchRecentThreadMessages: mockFetchRecentThreadMessages,
           },
         },
       );

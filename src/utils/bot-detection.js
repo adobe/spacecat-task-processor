@@ -87,6 +87,13 @@ export async function checkAndAlertBotProtection({
     // so abortInfo is always a property, never a method
     const abortInfo = job.abortInfo || null;
 
+    log.info(
+      `[BOT-CHECK] AbortInfo read from scrape client: jobId=${jobId}, `
+      + `hasAbortInfo=${!!abortInfo}, reason=${abortInfo?.reason || 'none'}, `
+      + `blockedUrlsCount=${abortInfo?.details?.blockedUrlsCount || 0}, `
+      + `totalUrlsCount=${abortInfo?.details?.totalUrlsCount || 0}`,
+    );
+
     if (!abortInfo) {
       log.debug(`No abortInfo found: jobId=${jobId}`);
       return null;
@@ -105,6 +112,18 @@ export async function checkAndAlertBotProtection({
     // - If job.status === 'RUNNING' or undefined: data is partial (isPartial = true)
     const isJobComplete = job.status === 'COMPLETE';
     botProtectionStats = convertAbortInfoToStats(abortInfo, isJobComplete);
+
+    if (botProtectionStats) {
+      log.info(
+        `[BOT-BLOCKED] Bot protection detected: jobId=${jobId}, `
+        + `siteUrl=${siteUrl}, `
+        + `hasAbortInfo=${!!abortInfo}, abortInfoReason=${abortInfo?.reason || 'none'}, `
+        + `blockedUrls=${botProtectionStats.totalCount}, `
+        + `totalUrlsInJob=${botProtectionStats.totalUrlsInJob}, `
+        + `isPartial=${botProtectionStats.isPartial} (${botProtectionStats.isPartial ? 'RUNNING' : 'COMPLETE'}), `
+        + `blockedRatio=${botProtectionStats.totalCount}/${botProtectionStats.totalUrlsInJob}`,
+      );
+    }
   } catch (error) {
     log.error(
       `Failed to get bot protection stats from ScrapeJob: jobId=${jobId}, error=${error.message}`,
@@ -117,15 +136,6 @@ export async function checkAndAlertBotProtection({
     log.debug(`No bot protection found: jobId=${jobId}`);
     return null;
   }
-
-  // Log detailed bot protection detection
-  log.info(
-    `[BOT-BLOCKED] Bot protection detected: jobId=${jobId}, `
-    + `siteUrl=${siteUrl}, `
-    + `blockedUrls=${botProtectionStats.totalCount}, `
-    + `totalUrlsInJob=${botProtectionStats.totalUrlsInJob}, `
-    + `isPartial=${botProtectionStats.isPartial} (${botProtectionStats.isPartial ? 'RUNNING' : 'COMPLETE'})`,
-  );
 
   // Send Slack alert - wrap in try-catch to prevent alert failures from breaking flow
   try {
