@@ -422,5 +422,170 @@ describe('slack-utils', () => {
       expect(result).to.include('5 URL'); // Changed: no longer shows "of X"
       expect(result).to.include('... and 2 more URLs');
     });
+
+    it('should show per-job breakdown when jobDetails has multiple jobs (lines 159-165)', () => {
+      const stats = {
+        totalCount: 8,
+        totalUrlsInJob: 25,
+        highConfidenceCount: 8,
+        byHttpStatus: { 403: 8 },
+        byBlockerType: { cloudflare: 5, imperva: 3 },
+        urls: [
+          { url: 'https://test.com/1', httpStatus: 403, blockerType: 'cloudflare' },
+          { url: 'https://test.com/2', httpStatus: 403, blockerType: 'imperva' },
+        ],
+        isPartial: false,
+      };
+
+      const jobDetails = [
+        {
+          jobId: 'job-123',
+          blockedUrlsCount: 5,
+          totalUrlsCount: 10,
+          isPartial: false,
+        },
+        {
+          jobId: 'job-456',
+          blockedUrlsCount: 3,
+          totalUrlsCount: 15,
+          isPartial: false,
+        },
+      ];
+
+      const result = formatBotProtectionSlackMessage({
+        siteUrl: 'https://test.com',
+        stats,
+        allowlistIps: ['1.2.3.4'],
+        allowlistUserAgent: 'TestBot/1.0',
+        jobDetails,
+      });
+
+      expect(result).to.include('*📋 Per-Job Breakdown (All Audit Types):*');
+      expect(result).to.include('Job `job-123`: 5/10 blocked ✅');
+      expect(result).to.include('Job `job-456`: 3/15 blocked ✅');
+    });
+
+    it('should show partial status icon (⏳) when job is partial (lines 159-165)', () => {
+      const stats = {
+        totalCount: 5,
+        totalUrlsInJob: 20,
+        highConfidenceCount: 5,
+        byHttpStatus: { 403: 5 },
+        byBlockerType: { cloudflare: 5 },
+        urls: [
+          { url: 'https://test.com/1', httpStatus: 403, blockerType: 'cloudflare' },
+        ],
+        isPartial: true,
+      };
+
+      const jobDetails = [
+        {
+          jobId: 'job-123',
+          blockedUrlsCount: 5,
+          totalUrlsCount: 20,
+          isPartial: true,
+        },
+        {
+          jobId: 'job-456',
+          blockedUrlsCount: 3,
+          totalUrlsCount: 15,
+          isPartial: false,
+        },
+      ];
+
+      const result = formatBotProtectionSlackMessage({
+        siteUrl: 'https://test.com',
+        stats,
+        allowlistIps: ['1.2.3.4'],
+        allowlistUserAgent: 'TestBot/1.0',
+        jobDetails,
+      });
+
+      expect(result).to.include('*📋 Per-Job Breakdown (All Audit Types):*');
+      expect(result).to.include('Job `job-123`: 5/20 blocked ⏳');
+      expect(result).to.include('Job `job-456`: 3/15 blocked ✅');
+    });
+
+    it('should not show per-job breakdown when jobDetails has only one job (lines 159-165)', () => {
+      const stats = {
+        totalCount: 5,
+        totalUrlsInJob: 10,
+        highConfidenceCount: 5,
+        byHttpStatus: { 403: 5 },
+        byBlockerType: { cloudflare: 5 },
+        urls: [
+          { url: 'https://test.com/1', httpStatus: 403, blockerType: 'cloudflare' },
+        ],
+        isPartial: false,
+      };
+
+      const jobDetails = [
+        {
+          jobId: 'job-123',
+          blockedUrlsCount: 5,
+          totalUrlsCount: 10,
+          isPartial: false,
+        },
+      ];
+
+      const result = formatBotProtectionSlackMessage({
+        siteUrl: 'https://test.com',
+        stats,
+        allowlistIps: ['1.2.3.4'],
+        allowlistUserAgent: 'TestBot/1.0',
+        jobDetails,
+      });
+
+      expect(result).to.not.include('*📋 Per-Job Breakdown (All Audit Types):*');
+      expect(result).to.not.include('Job `job-123`');
+    });
+
+    it('should not show per-job breakdown when jobDetails is empty (lines 159-165)', () => {
+      const stats = {
+        totalCount: 5,
+        totalUrlsInJob: 10,
+        highConfidenceCount: 5,
+        byHttpStatus: { 403: 5 },
+        byBlockerType: { cloudflare: 5 },
+        urls: [
+          { url: 'https://test.com/1', httpStatus: 403, blockerType: 'cloudflare' },
+        ],
+        isPartial: false,
+      };
+
+      const result = formatBotProtectionSlackMessage({
+        siteUrl: 'https://test.com',
+        stats,
+        allowlistIps: ['1.2.3.4'],
+        allowlistUserAgent: 'TestBot/1.0',
+        jobDetails: [],
+      });
+
+      expect(result).to.not.include('*📋 Per-Job Breakdown (All Audit Types):*');
+    });
+
+    it('should not show per-job breakdown when jobDetails is undefined (lines 159-165)', () => {
+      const stats = {
+        totalCount: 5,
+        totalUrlsInJob: 10,
+        highConfidenceCount: 5,
+        byHttpStatus: { 403: 5 },
+        byBlockerType: { cloudflare: 5 },
+        urls: [
+          { url: 'https://test.com/1', httpStatus: 403, blockerType: 'cloudflare' },
+        ],
+        isPartial: false,
+      };
+
+      const result = formatBotProtectionSlackMessage({
+        siteUrl: 'https://test.com',
+        stats,
+        allowlistIps: ['1.2.3.4'],
+        allowlistUserAgent: 'TestBot/1.0',
+        // jobDetails not provided (undefined)
+      });
+
+      expect(result).to.not.include('*📋 Per-Job Breakdown (All Audit Types):*');
+    });
   });
 });

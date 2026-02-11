@@ -201,7 +201,7 @@ describe('Bot Detection Utils', () => {
       });
 
       expect(result).to.be.null;
-      expect(mockContext.log.warn).to.have.been.calledWithMatch(/No jobId provided for bot protection check/);
+      expect(mockContext.log.warn).to.have.been.calledWithMatch(/No jobId\(s\) provided for bot protection check/);
     });
 
     it('should return null and log warning when jobId is empty string', async () => {
@@ -213,7 +213,7 @@ describe('Bot Detection Utils', () => {
       });
 
       expect(result).to.be.null;
-      expect(mockContext.log.warn).to.have.been.calledWithMatch(/No jobId provided for bot protection check/);
+      expect(mockContext.log.warn).to.have.been.calledWithMatch(/No jobId\(s\) provided for bot protection check/);
     });
 
     it('should return null and log debug when job is not found', async () => {
@@ -251,7 +251,7 @@ describe('Bot Detection Utils', () => {
       });
 
       expect(result).to.be.null;
-      expect(mockContext.log.debug).to.have.been.calledWithMatch(/No abortInfo found: jobId=job-123/);
+      expect(mockContext.log.debug).to.have.been.calledWithMatch(/No bot protection found across 1 jobId\(s\)/);
     });
 
     it('should return null and log debug when abortInfo reason is not bot-protection', async () => {
@@ -277,7 +277,7 @@ describe('Bot Detection Utils', () => {
 
       expect(result).to.be.null;
       expect(mockContext.log.debug).to.have.been.calledWithMatch(
-        /AbortInfo present but reason is not bot-protection/,
+        /No bot protection found across 1 jobId\(s\)/,
       );
     });
 
@@ -321,7 +321,7 @@ describe('Bot Detection Utils', () => {
       });
 
       expect(result).to.be.null;
-      expect(mockContext.log.debug).to.have.been.calledWithMatch(/No bot protection found: jobId=job-123/);
+      expect(mockContext.log.debug).to.have.been.calledWithMatch(/No bot protection found across 1 jobId\(s\)/);
     });
 
     it('should detect bot protection and send Slack alert successfully', async function () {
@@ -513,7 +513,107 @@ describe('Bot Detection Utils', () => {
       });
 
       expect(result).to.be.null;
-      expect(mockContext.log.debug).to.have.been.calledWithMatch(/No abortInfo found: jobId=job-123/);
+      expect(mockContext.log.debug).to.have.been.calledWithMatch(/No bot protection found across 1 jobId\(s\)/);
+    });
+
+    it('should aggregate bot protection stats across multiple jobIds', async function () {
+      this.timeout(5000);
+      const esmock = (await import('esmock')).default;
+
+      const mockJob1 = {
+        id: 'job-123',
+        status: 'COMPLETE',
+        abortInfo: {
+          reason: 'bot-protection',
+          details: {
+            blockedUrlsCount: 5,
+            totalUrlsCount: 10,
+            byBlockerType: { cloudflare: 5 },
+            byHttpStatus: { 403: 5 },
+            blockedUrls: [
+              {
+                url: 'https://test.com/page1', blockerType: 'cloudflare', httpStatus: 403, confidence: 0.99,
+              },
+            ],
+          },
+        },
+      };
+
+      const mockJob2 = {
+        id: 'job-456',
+        status: 'COMPLETE',
+        abortInfo: {
+          reason: 'bot-protection',
+          details: {
+            blockedUrlsCount: 3,
+            totalUrlsCount: 15,
+            byBlockerType: { imperva: 3 },
+            byHttpStatus: { 403: 2, 429: 1 },
+            blockedUrls: [
+              {
+                url: 'https://test.com/page2', blockerType: 'imperva', httpStatus: 403, confidence: 0.99,
+              },
+            ],
+          },
+        },
+      };
+
+      const mockJob3 = {
+        id: 'job-789',
+        status: 'COMPLETE',
+        abortInfo: null, // No bot protection
+      };
+
+      const mockSay = sandbox.stub().resolves();
+      const mockFormatBotProtectionSlackMessage = sandbox.stub().returns('Test message');
+      const mockFormatAllowlistMessage = sandbox.stub().returns({
+        ips: '1.2.3.4,5.6.7.8',
+        userAgent: 'test-agent',
+      });
+
+      const ScrapeClientModule = await import('@adobe/spacecat-shared-scrape-client');
+      sandbox.stub(ScrapeClientModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+      mockScrapeClient.getScrapeJobStatus
+        .onFirstCall().resolves(mockJob1)
+        .onSecondCall().resolves(mockJob2)
+        .onThirdCall()
+        .resolves(mockJob3);
+
+      const { checkAndAlertBotProtection: checkAndAlert } = await esmock(
+        '../../src/utils/bot-detection.js',
+        {
+          '@adobe/spacecat-shared-utils': {
+            formatAllowlistMessage: mockFormatAllowlistMessage,
+          },
+          '../../src/utils/slack-utils.js': {
+            say: mockSay,
+            formatBotProtectionSlackMessage: mockFormatBotProtectionSlackMessage,
+          },
+        },
+      );
+
+      const result = await checkAndAlert({
+        jobId: ['job-123', 'job-456', 'job-789'], // Array of jobIds
+        siteUrl: 'https://test.com',
+        slackContext: mockSlackContext,
+        context: mockContext,
+      });
+
+      expect(result).to.not.be.null;
+      // Aggregated stats
+      expect(result.totalCount).to.equal(8); // 5 + 3
+      expect(result.totalUrlsInJob).to.equal(25); // 10 + 15
+      expect(result.byBlockerType.cloudflare).to.equal(5);
+      expect(result.byBlockerType.imperva).to.equal(3);
+      expect(result.byHttpStatus['403']).to.equal(7); // 5 + 2
+      expect(result.byHttpStatus['429']).to.equal(1);
+      expect(result.urls).to.have.lengthOf(2); // Combined URLs
+      expect(result.isPartial).to.be.false; // Both jobs are COMPLETE
+      expect(result.jobDetails).to.have.lengthOf(2); // Only jobs with bot protection
+      expect(result.jobDetails[0].jobId).to.equal('job-123');
+      expect(result.jobDetails[1].jobId).to.equal('job-456');
+      expect(mockSay).to.have.been.called;
+      expect(mockContext.log.info).to.have.been.calledWithMatch(/\[BOT-BLOCKED\] Bot protection detected across 2\/3 jobId\(s\)/);
     });
   });
 });

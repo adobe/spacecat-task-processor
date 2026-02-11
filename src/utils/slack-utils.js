@@ -115,6 +115,7 @@ export function formatBotProtectionSlackMessage({
   stats,
   allowlistIps = [],
   allowlistUserAgent,
+  jobDetails = [],
 }) {
   const {
     totalCount,
@@ -151,8 +152,19 @@ export function formatBotProtectionSlackMessage({
 
   let message = ':rotating_light: :warning: *Bot Protection Detected*\n\n'
     + `*Summary:* ${totalCount} URL${totalCount > 1 ? 's' : ''} blocked by bot protection\n`
-    + `${dataStatusText}\n\n`
-    + '*📊 Detection Statistics*\n'
+    + `${dataStatusText}\n`;
+
+  // Show per-job breakdown if multiple jobs detected
+  if (jobDetails && jobDetails.length > 1) {
+    message += '\n*📋 Per-Job Breakdown (All Audit Types):*\n';
+    jobDetails.forEach((detail) => {
+      const statusIcon = detail.isPartial ? '⏳' : '✅';
+      message += `  • Job \`${detail.jobId}\`: ${detail.blockedUrlsCount}/${detail.totalUrlsCount} blocked ${statusIcon}\n`;
+    });
+    message += '\n';
+  }
+
+  message += '*📊 Detection Statistics (All Audit Types)*\n'
     + `• *Total Blocked:* ${totalCount} URLs\n`
     + `• *High Confidence:* ${highConfidenceCount} URLs\n\n`
     + '*By HTTP Status:*\n'

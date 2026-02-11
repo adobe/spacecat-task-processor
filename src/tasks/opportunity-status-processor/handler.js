@@ -174,51 +174,61 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
 
     // Filter jobs created after onboardStartTime
     const filteredJobs = filterJobsByTimestamp(jobs, onboardStartTime);
-    log.info(`Filtered ${filteredJobs.length} jobs created after onboardStartTime from ${jobs.length} total jobs`);
+
+    log.info(
+      `[SCRAPING-CHECK] Found ${filteredJobs.length} jobs created after onboardStartTime for siteUrl=${baseUrl}`,
+    );
 
     if (filteredJobs.length === 0) {
-      return { available: false, results: [] };
+      return { available: false, results: [], jobIds: [] };
     }
 
     // Sort jobs by date (latest first)
     const sortedJobs = sortJobsByDate(filteredJobs);
 
-    // Find the first job that has URL results
-    let jobWithResults = null;
-    let urlResults = [];
+    // Find ALL jobs that have URL results (not just the first one)
+    // This is needed because multiple audit types create separate jobIds
+    const jobsWithResults = [];
+    const allUrlResults = [];
 
     /* eslint-disable no-await-in-loop */
     for (const job of sortedJobs) {
       const results = await scrapeClient.getScrapeJobUrlResults(job.id);
       if (results && results.length > 0) {
-        jobWithResults = job;
-        urlResults = results;
-        break;
+        jobsWithResults.push({
+          jobId: job.id,
+          job,
+          results,
+        });
+        allUrlResults.push(...results);
       }
     }
     /* eslint-enable no-await-in-loop */
 
-    if (!jobWithResults) {
-      return { available: false, results: [] };
+    if (jobsWithResults.length === 0) {
+      return { available: false, results: [], jobIds: [] };
     }
-    // Count successful and failed scrapes
-    const completedCount = urlResults.filter((result) => result.status === 'COMPLETE').length;
-    const failedCount = urlResults.filter((result) => result.status === 'FAILED').length;
-    const totalCount = urlResults.length;
+
+    // Count successful and failed scrapes across all jobs
+    const completedCount = allUrlResults.filter((result) => result.status === 'COMPLETE').length;
+    const failedCount = allUrlResults.filter((result) => result.status === 'FAILED').length;
+    const totalCount = allUrlResults.length;
 
     // Check if at least one URL was successfully scraped (status === 'COMPLETE')
     const hasSuccessfulScrape = completedCount > 0;
 
+    const jobIds = jobsWithResults.map((j) => j.jobId);
+
     log.info(
       `[SCRAPING-CHECK] Scraping check complete: siteUrl=${baseUrl}, `
-      + `available=${hasSuccessfulScrape}, hasJobId=true, jobId=${jobWithResults.id}, `
-      + `completed=${completedCount}, failed=${failedCount}, total=${totalCount}`,
+      + `available=${hasSuccessfulScrape}, jobCount=${jobsWithResults.length}`,
     );
 
     return {
       available: hasSuccessfulScrape,
-      results: urlResults,
-      jobId: jobWithResults.id,
+      results: allUrlResults,
+      jobIds, // All jobIds with results
+      jobsWithResults, // Detailed info for each job
       stats: {
         completed: completedCount,
         failed: failedCount,
@@ -438,22 +448,23 @@ export async function runOpportunityStatusProcessor(message, context) {
           const scrapingCheck = await isScrapingAvailable(siteUrl, context, onboardStartTime);
           scrapingAvailable = scrapingCheck.available;
 
-          if (!scrapingCheck.jobId) {
-            log.warn(
-              '[SCRAPING-CHECK] Skipping bot protection check: no jobId in scrapingCheck '
-              + `for siteUrl=${siteUrl}, available=${scrapingCheck.available}`,
-            );
-          }
-
-          // Check for bot protection using jobId from scraping check
+          // Check for bot protection using all jobIds from scraping check
+          // Multiple audit types create separate jobIds during onboarding
           let botProtectionStats = null;
-          if (scrapingCheck.jobId) {
+          const jobIdsToCheck = scrapingCheck.jobIds || [];
+
+          if (jobIdsToCheck.length > 0) {
             botProtectionStats = await checkAndAlertBotProtection({
-              jobId: scrapingCheck.jobId,
+              jobId: jobIdsToCheck, // Pass array of jobIds
               siteUrl,
               slackContext,
               context,
             });
+          } else {
+            log.warn(
+              '[SCRAPING-CHECK] Skipping bot protection check: no jobIds in scrapingCheck '
+              + `for siteUrl=${siteUrl}, available=${scrapingCheck.available}`,
+            );
           }
 
           // Abort processing if bot protection detected
@@ -462,7 +473,7 @@ export async function runOpportunityStatusProcessor(message, context) {
               message: `Bot protection detected for ${siteUrl}`,
               botProtectionDetected: true,
               blockedUrlCount: botProtectionStats.totalCount,
-              jobId: scrapingCheck.jobId,
+              jobIds: jobIdsToCheck,
               isPartial: botProtectionStats.isPartial,
             });
           }

@@ -49,29 +49,16 @@ export function convertAbortInfoToStats(abortInfo, isJobComplete) {
 }
 
 /**
- * Checks for bot protection and sends Slack alert if detected
- * Queries the ScrapeJob database for abort information instead of CloudWatch logs.
- *
- * @param {Object} params - Parameters object
- * @param {string} params.jobId - The scrape job ID (from isScrapingAvailable)
- * @param {string} params.siteUrl - The site URL (for Slack message)
- * @param {Object} params.slackContext - Slack context for sending messages
- * @param {Object} params.context - Application context with env, log
+ * Checks bot protection for a single jobId
+ * @param {string} jobId - The scrape job ID
+ * @param {Object} context - Application context with env, log
  * @returns {Promise<Object|null>} Bot protection stats if detected, null otherwise
  */
-export async function checkAndAlertBotProtection({
-  jobId,
-  siteUrl,
-  slackContext,
-  context,
-}) {
-  const { log, env } = context;
-
-  let botProtectionStats = null;
+async function checkBotProtectionForJob(jobId, context) {
+  const { log } = context;
 
   try {
     if (!jobId) {
-      log.warn('No jobId provided for bot protection check');
       return null;
     }
 
@@ -83,47 +70,24 @@ export async function checkAndAlertBotProtection({
       return null;
     }
 
-    // ScrapeClient returns a plain JSON object (via ScrapeJobDto)
-    // so abortInfo is always a property, never a method
     const abortInfo = job.abortInfo || null;
 
-    log.info(
-      `[BOT-CHECK] AbortInfo read from scrape client: jobId=${jobId}, `
-      + `hasAbortInfo=${!!abortInfo}, reason=${abortInfo?.reason || 'none'}, `
-      + `blockedUrlsCount=${abortInfo?.details?.blockedUrlsCount || 0}, `
-      + `totalUrlsCount=${abortInfo?.details?.totalUrlsCount || 0}`,
-    );
-
-    if (!abortInfo) {
-      log.debug(`No abortInfo found: jobId=${jobId}`);
+    if (!abortInfo || abortInfo.reason !== 'bot-protection') {
       return null;
     }
 
-    if (abortInfo.reason !== 'bot-protection') {
-      log.debug(
-        'AbortInfo present but reason is not bot-protection: '
-        + `jobId=${jobId}, reason=${abortInfo.reason}`,
-      );
-      return null;
-    }
-
-    // isJobComplete determines if data is partial or complete
-    // - If job.status === 'COMPLETE': data is complete (isPartial = false)
-    // - If job.status === 'RUNNING' or undefined: data is partial (isPartial = true)
     const isJobComplete = job.status === 'COMPLETE';
-    botProtectionStats = convertAbortInfoToStats(abortInfo, isJobComplete);
+    const stats = convertAbortInfoToStats(abortInfo, isJobComplete);
 
-    if (botProtectionStats) {
+    if (stats) {
       log.info(
-        `[BOT-BLOCKED] Bot protection detected: jobId=${jobId}, `
-        + `siteUrl=${siteUrl}, `
-        + `hasAbortInfo=${!!abortInfo}, abortInfoReason=${abortInfo?.reason || 'none'}, `
-        + `blockedUrls=${botProtectionStats.totalCount}, `
-        + `totalUrlsInJob=${botProtectionStats.totalUrlsInJob}, `
-        + `isPartial=${botProtectionStats.isPartial} (${botProtectionStats.isPartial ? 'RUNNING' : 'COMPLETE'}), `
-        + `blockedRatio=${botProtectionStats.totalCount}/${botProtectionStats.totalUrlsInJob}`,
+        `[BOT-CHECK] Bot protection found: jobId=${jobId}, `
+        + `blockedUrls=${stats.totalCount}, totalUrls=${stats.totalUrlsInJob}, `
+        + `isPartial=${stats.isPartial}`,
       );
     }
+
+    return stats ? { jobId, stats, abortInfo } : null;
   } catch (error) {
     log.error(
       `Failed to get bot protection stats from ScrapeJob: jobId=${jobId}, error=${error.message}`,
@@ -131,13 +95,104 @@ export async function checkAndAlertBotProtection({
     );
     return null;
   }
+}
 
-  if (!botProtectionStats) {
-    log.debug(`No bot protection found: jobId=${jobId}`);
+/**
+ * Checks for bot protection across multiple jobIds and aggregates the results
+ * Queries the ScrapeJob database for abort information instead of CloudWatch logs.
+ *
+ * @param {Object} params - Parameters object
+ * @param {string|Array<string>} params.jobId - Single job ID (backward compat) or array of job IDs
+ * @param {string} params.siteUrl - The site URL (for Slack message)
+ * @param {Object} params.slackContext - Slack context for sending messages
+ * @param {Object} params.context - Application context with env, log
+ * @returns {Promise<Object|null>} Aggregated bot protection stats if detected, null otherwise
+ */
+export async function checkAndAlertBotProtection({
+  jobId,
+  siteUrl,
+  slackContext,
+  context,
+}) {
+  const { log, env } = context;
+
+  // Support both single jobId (backward compat) and array of jobIds
+  let jobIds = [];
+  if (Array.isArray(jobId)) {
+    jobIds = jobId;
+  } else if (jobId) {
+    jobIds = [jobId];
+  }
+
+  if (jobIds.length === 0) {
+    log.warn('No jobId(s) provided for bot protection check');
     return null;
   }
 
-  // Send Slack alert - wrap in try-catch to prevent alert failures from breaking flow
+  log.info(
+    `[BOT-CHECK] Checking bot protection for ${jobIds.length} jobId(s): [${jobIds.join(', ')}]`,
+  );
+
+  // Check bot protection for all jobIds in parallel
+  const botProtectionResults = await Promise.all(
+    jobIds.map((id) => checkBotProtectionForJob(id, context)),
+  );
+
+  // Filter out null results (jobs without bot protection)
+  const jobsWithBotProtection = botProtectionResults.filter((result) => result !== null);
+
+  if (jobsWithBotProtection.length === 0) {
+    log.debug(`No bot protection found across ${jobIds.length} jobId(s)`);
+    return null;
+  }
+
+  // Aggregate stats across all jobs
+  const aggregatedStats = {
+    totalCount: 0,
+    totalUrlsInJob: 0,
+    byHttpStatus: {},
+    byBlockerType: {},
+    urls: [],
+    highConfidenceCount: 0,
+    isPartial: false, // Will be true if ANY job is partial
+    jobDetails: [], // Per-job breakdown
+  };
+
+  jobsWithBotProtection.forEach(({ jobId: jId, stats }) => {
+    aggregatedStats.totalCount += stats.totalCount;
+    aggregatedStats.totalUrlsInJob += stats.totalUrlsInJob;
+    aggregatedStats.highConfidenceCount += stats.highConfidenceCount;
+    aggregatedStats.isPartial = aggregatedStats.isPartial || stats.isPartial;
+    aggregatedStats.urls.push(...stats.urls);
+
+    // Merge byHttpStatus
+    Object.entries(stats.byHttpStatus || {}).forEach(([status, count]) => {
+      aggregatedStats.byHttpStatus[status] = (aggregatedStats.byHttpStatus[status] || 0) + count;
+    });
+
+    // Merge byBlockerType
+    Object.entries(stats.byBlockerType || {}).forEach(([type, count]) => {
+      aggregatedStats.byBlockerType[type] = (aggregatedStats.byBlockerType[type] || 0) + count;
+    });
+
+    // Store per-job details
+    aggregatedStats.jobDetails.push({
+      jobId: jId,
+      blockedUrlsCount: stats.totalCount,
+      totalUrlsCount: stats.totalUrlsInJob,
+      isPartial: stats.isPartial,
+    });
+  });
+
+  log.info(
+    `[BOT-BLOCKED] Bot protection detected across ${jobsWithBotProtection.length}/${jobIds.length} jobId(s): `
+    + `siteUrl=${siteUrl}, jobIds=[${jobIds.join(', ')}], `
+    + `totalBlockedUrls=${aggregatedStats.totalCount}, `
+    + `totalUrlsInAllJobs=${aggregatedStats.totalUrlsInJob}, `
+    + `isPartial=${aggregatedStats.isPartial}`,
+  );
+
+  // Send Slack alert with aggregated stats
   try {
     const botIps = env.SPACECAT_BOT_IPS || '';
     const allowlistInfo = formatAllowlistMessage(botIps);
@@ -148,17 +203,18 @@ export async function checkAndAlertBotProtection({
       slackContext,
       formatBotProtectionSlackMessage({
         siteUrl,
-        stats: botProtectionStats,
+        stats: aggregatedStats,
         allowlistIps: allowlistInfo.ips,
         allowlistUserAgent: allowlistInfo.userAgent,
+        jobDetails: aggregatedStats.jobDetails,
       }),
     );
   } catch (slackError) {
     log.error(
-      `Failed to send Slack alert: jobId=${jobId}, error=${slackError.message}`,
+      `Failed to send Slack alert: jobIds=[${jobIds.join(', ')}], error=${slackError.message}`,
       slackError,
     );
   }
 
-  return botProtectionStats;
+  return aggregatedStats;
 }
