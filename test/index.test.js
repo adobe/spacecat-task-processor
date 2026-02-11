@@ -203,5 +203,21 @@ describe('Index Tests', () => {
       expect(resp.status).to.equal(200);
       expect(directContext.log.info.calledWith(sinon.match(/Received message with type: dummy/))).to.be.true;
     });
+
+    it('should detect SQS event when Records[0] has messageId (covers lines 113-114)', async () => {
+      // Test isSqsEvent function by providing Records with messageId
+      const sqsEventWithMessageId = {
+        Records: [{
+          messageId: 'test-message-id-123',
+          body: JSON.stringify(messageBodyJson),
+        }],
+      };
+      context.invocation.event = sqsEventWithMessageId;
+
+      const resp = await main(sqsEventWithMessageId, context);
+      expect(resp.status).to.equal(200);
+      // Verify it was treated as SQS event (not direct invocation)
+      expect(context.log.info.calledWith(sinon.match(/Received message with type: dummy/))).to.be.true;
+    });
   });
 });

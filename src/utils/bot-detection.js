@@ -119,7 +119,7 @@ export async function checkAndAlertBotProtection({
   // Support both single jobId (backward compat) and array of jobIds
   let jobIds = [];
   if (Array.isArray(jobId)) {
-    jobIds = jobId;
+    jobIds = jobId.filter((id) => id); // Filter out falsy values
   } else if (jobId) {
     jobIds = [jobId];
   }

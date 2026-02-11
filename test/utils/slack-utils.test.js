@@ -423,7 +423,7 @@ describe('slack-utils', () => {
       expect(result).to.include('... and 2 more URLs');
     });
 
-    it('should show per-job breakdown when jobDetails has multiple jobs (lines 159-165)', () => {
+    it('should show per-job breakdown when jobDetails has multiple jobs', () => {
       const stats = {
         totalCount: 8,
         totalUrlsInJob: 25,
@@ -465,7 +465,7 @@ describe('slack-utils', () => {
       expect(result).to.include('Job `job-456`: 3/15 blocked ✅');
     });
 
-    it('should show partial status icon (⏳) when job is partial (lines 159-165)', () => {
+    it('should show partial status icon (⏳) when job is partial', () => {
       const stats = {
         totalCount: 5,
         totalUrlsInJob: 20,
@@ -506,7 +506,7 @@ describe('slack-utils', () => {
       expect(result).to.include('Job `job-456`: 3/15 blocked ✅');
     });
 
-    it('should not show per-job breakdown when jobDetails has only one job (lines 159-165)', () => {
+    it('should not show per-job breakdown when jobDetails has only one job', () => {
       const stats = {
         totalCount: 5,
         totalUrlsInJob: 10,
@@ -540,7 +540,7 @@ describe('slack-utils', () => {
       expect(result).to.not.include('Job `job-123`');
     });
 
-    it('should not show per-job breakdown when jobDetails is empty (lines 159-165)', () => {
+    it('should not show per-job breakdown when jobDetails is empty', () => {
       const stats = {
         totalCount: 5,
         totalUrlsInJob: 10,
@@ -564,7 +564,7 @@ describe('slack-utils', () => {
       expect(result).to.not.include('*📋 Per-Job Breakdown (All Audit Types):*');
     });
 
-    it('should not show per-job breakdown when jobDetails is undefined (lines 159-165)', () => {
+    it('should not show per-job breakdown when jobDetails is undefined', () => {
       const stats = {
         totalCount: 5,
         totalUrlsInJob: 10,
@@ -586,6 +586,40 @@ describe('slack-utils', () => {
       });
 
       expect(result).to.not.include('*📋 Per-Job Breakdown (All Audit Types):*');
+    });
+
+    it('should show fallback messages when statusBreakdown is empty', () => {
+      const stats = {
+        totalCount: 5,
+        totalUrlsInJob: 10,
+        highConfidenceCount: 5,
+        // Empty object - formatBreakdown returns empty string, triggers fallback
+        byHttpStatus: {},
+        // Empty object - formatBreakdown returns empty string, triggers fallback
+        byBlockerType: {},
+        // Empty array - sampleUrls will be empty string, triggers fallback
+        urls: [],
+        isPartial: false,
+      };
+
+      const result = formatBotProtectionSlackMessage({
+        siteUrl: 'https://test.com',
+        stats,
+        allowlistIps: ['1.2.3.4'],
+        allowlistUserAgent: 'TestBot/1.0',
+      });
+
+      // Fallback when statusBreakdown is empty (formatBreakdown returns empty string)
+      expect(result).to.include('*By HTTP Status:*');
+      expect(result).to.include('  • No status data available');
+
+      // Fallback when blockerBreakdown is empty (formatBreakdown returns empty string)
+      expect(result).to.include('*By Blocker Type:*');
+      expect(result).to.include('  • No blocker data available');
+
+      // Fallback when sampleUrls is empty (urls array is empty)
+      expect(result).to.include('*🔍 Sample Blocked URLs*');
+      expect(result).to.include('  • No URL details available');
     });
   });
 });
