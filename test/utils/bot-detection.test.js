@@ -107,6 +107,23 @@ describe('Bot Detection Utils', () => {
       expect(stats.urls).to.have.lengthOf(0);
     });
 
+    it('should default blockedUrlsCount to 0 when missing', () => {
+      const abortInfo = {
+        reason: 'bot-protection',
+        details: {
+          // blockedUrlsCount is missing
+          totalUrlsCount: 10,
+          byBlockerType: { cloudflare: 1 },
+          byHttpStatus: { 403: 1 },
+        },
+      };
+
+      const stats = convertAbortInfoToStats(abortInfo, true);
+
+      // Line 36: details.blockedUrlsCount || 0 should default to 0
+      expect(stats.totalCount).to.equal(0);
+    });
+
     it('should return null when abortInfo is null', () => {
       const stats = convertAbortInfoToStats(null, true);
       expect(stats).to.be.null;
@@ -174,6 +191,41 @@ describe('Bot Detection Utils', () => {
       const stats = convertAbortInfoToStats(abortInfo, true);
       expect(stats.highConfidenceCount).to.equal(1); // Only one with confidence >= 0.95
       expect(stats.urls).to.have.lengthOf(2);
+    });
+
+    it('should use totalBlockedCount for highConfidenceCount when blockedUrlsSampled is true', () => {
+      const abortInfo = {
+        reason: 'bot-protection',
+        details: {
+          blockedUrlsCount: 150, // Total blocked (more than sampled array)
+          totalUrlsCount: 200,
+          byBlockerType: { cloudflare: 100, imperva: 50 },
+          byHttpStatus: { 403: 150 },
+          blockedUrlsSampled: true, // Array is sampled/truncated
+          blockedUrls: [
+            // Only 100 URLs sampled (MAX_BLOCKED_URLS_SAMPLE limit)
+            { url: 'https://test.com/1', confidence: 0.99 },
+            { url: 'https://test.com/2', confidence: 0.99 },
+            // ... (98 more URLs, all with confidence 0.99)
+          ],
+        },
+      };
+
+      // Fill blockedUrls array with 100 URLs (simulating MAX_BLOCKED_URLS_SAMPLE limit)
+      for (let i = 3; i <= 100; i += 1) {
+        abortInfo.details.blockedUrls.push({
+          url: `https://test.com/${i}`,
+          confidence: 0.99,
+        });
+      }
+
+      const stats = convertAbortInfoToStats(abortInfo, true);
+
+      // When sampled, highConfidenceCount should equal totalBlockedCount (150)
+      // NOT the sampled array length (100)
+      expect(stats.highConfidenceCount).to.equal(150);
+      expect(stats.totalCount).to.equal(150);
+      expect(stats.urls).to.have.lengthOf(100); // Sampled array length
     });
   });
 
@@ -659,9 +711,356 @@ describe('Bot Detection Utils', () => {
       expect(result.isPartial).to.be.false; // Both jobs are COMPLETE
       expect(result.jobDetails).to.have.lengthOf(2); // Only jobs with bot protection
       expect(result.jobDetails[0].jobId).to.equal('job-123');
+      expect(result.jobDetails[0].blockedUrlsCount).to.equal(5);
+      expect(result.jobDetails[0].totalUrlsCount).to.equal(10);
+      expect(result.jobDetails[0].isPartial).to.be.false;
+      expect(result.jobDetails[0].urls).to.have.lengthOf(1); // Line 203: urls field in jobDetails
+      expect(result.jobDetails[0].urls[0].url).to.equal('https://test.com/page1');
       expect(result.jobDetails[1].jobId).to.equal('job-456');
+      expect(result.jobDetails[1].blockedUrlsCount).to.equal(3);
+      expect(result.jobDetails[1].totalUrlsCount).to.equal(15);
+      expect(result.jobDetails[1].isPartial).to.be.false;
+      expect(result.jobDetails[1].urls).to.have.lengthOf(1); // Line 203: urls field in jobDetails
+      expect(result.jobDetails[1].urls[0].url).to.equal('https://test.com/page2');
       expect(mockSay).to.have.been.called;
       expect(mockContext.log.info).to.have.been.calledWithMatch(/\[BOT-BLOCKED\] Bot protection detected across 2\/3 jobId\(s\)/);
+    });
+
+    it('should handle null/undefined byHttpStatus when aggregating stats', async function () {
+      this.timeout(5000);
+      const esmock = (await import('esmock')).default;
+
+      const mockJob = {
+        id: 'job-123',
+        status: 'COMPLETE',
+        abortInfo: {
+          reason: 'bot-protection',
+          details: {
+            blockedUrlsCount: 5,
+            totalUrlsCount: 10,
+            byBlockerType: { cloudflare: 5 },
+            // Line 188: should handle null byHttpStatus
+            // (converted to {} by convertAbortInfoToStats)
+            byHttpStatus: null,
+            blockedUrls: [],
+          },
+        },
+      };
+
+      const mockSay = sandbox.stub().resolves();
+      const mockFormatBotProtectionSlackMessage = sandbox.stub().returns('Test message');
+      const mockFormatAllowlistMessage = sandbox.stub().returns({
+        ips: '1.2.3.4,5.6.7.8',
+        userAgent: 'test-agent',
+      });
+
+      const ScrapeClientModule = await import('@adobe/spacecat-shared-scrape-client');
+      sandbox.stub(ScrapeClientModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+      mockScrapeClient.getScrapeJobStatus.resolves(mockJob);
+
+      const { checkAndAlertBotProtection: checkAndAlert } = await esmock(
+        '../../src/utils/bot-detection.js',
+        {
+          '@adobe/spacecat-shared-utils': {
+            formatAllowlistMessage: mockFormatAllowlistMessage,
+          },
+          '../../src/utils/slack-utils.js': {
+            say: mockSay,
+            formatBotProtectionSlackMessage: mockFormatBotProtectionSlackMessage,
+          },
+        },
+      );
+
+      const result = await checkAndAlert({
+        jobId: 'job-123',
+        siteUrl: 'https://test.com',
+        slackContext: mockSlackContext,
+        context: mockContext,
+      });
+
+      expect(result).to.not.be.null;
+      // Line 188: Object.entries(stats.byHttpStatus || {}) executes with empty object
+      expect(result.byHttpStatus).to.deep.equal({}); // Should default to empty object
+      expect(result.byBlockerType).to.deep.equal({ cloudflare: 5 });
+    });
+
+    it('should execute forEach loops for byHttpStatus and byBlockerType with actual entries', async function () {
+      this.timeout(5000);
+      const esmock = (await import('esmock')).default;
+
+      const mockJob = {
+        id: 'job-123',
+        status: 'COMPLETE',
+        abortInfo: {
+          reason: 'bot-protection',
+          details: {
+            blockedUrlsCount: 8,
+            totalUrlsCount: 20,
+            byBlockerType: { cloudflare: 5, imperva: 3 }, // Line 193: forEach with entries
+            byHttpStatus: { 403: 6, 429: 2 }, // Line 188: forEach with entries
+            blockedUrls: [
+              {
+                url: 'https://test.com/1', blockerType: 'cloudflare', httpStatus: 403, confidence: 0.99,
+              },
+            ],
+          },
+        },
+      };
+
+      const mockSay = sandbox.stub().resolves();
+      const mockFormatBotProtectionSlackMessage = sandbox.stub().returns('Test message');
+      const mockFormatAllowlistMessage = sandbox.stub().returns({
+        ips: '1.2.3.4,5.6.7.8',
+        userAgent: 'test-agent',
+      });
+
+      const ScrapeClientModule = await import('@adobe/spacecat-shared-scrape-client');
+      sandbox.stub(ScrapeClientModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+      mockScrapeClient.getScrapeJobStatus.resolves(mockJob);
+
+      const { checkAndAlertBotProtection: checkAndAlert } = await esmock(
+        '../../src/utils/bot-detection.js',
+        {
+          '@adobe/spacecat-shared-utils': {
+            formatAllowlistMessage: mockFormatAllowlistMessage,
+          },
+          '../../src/utils/slack-utils.js': {
+            say: mockSay,
+            formatBotProtectionSlackMessage: mockFormatBotProtectionSlackMessage,
+          },
+        },
+      );
+
+      const result = await checkAndAlert({
+        jobId: 'job-123',
+        siteUrl: 'https://test.com',
+        slackContext: mockSlackContext,
+        context: mockContext,
+      });
+
+      expect(result).to.not.be.null;
+      // Line 188-190: forEach executes and merges byHttpStatus
+      expect(result.byHttpStatus).to.deep.equal({ 403: 6, 429: 2 });
+      // Line 193-195: forEach executes and merges byBlockerType
+      expect(result.byBlockerType).to.deep.equal({ cloudflare: 5, imperva: 3 });
+      // Lines 198-203: jobDetails.push with urls field
+      expect(result.jobDetails).to.have.lengthOf(1);
+      expect(result.jobDetails[0].jobId).to.equal('job-123'); // Line 199
+      expect(result.jobDetails[0].blockedUrlsCount).to.equal(8); // Line 200
+      expect(result.jobDetails[0].totalUrlsCount).to.equal(20); // Line 201
+      expect(result.jobDetails[0].isPartial).to.be.false; // Line 202
+      expect(result.jobDetails[0].urls).to.have.lengthOf(1); // Line 203
+      expect(result.jobDetails[0].urls[0].url).to.equal('https://test.com/1');
+    });
+
+    it('should handle null/undefined urls in jobDetails push (line 203 fallback)', async function () {
+      this.timeout(5000);
+      const esmock = (await import('esmock')).default;
+
+      const mockJob = {
+        id: 'job-123',
+        status: 'COMPLETE',
+        abortInfo: {
+          reason: 'bot-protection',
+          details: {
+            blockedUrlsCount: 5,
+            totalUrlsCount: 10,
+            byBlockerType: { cloudflare: 5 }, // Line 193: forEach executes
+            byHttpStatus: { 403: 5 },
+            blockedUrls: null, // Line 203: should default to [] when null
+          },
+        },
+      };
+
+      const mockSay = sandbox.stub().resolves();
+      const mockFormatBotProtectionSlackMessage = sandbox.stub().returns('Test message');
+      const mockFormatAllowlistMessage = sandbox.stub().returns({
+        ips: '1.2.3.4,5.6.7.8',
+        userAgent: 'test-agent',
+      });
+
+      const ScrapeClientModule = await import('@adobe/spacecat-shared-scrape-client');
+      sandbox.stub(ScrapeClientModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+      mockScrapeClient.getScrapeJobStatus.resolves(mockJob);
+
+      const { checkAndAlertBotProtection: checkAndAlert } = await esmock(
+        '../../src/utils/bot-detection.js',
+        {
+          '@adobe/spacecat-shared-utils': {
+            formatAllowlistMessage: mockFormatAllowlistMessage,
+          },
+          '../../src/utils/slack-utils.js': {
+            say: mockSay,
+            formatBotProtectionSlackMessage: mockFormatBotProtectionSlackMessage,
+          },
+        },
+      );
+
+      const result = await checkAndAlert({
+        jobId: 'job-123',
+        siteUrl: 'https://test.com',
+        slackContext: mockSlackContext,
+        context: mockContext,
+      });
+
+      expect(result).to.not.be.null;
+      // Line 193-195: forEach executes and merges byBlockerType
+      expect(result.byBlockerType).to.deep.equal({ cloudflare: 5 });
+      // Lines 198-203: jobDetails.push - verify all fields including urls fallback
+      expect(result.jobDetails).to.have.lengthOf(1);
+      expect(result.jobDetails[0].jobId).to.equal('job-123'); // Line 199
+      expect(result.jobDetails[0].blockedUrlsCount).to.equal(5); // Line 200
+      expect(result.jobDetails[0].totalUrlsCount).to.equal(10); // Line 201
+      expect(result.jobDetails[0].isPartial).to.be.false; // Line 202
+      expect(result.jobDetails[0].urls).to.deep.equal([]); // Line 203: stats.urls || [] when null
+    });
+
+    it('should merge multiple byBlockerType entries correctly (lines 193-195)', async function () {
+      this.timeout(5000);
+      const esmock = (await import('esmock')).default;
+
+      const mockJob1 = {
+        id: 'job-1',
+        status: 'COMPLETE',
+        abortInfo: {
+          reason: 'bot-protection',
+          details: {
+            blockedUrlsCount: 5,
+            totalUrlsCount: 10,
+            byBlockerType: { cloudflare: 3, imperva: 2 }, // Line 193: forEach with multiple entries
+            byHttpStatus: { 403: 5 },
+            blockedUrls: [],
+          },
+        },
+      };
+
+      const mockJob2 = {
+        id: 'job-2',
+        status: 'COMPLETE',
+        abortInfo: {
+          reason: 'bot-protection',
+          details: {
+            blockedUrlsCount: 4,
+            totalUrlsCount: 15,
+            byBlockerType: { cloudflare: 2, datadome: 2 }, // Line 193: forEach merges with existing
+            byHttpStatus: { 403: 4 },
+            blockedUrls: [],
+          },
+        },
+      };
+
+      const mockSay = sandbox.stub().resolves();
+      const mockFormatBotProtectionSlackMessage = sandbox.stub().returns('Test message');
+      const mockFormatAllowlistMessage = sandbox.stub().returns({
+        ips: '1.2.3.4,5.6.7.8',
+        userAgent: 'test-agent',
+      });
+
+      const ScrapeClientModule = await import('@adobe/spacecat-shared-scrape-client');
+      sandbox.stub(ScrapeClientModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+      mockScrapeClient.getScrapeJobStatus
+        .onFirstCall().resolves(mockJob1)
+        .onSecondCall().resolves(mockJob2);
+
+      const { checkAndAlertBotProtection: checkAndAlert } = await esmock(
+        '../../src/utils/bot-detection.js',
+        {
+          '@adobe/spacecat-shared-utils': {
+            formatAllowlistMessage: mockFormatAllowlistMessage,
+          },
+          '../../src/utils/slack-utils.js': {
+            say: mockSay,
+            formatBotProtectionSlackMessage: mockFormatBotProtectionSlackMessage,
+          },
+        },
+      );
+
+      const result = await checkAndAlert({
+        jobId: ['job-1', 'job-2'],
+        siteUrl: 'https://test.com',
+        slackContext: mockSlackContext,
+        context: mockContext,
+      });
+
+      expect(result).to.not.be.null;
+      // Line 193-195: forEach executes for both jobs and merges byBlockerType
+      // cloudflare: 3 + 2 = 5, imperva: 2, datadome: 2
+      expect(result.byBlockerType).to.deep.equal({ cloudflare: 5, imperva: 2, datadome: 2 });
+      // Lines 198-203: jobDetails.push for both jobs
+      expect(result.jobDetails).to.have.lengthOf(2);
+      expect(result.jobDetails[0].jobId).to.equal('job-1');
+      expect(result.jobDetails[1].jobId).to.equal('job-2');
+    });
+
+    it('should handle null/undefined byBlockerType when aggregating stats and include urls in jobDetails', async function () {
+      this.timeout(5000);
+      const esmock = (await import('esmock')).default;
+
+      const mockJob = {
+        id: 'job-123',
+        status: 'COMPLETE',
+        abortInfo: {
+          reason: 'bot-protection',
+          details: {
+            blockedUrlsCount: 3,
+            totalUrlsCount: 10,
+            byBlockerType: null, // Line 193: should handle null byBlockerType
+            byHttpStatus: { 403: 3 },
+            blockedUrls: [
+              {
+                url: 'https://test.com/page1', blockerType: 'cloudflare', httpStatus: 403, confidence: 0.99,
+              },
+              {
+                url: 'https://test.com/page2', blockerType: 'imperva', httpStatus: 403, confidence: 0.99,
+              },
+            ],
+          },
+        },
+      };
+
+      const mockSay = sandbox.stub().resolves();
+      const mockFormatBotProtectionSlackMessage = sandbox.stub().returns('Test message');
+      const mockFormatAllowlistMessage = sandbox.stub().returns({
+        ips: '1.2.3.4,5.6.7.8',
+        userAgent: 'test-agent',
+      });
+
+      const ScrapeClientModule = await import('@adobe/spacecat-shared-scrape-client');
+      sandbox.stub(ScrapeClientModule.ScrapeClient, 'createFrom').returns(mockScrapeClient);
+      mockScrapeClient.getScrapeJobStatus.resolves(mockJob);
+
+      const { checkAndAlertBotProtection: checkAndAlert } = await esmock(
+        '../../src/utils/bot-detection.js',
+        {
+          '@adobe/spacecat-shared-utils': {
+            formatAllowlistMessage: mockFormatAllowlistMessage,
+          },
+          '../../src/utils/slack-utils.js': {
+            say: mockSay,
+            formatBotProtectionSlackMessage: mockFormatBotProtectionSlackMessage,
+          },
+        },
+      );
+
+      const result = await checkAndAlert({
+        jobId: 'job-123',
+        siteUrl: 'https://test.com',
+        slackContext: mockSlackContext,
+        context: mockContext,
+      });
+
+      expect(result).to.not.be.null;
+      expect(result.byBlockerType).to.deep.equal({}); // Should default to empty object
+      expect(result.byHttpStatus).to.deep.equal({ 403: 3 });
+      // Lines 198-203: Verify jobDetails includes urls field
+      expect(result.jobDetails).to.have.lengthOf(1);
+      expect(result.jobDetails[0].jobId).to.equal('job-123');
+      expect(result.jobDetails[0].blockedUrlsCount).to.equal(3);
+      expect(result.jobDetails[0].totalUrlsCount).to.equal(10);
+      expect(result.jobDetails[0].isPartial).to.be.false;
+      expect(result.jobDetails[0].urls).to.have.lengthOf(2);
+      expect(result.jobDetails[0].urls[0].url).to.equal('https://test.com/page1');
+      expect(result.jobDetails[0].urls[1].url).to.equal('https://test.com/page2');
     });
   });
 });
