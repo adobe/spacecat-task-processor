@@ -20,7 +20,7 @@ import { say, formatBotProtectionSlackMessage } from './slack-utils.js';
  * @param {boolean} isJobComplete - Whether the scrape job is complete
  * @returns {object} Bot protection statistics with isPartial flag
  */
-export function convertAbortInfoToStats(abortInfo, isJobComplete) {
+export function convertAbortInfoToStats(abortInfo, isJobComplete, jobTotalUrls = null) {
   if (!abortInfo || abortInfo.reason !== 'bot-protection') {
     return null;
   }
@@ -33,16 +33,32 @@ export function convertAbortInfoToStats(abortInfo, isJobComplete) {
   }
 
   const blockedUrls = details.blockedUrls || [];
-  const highConfidenceUrls = blockedUrls.filter((url) => (url.confidence || 0) >= 0.95);
+  const totalBlockedCount = details.blockedUrlsCount || 0;
+  const isSampled = details.blockedUrlsSampled === true;
+
+  let highConfidenceCount;
+  if (isSampled) {
+    // Array is sampled - we can't know exact count, but since scraper only blocks >= 0.99,
+    // all blocked URLs should be high confidence. Use total count as best estimate.
+    highConfidenceCount = totalBlockedCount;
+  } else {
+    // Array is complete - count high confidence from actual URLs
+    const highConfidenceUrls = blockedUrls.filter((url) => (url.confidence || 0) >= 0.95);
+    highConfidenceCount = highConfidenceUrls.length;
+  }
+
+  // Use provided jobTotalUrls (from current job) if available, otherwise fall back to stored value
+  // This ensures accuracy even if abortInfo was saved before job was fully initialized
+  const totalUrlsInJob = jobTotalUrls !== null ? jobTotalUrls : (details.totalUrlsCount || 0);
 
   const stats = {
-    totalCount: details.blockedUrlsCount || 0,
+    totalCount: totalBlockedCount,
     byHttpStatus: details.byHttpStatus || {},
     byBlockerType: details.byBlockerType || {},
     urls: blockedUrls,
-    highConfidenceCount: highConfidenceUrls.length,
+    highConfidenceCount,
     isPartial: !isJobComplete, // Flag indicating if scraping is still in progress
-    totalUrlsInJob: details.totalUrlsCount || 0,
+    totalUrlsInJob,
   };
 
   return stats;
@@ -77,7 +93,10 @@ async function checkBotProtectionForJob(jobId, context) {
     }
 
     const isJobComplete = job.status === 'COMPLETE';
-    const stats = convertAbortInfoToStats(abortInfo, isJobComplete);
+    // Use current job's urlCount for accuracy (set at job creation, doesn't change)
+    // This ensures we always have the correct total even if abortInfo was saved early
+    const jobTotalUrls = job.urlCount || abortInfo.details?.totalUrlsCount || 0;
+    const stats = convertAbortInfoToStats(abortInfo, isJobComplete, jobTotalUrls);
 
     if (stats) {
       log.info(

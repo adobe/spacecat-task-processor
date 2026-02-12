@@ -190,9 +190,11 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     // This is needed because multiple audit types create separate jobIds
     const jobsWithResults = [];
     const allUrlResults = [];
+    const allJobIds = []; // All jobIds for bot protection check
 
     /* eslint-disable no-await-in-loop */
     for (const job of sortedJobs) {
+      allJobIds.push(job.id);
       const results = await scrapeClient.getScrapeJobUrlResults(job.id);
       if (results && results.length > 0) {
         jobsWithResults.push({
@@ -205,10 +207,6 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     }
     /* eslint-enable no-await-in-loop */
 
-    if (jobsWithResults.length === 0) {
-      return { available: false, results: [], jobIds: [] };
-    }
-
     // Count successful and failed scrapes across all jobs
     const completedCount = allUrlResults.filter((result) => result.status === 'COMPLETE').length;
     const failedCount = allUrlResults.filter((result) => result.status === 'FAILED').length;
@@ -217,18 +215,19 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     // Check if at least one URL was successfully scraped (status === 'COMPLETE')
     const hasSuccessfulScrape = completedCount > 0;
 
-    const jobIds = jobsWithResults.map((j) => j.jobId);
+    const jobIds = allJobIds;
 
     log.info(
       `[SCRAPING-CHECK] Scraping check complete: siteUrl=${baseUrl}, `
-      + `available=${hasSuccessfulScrape}, jobCount=${jobsWithResults.length}`,
+      + `available=${hasSuccessfulScrape}, jobCount=${jobsWithResults.length}, `
+      + `allJobIds=${allJobIds.length} (for bot protection check)`,
     );
 
     return {
       available: hasSuccessfulScrape,
       results: allUrlResults,
-      jobIds, // All jobIds with results
-      jobsWithResults, // Detailed info for each job
+      jobIds, // All jobIds
+      jobsWithResults, // Detailed info for each job with results
       stats: {
         completed: completedCount,
         failed: failedCount,
