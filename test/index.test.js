@@ -203,5 +203,29 @@ describe('Index Tests', () => {
       expect(resp.status).to.equal(200);
       expect(directContext.log.info.calledWith(sinon.match(/Received message with type: dummy/))).to.be.true;
     });
+
+    it('detects wrapped SQS events with messageId in context.invocation.event.Records', async () => {
+      // Test case where event.Records is not present, but context.invocation.event.Records is
+      // This covers lines 111-112 in src/index.js
+      const wrappedSqsContext = {
+        ...context,
+        invocation: {
+          event: {
+            Records: [{
+              messageId: 'test-message-id-123',
+              body: JSON.stringify({
+                type: 'dummy',
+                siteId: 'wrapped-site',
+              }),
+            }],
+          },
+        },
+      };
+
+      // Pass an empty event object (no top-level Records)
+      const resp = await main({}, wrappedSqsContext);
+      expect(resp.status).to.equal(200);
+      expect(wrappedSqsContext.log.info.calledWith(sinon.match(/Received message with type: dummy/))).to.be.true;
+    });
   });
 });
