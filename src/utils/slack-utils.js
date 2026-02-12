@@ -154,8 +154,8 @@ export function formatBotProtectionSlackMessage({
     + `*Summary:* ${totalCount} URL${totalCount > 1 ? 's' : ''} blocked by bot protection\n`
     + `${dataStatusText}\n`;
 
-  // Show per-job breakdown if multiple jobs detected
-  if (jobDetails && jobDetails.length > 1) {
+  // Show per-job breakdown (always show, even for single jobId)
+  if (jobDetails && jobDetails.length > 0) {
     message += '\n*📋 Per-Job Breakdown (All Audit Types):*\n';
     jobDetails.forEach((detail) => {
       const statusIcon = detail.isPartial ? '⏳' : '✅';

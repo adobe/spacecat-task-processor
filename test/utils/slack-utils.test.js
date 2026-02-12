@@ -536,8 +536,9 @@ describe('slack-utils', () => {
         jobDetails,
       });
 
-      expect(result).to.not.include('*📋 Per-Job Breakdown (All Audit Types):*');
-      expect(result).to.not.include('Job `job-123`');
+      // Per-job breakdown is always shown, even for single job
+      expect(result).to.include('*📋 Per-Job Breakdown (All Audit Types):*');
+      expect(result).to.include('Job `job-123`');
     });
 
     it('should not show per-job breakdown when jobDetails is empty', () => {

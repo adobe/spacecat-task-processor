@@ -175,22 +175,27 @@ export async function checkAndAlertBotProtection({
       aggregatedStats.byBlockerType[type] = (aggregatedStats.byBlockerType[type] || 0) + count;
     });
 
-    // Store per-job details
+    // Store per-job details including URLs
     aggregatedStats.jobDetails.push({
       jobId: jId,
       blockedUrlsCount: stats.totalCount,
       totalUrlsCount: stats.totalUrlsInJob,
       isPartial: stats.isPartial,
+      urls: stats.urls || [], // Store URLs for this job
     });
   });
 
-  log.info(
-    `[BOT-BLOCKED] Bot protection detected across ${jobsWithBotProtection.length}/${jobIds.length} jobId(s): `
-    + `siteUrl=${siteUrl}, jobIds=[${jobIds.join(', ')}], `
+  // Extract jobIds that have bot protection
+  const botBlockedJobIds = jobsWithBotProtection.map(({ jobId: jId }) => jId);
+
+  // Build log message
+  const logMessage = `[BOT-BLOCKED] Bot protection detected across ${jobsWithBotProtection.length}/${jobIds.length} jobId(s): `
+    + `siteUrl=${siteUrl}, allJobIds=[${jobIds.join(', ')}], `
+    + `botBlockedJobIds=[${botBlockedJobIds.join(', ')}], `
     + `totalBlockedUrls=${aggregatedStats.totalCount}, `
-    + `totalUrlsInAllJobs=${aggregatedStats.totalUrlsInJob}, `
-    + `isPartial=${aggregatedStats.isPartial}`,
-  );
+    + `isPartial=${aggregatedStats.isPartial}`;
+
+  log.info(logMessage);
 
   // Send Slack alert with aggregated stats
   try {

@@ -411,6 +411,9 @@ export async function runOpportunityStatusProcessor(message, context) {
     const needsScraping = requiredDependencies.has('scraping');
     const needsGSC = requiredDependencies.has('GSC');
 
+    // Track bot protection stats across the handler
+    let botProtectionStats = null;
+
     // Only check data sources that are needed
     if (siteUrl && (needsRUM || needsGSC || needsScraping)) {
       try {
@@ -450,7 +453,6 @@ export async function runOpportunityStatusProcessor(message, context) {
 
           // Check for bot protection using all jobIds from scraping check
           // Multiple audit types create separate jobIds during onboarding
-          let botProtectionStats = null;
           const jobIdsToCheck = scrapingCheck.jobIds || [];
 
           if (jobIdsToCheck.length > 0) {
@@ -467,34 +469,36 @@ export async function runOpportunityStatusProcessor(message, context) {
             );
           }
 
-          // Abort processing if bot protection detected
-          if (botProtectionStats && botProtectionStats.totalCount > 0) {
-            return ok({
-              message: `Bot protection detected for ${siteUrl}`,
-              botProtectionDetected: true,
-              blockedUrlCount: botProtectionStats.totalCount,
-              jobIds: jobIdsToCheck,
-              isPartial: botProtectionStats.isPartial,
-            });
-          }
-
           // Send Slack notification with scraping statistics if available
-          if (scrapingCheck.stats && slackContext) {
-            const { completed, failed, total } = scrapingCheck.stats;
-            const statsMessage = `:mag: *Scraping Statistics for ${siteUrl}*\n`
-              + `✅ Completed: ${completed}\n`
-              + `❌ Failed: ${failed}\n`
-              + `📊 Total: ${total}`;
+          // Always show statistics regardless of bot protection status
+          // Scraping might still be running, so we show stats every time
+          if (slackContext) {
+            if (scrapingCheck.stats) {
+              const { completed, failed, total } = scrapingCheck.stats;
+              const statsMessage = `:mag: *Scraping Statistics for ${siteUrl}*\n`
+                + `✅ Completed: ${completed}\n`
+                + `❌ Failed: ${failed}\n`
+                + `📊 Total: ${total}`;
 
-            if (failed > 0) {
+              if (failed > 0) {
+                await say(
+                  env,
+                  log,
+                  slackContext,
+                  `${statsMessage}\n:information_source: _${failed} failed URLs will be retried on re-onboarding._`,
+                );
+              } else {
+                await say(env, log, slackContext, statsMessage);
+              }
+            } else {
+              // Show message when scraping check didn't return stats (e.g., no jobs found yet)
               await say(
                 env,
                 log,
                 slackContext,
-                `${statsMessage}\n:information_source: _${failed} failed URLs will be retried on re-onboarding._`,
+                `:mag: *Scraping Statistics for ${siteUrl}*\n`
+                + ':information_source: _Scraping is in progress or no results available yet._',
               );
-            } else {
-              await say(env, log, slackContext, statsMessage);
             }
           }
         }
@@ -603,7 +607,9 @@ export async function runOpportunityStatusProcessor(message, context) {
       }
     }
 
-    if (slackContext && statusMessages.length > 0) {
+    // Always show statistics sections when slackContext is available
+    // statusMessages should always have at least data source statuses, but show sections regardless
+    if (slackContext) {
       // Section 1: Data Sources for site (only show required dependencies)
       const dataSourceMessages = [];
       if (needsRUM) {
@@ -679,7 +685,8 @@ export async function runOpportunityStatusProcessor(message, context) {
 
     log.info(`Processed ${opportunities.length} opportunities for site ${siteId}`);
 
-    return ok({
+    // Build response object
+    const response = {
       message: `Opportunity status processor completed for ${opportunities.length} opportunities`,
       opportunitiesProcessed: opportunities.length,
       dataSources: {
@@ -691,7 +698,15 @@ export async function runOpportunityStatusProcessor(message, context) {
         import: ahrefsImportAvailable, // Import and AHREFS are the same
         scraping: scrapingAvailable,
       },
-    });
+    };
+
+    // Only include bot protection fields when bot protection is detected
+    if (botProtectionStats !== null && botProtectionStats.totalCount > 0) {
+      response.botProtectionDetected = true;
+      response.blockedUrlCount = botProtectionStats.totalCount;
+    }
+
+    return ok(response);
   } catch (error) {
     log.error('Error in opportunity status processor:', error);
     await say(env, log, slackContext, `:x: Error processing opportunities for site ${siteId}: ${error.message}`);
