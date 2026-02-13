@@ -11,17 +11,17 @@
  */
 
 import { ok } from '@adobe/spacecat-shared-http-utils';
-import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
 import RUMAPIClient from '@adobe/spacecat-shared-rum-api-client';
 import GoogleClient from '@adobe/spacecat-shared-google-client';
 import { ScrapeClient } from '@adobe/spacecat-shared-scrape-client';
 import { resolveCanonicalUrl } from '@adobe/spacecat-shared-utils';
+import { getAuditStatus } from '../../utils/cloudwatch-utils.js';
+import { checkAndAlertBotProtection } from '../../utils/bot-detection.js';
 import { say } from '../../utils/slack-utils.js';
 import { getOpportunitiesForAudit } from './audit-opportunity-map.js';
 import { OPPORTUNITY_DEPENDENCY_MAP } from './opportunity-dependency-map.js';
 
 const TASK_TYPE = 'opportunity-status-processor';
-const AUDIT_WORKER_LOG_GROUP = '/aws/lambda/spacecat-services--audit-worker';
 
 /**
  * Checks if RUM is available for a domain by attempting to get a domainkey
@@ -122,74 +122,112 @@ function getOpportunityTitle(opportunityType) {
 }
 
 /**
+ * Filters scrape jobs to only include those created after onboardStartTime
+ * This ensures we only check jobs from the CURRENT onboarding session,
+ * not old scrape jobs from previous runs
+ * @param {Array} jobs - Array of scrape jobs
+ * @param {number} onboardStartTime - Onboard start timestamp (ms)
+ * @returns {Array} Filtered jobs
+ */
+function filterJobsByTimestamp(jobs, onboardStartTime) {
+  return jobs.filter((job) => {
+    const jobTimestamp = new Date(job.startedAt || job.createdAt || 0).getTime();
+    return jobTimestamp >= onboardStartTime;
+  });
+}
+
+/**
+ * Sorts scrape jobs by date (latest first)
+ * @param {Array} jobs - Array of scrape jobs
+ * @returns {Array} Sorted jobs
+ */
+function sortJobsByDate(jobs) {
+  return jobs.sort((a, b) => {
+    const dateA = new Date(a.startedAt || a.createdAt || 0);
+    const dateB = new Date(b.startedAt || b.createdAt || 0);
+    return dateB - dateA;
+  });
+}
+
+/**
  * Checks if scraping functionality is available for a site by analyzing recent scrape jobs
  * Fetches latest scrape job results and provides detailed URL-level status
  *
  * @param {string} baseUrl - The base URL to check
  * @param {object} context - The context object with env and log
+ * @param {number} [onboardStartTime] - Optional onboard start timestamp to filter jobs
  * @returns {Promise<{available: boolean, results: Array}>} Scraping availability and URL results
  */
-async function isScrapingAvailable(baseUrl, context) {
+async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
   const { log } = context;
 
   try {
-    /* c8 ignore start */
-    // Defensive check: Cannot be tested as caller (line 458) already validates siteUrl is truthy
-    // before calling this function, making this path unreachable in normal flow
-    if (!baseUrl) {
-      return { available: false, results: [] };
-    }
-    /* c8 ignore stop */
-
     // Create scrape client
     const scrapeClient = ScrapeClient.createFrom(context);
 
-    // Get all scrape jobs for this baseUrl with 'default' processing type
+    // Get scrape jobs for this baseUrl (default processing type only)
     const jobs = await scrapeClient.getScrapeJobsByBaseURL(baseUrl, 'default');
 
     if (!jobs || jobs.length === 0) {
       return { available: false, results: [] };
     }
 
-    // Sort jobs by date (latest first) - assuming jobs have a timestamp field
-    const sortedJobs = jobs.sort((a, b) => {
-      const dateA = new Date(b.startedAt || b.createdAt || 0);
-      const dateB = new Date(a.startedAt || a.createdAt || 0);
-      return dateA - dateB;
-    });
+    // Filter jobs created after onboardStartTime
+    const filteredJobs = filterJobsByTimestamp(jobs, onboardStartTime);
 
-    // Find the first job that has URL results
-    let jobWithResults = null;
-    let urlResults = [];
+    log.info(
+      `[SCRAPING-CHECK] Found ${filteredJobs.length} jobs created after onboardStartTime for siteUrl=${baseUrl}`,
+    );
+
+    if (filteredJobs.length === 0) {
+      return { available: false, results: [], jobIds: [] };
+    }
+
+    // Sort jobs by date (latest first)
+    const sortedJobs = sortJobsByDate(filteredJobs);
+
+    // Find ALL jobs that have URL results (not just the first one)
+    // This is needed because multiple audit types create separate jobIds
+    const jobsWithResults = [];
+    const allUrlResults = [];
+    const allJobIds = []; // All jobIds for bot protection check
 
     /* eslint-disable no-await-in-loop */
     for (const job of sortedJobs) {
+      allJobIds.push(job.id);
       const results = await scrapeClient.getScrapeJobUrlResults(job.id);
       if (results && results.length > 0) {
-        jobWithResults = job;
-        urlResults = results;
-        break;
+        jobsWithResults.push({
+          jobId: job.id,
+          job,
+          results,
+        });
+        allUrlResults.push(...results);
       }
     }
     /* eslint-enable no-await-in-loop */
 
-    if (!jobWithResults) {
-      log.info(`Scraping check: No jobs with URL results found for ${baseUrl}`);
-      return { available: false, results: [] };
-    }
-
-    // Count successful and failed scrapes
-    const completedCount = urlResults.filter((result) => result.status === 'COMPLETE').length;
-    const failedCount = urlResults.filter((result) => result.status === 'FAILED').length;
-    const totalCount = urlResults.length;
+    // Count successful and failed scrapes across all jobs
+    const completedCount = allUrlResults.filter((result) => result.status === 'COMPLETE').length;
+    const failedCount = allUrlResults.filter((result) => result.status === 'FAILED').length;
+    const totalCount = allUrlResults.length;
 
     // Check if at least one URL was successfully scraped (status === 'COMPLETE')
     const hasSuccessfulScrape = completedCount > 0;
 
+    const jobIds = allJobIds;
+
+    log.info(
+      `[SCRAPING-CHECK] Scraping check complete: siteUrl=${baseUrl}, `
+      + `available=${hasSuccessfulScrape}, jobCount=${jobsWithResults.length}, `
+      + `allJobIds=${allJobIds.length} (for bot protection check)`,
+    );
+
     return {
       available: hasSuccessfulScrape,
-      results: urlResults,
-      jobId: jobWithResults.id,
+      results: allUrlResults,
+      jobIds, // All jobIds
+      jobsWithResults, // Detailed info for each job with results
       stats: {
         completed: completedCount,
         failed: failedCount,
@@ -203,94 +241,11 @@ async function isScrapingAvailable(baseUrl, context) {
 }
 
 /**
- * Searches CloudWatch logs for audit execution
- * @param {string} auditType - The audit type to search for
- * @param {string} siteId - The site ID
- * @param {number} onboardStartTime - The onboarding start timestamp
- * @param {object} context - The context object
- * @returns {Promise<boolean>} Whether the audit was executed
+ * Checks scrape results for bot protection blocking
+ * @param {Array} scrapeResults - Array of scrape URL results
+ * @param {object} context - The context object with log
+ * @returns {object|null} Bot protection details if detected, null otherwise
  */
-async function checkAuditExecution(auditType, siteId, onboardStartTime, context) {
-  const { log, env } = context;
-  const logGroupName = AUDIT_WORKER_LOG_GROUP;
-
-  try {
-    const cloudWatchClient = new CloudWatchLogsClient({ region: env.AWS_REGION || 'us-east-1' });
-    const filterPattern = `"Received ${auditType} audit request for: ${siteId}"`;
-
-    // Add small buffer before onboardStartTime to account for clock skew and processing delays
-    // The audit log should be after onboardStartTime, but we add a small buffer for safety
-    const bufferMs = 60 * 1000; // 1 minute
-    const searchStartTime = onboardStartTime ? onboardStartTime - bufferMs : undefined;
-
-    const command = new FilterLogEventsCommand({
-      logGroupName,
-      filterPattern,
-      startTime: searchStartTime,
-      endTime: Date.now(),
-    });
-
-    const response = await cloudWatchClient.send(command);
-    const found = response.events && response.events.length > 0;
-
-    return found;
-  } catch (error) {
-    log.error(`Error checking audit execution for ${auditType}:`, error);
-    return false;
-  }
-}
-
-/**
- * Searches CloudWatch logs for audit failure reason
- * @param {string} auditType - The audit type to search for
- * @param {string} siteId - The site ID
- * @param {number} onboardStartTime - The onboarding start timestamp
- * @param {object} context - The context object
- * @returns {Promise<string|null>} The failure reason or null if not found
- */
-async function getAuditFailureReason(auditType, siteId, onboardStartTime, context) {
-  const { log, env } = context;
-  const logGroupName = AUDIT_WORKER_LOG_GROUP;
-
-  try {
-    const cloudWatchClient = new CloudWatchLogsClient({ region: env.AWS_REGION || 'us-east-1' });
-    const filterPattern = `"${auditType} audit for ${siteId} failed"`;
-
-    // Add small buffer before onboardStartTime to account for clock skew and processing delays
-    const bufferMs = 30 * 1000; // 30 seconds
-    const searchStartTime = onboardStartTime ? onboardStartTime - bufferMs : undefined;
-
-    const command = new FilterLogEventsCommand({
-      logGroupName,
-      filterPattern,
-      startTime: searchStartTime,
-      endTime: Date.now(),
-    });
-
-    const response = await cloudWatchClient.send(command);
-
-    if (response.events && response.events.length > 0) {
-      // Extract reason from the message
-      const { message } = response.events[0];
-      const reasonMatch = message.match(/Reason:\s*([^]+?)(?:\s+at\s|$)/);
-      if (reasonMatch && reasonMatch[1]) {
-        return reasonMatch[1].trim();
-      }
-      // Fallback: return entire message if "Reason:" pattern not found
-      return message.trim();
-    }
-
-    return null;
-  /* c8 ignore start */
-  // Defensive error handling: Difficult to test as requires CloudWatch API to throw errors.
-  // Would need complex AWS SDK mocking infrastructure for marginal coverage gain.
-  } catch (error) {
-    log.error(`Error checking audit failure for ${auditType}:`, error);
-    return null;
-  }
-  /* c8 ignore stop */
-}
-
 /**
  * Analyzes missing opportunities and determines the root cause
  * @param {Array<string>} missingOpportunities - Array of missing opportunity types
@@ -319,24 +274,21 @@ async function analyzeMissingOpportunities(
       return opportunities.includes(opportunityType);
     });
 
-    /* c8 ignore start */
-    // Edge case: Opportunity type exists in dependency map but no configured audit generates it.
-    // Requires adding orphan opportunity types to test, complex to mock without production impact.
     if (relatedAudits.length === 0) {
       // eslint-disable-next-line no-continue
       continue;
     }
-    /* c8 ignore stop */
 
     for (const auditType of relatedAudits) {
-      const auditExecuted = await checkAuditExecution(
+      // Get audit execution status and failure reason in a single call
+      const { executed, failureReason } = await getAuditStatus(
         auditType,
         siteId,
         onboardStartTime,
         context,
       );
 
-      if (!auditExecuted) {
+      if (!executed) {
         results.push({
           opportunity: opportunityType,
           audit: auditType,
@@ -354,13 +306,9 @@ async function analyzeMissingOpportunities(
           unmetDeps.push('RUM');
         } else if (dep === 'AHREFSImport' && !serviceStatus.ahrefsImport) {
           unmetDeps.push('AHREFS Import');
-        /* c8 ignore start */
-        // Edge case: Scraping unavailable scenario - requires all scrape jobs to fail.
-        // Covered by test but specific branch condition difficult to isolate in coverage.
         } else if (dep === 'scraping' && !serviceStatus.scraping) {
           unmetDeps.push('Scraping');
         }
-        /* c8 ignore stop */
       }
 
       if (unmetDeps.length > 0) {
@@ -374,13 +322,6 @@ async function analyzeMissingOpportunities(
       }
 
       // All dependencies met, check for audit failure
-      const failureReason = await getAuditFailureReason(
-        auditType,
-        siteId,
-        onboardStartTime,
-        context,
-      );
-
       if (failureReason) {
         results.push({
           opportunity: opportunityType,
@@ -448,10 +389,10 @@ export async function runOpportunityStatusProcessor(message, context) {
       auditTypes.forEach((auditType) => {
         const opportunitiesForAudit = getOpportunitiesForAudit(auditType);
         if (opportunitiesForAudit.length === 0) {
-          // This audit type doesn't map to any known opportunities
           hasUnknownAuditTypes = true;
+        } else {
+          expectedOpportunityTypes = [...expectedOpportunityTypes, ...opportunitiesForAudit];
         }
-        expectedOpportunityTypes = [...expectedOpportunityTypes, ...opportunitiesForAudit];
       });
       // Remove duplicates
       expectedOpportunityTypes = [...new Set(expectedOpportunityTypes)];
@@ -469,42 +410,94 @@ export async function runOpportunityStatusProcessor(message, context) {
     const needsScraping = requiredDependencies.has('scraping');
     const needsGSC = requiredDependencies.has('GSC');
 
+    // Track bot protection stats across the handler
+    let botProtectionStats = null;
+
     // Only check data sources that are needed
     if (siteUrl && (needsRUM || needsGSC || needsScraping)) {
       try {
-        const resolvedUrl = await resolveCanonicalUrl(siteUrl);
-        log.info(`Resolved URL: ${resolvedUrl}`);
-        const domain = new URL(resolvedUrl).hostname;
+        // Resolve URL for RUM and GSC checks (they need canonical URL)
+        const resolvedUrl = needsRUM || needsGSC ? await resolveCanonicalUrl(siteUrl) : siteUrl;
 
-        if (needsRUM) {
-          rumAvailable = await isRUMAvailable(domain, context);
+        if (!resolvedUrl) {
+          log.warn(`Could not resolve canonical URL for ${siteUrl}, skipping RUM/GSC checks`);
+        } else {
+          log.info(`Resolved URL: ${resolvedUrl} (for RUM/GSC)`);
+
+          // Extract domain from resolved URL for RUM check
+          let domain = null;
+          try {
+            domain = new URL(resolvedUrl).hostname;
+          } catch (urlError) {
+            log.warn(`Invalid resolved URL format: ${resolvedUrl}, skipping RUM/GSC checks`, urlError);
+            // Skip RUM/GSC checks if URL parsing fails
+          }
+
+          if (domain) {
+            if (needsRUM) {
+              rumAvailable = await isRUMAvailable(domain, context);
+            }
+
+            if (needsGSC) {
+              gscConfigured = await isGSCConfigured(resolvedUrl, context);
+            }
+          }
         }
 
-        if (needsGSC) {
-          gscConfigured = await isGSCConfigured(resolvedUrl, context);
-        }
-
+        // Scraping check doesn't require resolved URL - use siteUrl directly
+        // because scrape jobs are created with siteUrl from site.getBaseURL()
         if (needsScraping) {
-          const scrapingCheck = await isScrapingAvailable(siteUrl, context);
+          const scrapingCheck = await isScrapingAvailable(siteUrl, context, onboardStartTime);
           scrapingAvailable = scrapingCheck.available;
 
-          // Send Slack notification with scraping statistics if available
-          if (scrapingCheck.stats && slackContext) {
-            const { completed, failed, total } = scrapingCheck.stats;
-            const statsMessage = `:mag: *Scraping Statistics for ${siteUrl}*\n`
-              + `✅ Completed: ${completed}\n`
-              + `❌ Failed: ${failed}\n`
-              + `📊 Total: ${total}`;
+          // Check for bot protection using all jobIds from scraping check
+          // Multiple audit types create separate jobIds during onboarding
+          const jobIdsToCheck = scrapingCheck.jobIds || [];
 
-            if (failed > 0) {
+          if (jobIdsToCheck.length > 0) {
+            botProtectionStats = await checkAndAlertBotProtection({
+              jobId: jobIdsToCheck, // Pass array of jobIds
+              siteUrl,
+              slackContext,
+              context,
+            });
+          } else {
+            log.warn(
+              '[SCRAPING-CHECK] Skipping bot protection check: no jobIds in scrapingCheck '
+              + `for siteUrl=${siteUrl}, available=${scrapingCheck.available}`,
+            );
+          }
+
+          // Send Slack notification with scraping statistics if available
+          // Always show statistics regardless of bot protection status
+          // Scraping might still be running, so we show stats every time
+          if (slackContext) {
+            if (scrapingCheck.stats) {
+              const { completed, failed, total } = scrapingCheck.stats;
+              const statsMessage = `:mag: *Scraping Statistics for ${siteUrl}*\n`
+                + `✅ Completed: ${completed}\n`
+                + `❌ Failed: ${failed}\n`
+                + `📊 Total: ${total}`;
+
+              if (failed > 0) {
+                await say(
+                  env,
+                  log,
+                  slackContext,
+                  `${statsMessage}\n:information_source: _${failed} failed URLs will be retried on re-onboarding._`,
+                );
+              } else {
+                await say(env, log, slackContext, statsMessage);
+              }
+            } else {
+              // Show message when scraping check didn't return stats (e.g., no jobs found yet)
               await say(
                 env,
                 log,
                 slackContext,
-                `${statsMessage}\n:information_source: _${failed} failed URLs will be retried on re-onboarding._`,
+                `:mag: *Scraping Statistics for ${siteUrl}*\n`
+                + ':information_source: _Scraping is in progress or no results available yet._',
               );
-            } else {
-              await say(env, log, slackContext, statsMessage);
             }
           }
         }
@@ -613,7 +606,9 @@ export async function runOpportunityStatusProcessor(message, context) {
       }
     }
 
-    if (slackContext && statusMessages.length > 0) {
+    // Always show statistics sections when slackContext is available
+    // statusMessages should always have at least data source statuses, but show sections regardless
+    if (slackContext) {
       // Section 1: Data Sources for site (only show required dependencies)
       const dataSourceMessages = [];
       if (needsRUM) {
@@ -666,7 +661,7 @@ export async function runOpportunityStatusProcessor(message, context) {
       if (failedOpportunities.length > 0) {
         for (const failed of failedOpportunities) {
           // Use info icon for successful audits with zero suggestions
-          const emoji = failed.reason.includes('opportunity found with zero suggestions') ? ' :information_source:' : ' :x:';
+          const emoji = failed.reason.includes('found no suggestions') ? ' :information_source:' : ' :x:';
           auditErrors.push(`*${failed.title}*: ${failed.reason}${emoji}`);
         }
       }
@@ -689,7 +684,8 @@ export async function runOpportunityStatusProcessor(message, context) {
 
     log.info(`Processed ${opportunities.length} opportunities for site ${siteId}`);
 
-    return ok({
+    // Build response object
+    const response = {
       message: `Opportunity status processor completed for ${opportunities.length} opportunities`,
       opportunitiesProcessed: opportunities.length,
       dataSources: {
@@ -701,7 +697,15 @@ export async function runOpportunityStatusProcessor(message, context) {
         import: ahrefsImportAvailable, // Import and AHREFS are the same
         scraping: scrapingAvailable,
       },
-    });
+    };
+
+    // Only include bot protection fields when bot protection is detected
+    if (botProtectionStats !== null && botProtectionStats.totalCount > 0) {
+      response.botProtectionDetected = true;
+      response.blockedUrlCount = botProtectionStats.totalCount;
+    }
+
+    return ok(response);
   } catch (error) {
     log.error('Error in opportunity status processor:', error);
     await say(env, log, slackContext, `:x: Error processing opportunities for site ${siteId}: ${error.message}`);

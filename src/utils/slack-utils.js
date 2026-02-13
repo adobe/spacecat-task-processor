@@ -13,6 +13,52 @@
 // eslint-disable-next-line import/no-unresolved
 import { hasText } from '@adobe/spacecat-shared-utils';
 import { BaseSlackClient, SLACK_TARGETS } from '@adobe/spacecat-shared-slack-client';
+
+/**
+ * Formats HTTP status code with emoji and description
+ * Only includes status codes that indicate bot protection (403, 200 with challenge page)
+ * @param {number|string} status - HTTP status code
+ * @returns {string} Formatted status string
+ */
+function formatHttpStatus(status) {
+  const statusMap = {
+    403: '🚫 403 Forbidden',
+    200: '⚠️ 200 OK (Challenge Page)',
+    unknown: '❓ Unknown Status',
+  };
+  return statusMap[String(status)] || `⚠️ ${status}`;
+}
+
+/**
+ * Formats blocker type with proper casing
+ * @param {string} type - Blocker type
+ * @returns {string} Formatted blocker type
+ */
+function formatBlockerType(type) {
+  const typeMap = {
+    cloudflare: 'Cloudflare',
+    akamai: 'Akamai',
+    imperva: 'Imperva',
+    fastly: 'Fastly',
+    cloudfront: 'AWS CloudFront',
+    unknown: 'Unknown Blocker',
+  };
+  return typeMap[type] || type;
+}
+
+/**
+ * Formats a breakdown of counts by category for Slack display
+ * @param {Object} data - Object with category keys and count values
+ * @param {Function} formatter - Function to format the category name
+ * @returns {string} Formatted breakdown string
+ */
+function formatBreakdown(data, formatter) {
+  return Object.entries(data)
+    .sort((a, b) => b[1] - a[1]) // Sort by count descending
+    .map(([key, count]) => `  • ${formatter(key)}: ${count} URL${count > 1 ? 's' : ''}`)
+    .join('\n');
+}
+
 /**
  * Sends a message to Slack using the provided client and context
  * @param {object} slackClient - The Slack client instance
@@ -25,6 +71,7 @@ export async function say(env, log, slackContext, message) {
     const slackClientContext = {
       channelId: slackContext.channelId,
       threadTs: slackContext.threadTs,
+      log, // BaseSlackClient.createFrom expects log in context
       env: {
         SLACK_BOT_TOKEN: env.SLACK_BOT_TOKEN,
         SLACK_SIGNING_SECRET: env.SLACK_SIGNING_SECRET,
@@ -43,10 +90,107 @@ export async function say(env, log, slackContext, message) {
       });
     }
   } catch (error) {
-    log.error('Error sending Slack message:', {
-      error: error.message,
-      stack: error.stack,
-      errorType: error.name,
-    });
+    if (log) {
+      log.error('Error sending Slack message:', {
+        error: error.message,
+        stack: error.stack,
+        errorType: error.name,
+      });
+    }
   }
+}
+
+/**
+ * Formats bot protection details for Slack notifications with detailed statistics
+ * @param {Object} options - Options
+ * @param {string} options.siteUrl - Site URL
+ * @param {Object} options.stats - Bot protection statistics
+ *   (from database via convertAbortInfoToStats)
+ * @param {Array<string>} options.allowlistIps - Array of IPs to allowlist
+ * @param {string} options.allowlistUserAgent - User-Agent to allowlist
+ * @returns {string} Formatted Slack message
+ */
+export function formatBotProtectionSlackMessage({
+  siteUrl,
+  stats,
+  allowlistIps = [],
+  allowlistUserAgent,
+  jobDetails = [],
+}) {
+  const {
+    totalCount,
+    byHttpStatus,
+    byBlockerType,
+    urls,
+    highConfidenceCount,
+    isPartial,
+  } = stats;
+
+  // Determine data completeness status
+  const dataStatusEmoji = isPartial ? '⏳' : '✅';
+  const dataStatusText = isPartial
+    ? `*Data Status:* ${dataStatusEmoji} Partial (scraping in progress)`
+    : `*Data Status:* ${dataStatusEmoji} Complete (scraping finished)`;
+
+  // Format HTTP status breakdown
+  const statusBreakdown = formatBreakdown(byHttpStatus, formatHttpStatus);
+
+  // Format blocker type breakdown
+  const blockerBreakdown = formatBreakdown(byBlockerType, formatBlockerType);
+
+  // Sample URLs (show up to 3, prioritize high confidence)
+  const sampleUrls = urls
+    .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
+    .slice(0, 3)
+    .map((u) => {
+      const confidenceLabel = u.confidence >= 0.95 ? '(high confidence)' : '';
+      return `  • ${u.url}\n    ${formatHttpStatus(u.httpStatus)} · ${formatBlockerType(u.blockerType)} ${confidenceLabel}`;
+    })
+    .join('\n');
+
+  const ipList = allowlistIps.map((ip) => `  • \`${ip}\``).join('\n');
+
+  let message = ':rotating_light: :warning: *Bot Protection Detected*\n\n'
+    + `*Summary:* ${totalCount} URL${totalCount > 1 ? 's' : ''} blocked by bot protection\n`
+    + `${dataStatusText}\n`;
+
+  // Show per-job breakdown (always show, even for single jobId)
+  if (jobDetails && jobDetails.length > 0) {
+    message += '\n*📋 Per-Job Breakdown (All Audit Types):*\n';
+    jobDetails.forEach((detail) => {
+      const statusIcon = detail.isPartial ? '⏳' : '✅';
+      message += `  • Job \`${detail.jobId}\`: ${detail.blockedUrlsCount}/${detail.totalUrlsCount} blocked ${statusIcon}\n`;
+    });
+    message += '\n';
+  }
+
+  message += '*📊 Detection Statistics (All Audit Types)*\n'
+    + `• *Total Blocked:* ${totalCount} URLs\n`
+    + `• *High Confidence:* ${highConfidenceCount} URLs\n\n`
+    + '*By HTTP Status:*\n'
+    + `${statusBreakdown || '  • No status data available'}\n\n`
+    + '*By Blocker Type:*\n'
+    + `${blockerBreakdown || '  • No blocker data available'}\n\n`
+    + '*🔍 Sample Blocked URLs*\n'
+    + `${sampleUrls || '  • No URL details available'}\n`;
+
+  if (totalCount > 3) {
+    message += `  ... and ${totalCount - 3} more URLs\n`;
+  }
+
+  if (isPartial) {
+    message += '\n:information_source: _Numbers shown are partial - scraping is still in progress. Final statistics will be logged when scraping completes._\n';
+  }
+
+  message += '\n'
+    + '*✅ How to Resolve*\n'
+    + 'Allowlist SpaceCat Bot in your CDN/WAF:\n\n'
+    + '*User-Agent:*\n'
+    + `  • \`${allowlistUserAgent}\`\n\n`
+    + '*IP Addresses:*\n'
+    + `${ipList}\n\n`
+    + `*Site:* ${siteUrl}\n\n`
+    + ':bulb: _After allowlisting, re-run onboarding or trigger a new scrape._';
+
+  return message;
 }

@@ -86,6 +86,7 @@ describe('slack-utils', () => {
       expect(mockBaseSlackClient.createFrom.calledWith({
         channelId: 'C12345678',
         threadTs: '12345.67890',
+        log, // BaseSlackClient.createFrom expects log in context
         env: {
           SLACK_BOT_TOKEN: 'test-bot-token',
           SLACK_SIGNING_SECRET: 'test-signing-secret',
@@ -234,6 +235,392 @@ describe('slack-utils', () => {
         text: null,
         unfurl_links: false,
       })).to.be.true;
+    });
+  });
+
+  describe('formatHttpStatus', () => {
+    let formatHttpStatus;
+
+    beforeEach(async () => {
+      // Import from module - test internal functions via formatBotProtectionSlackMessage
+      // These are internal functions, test them through the public API
+      const slackUtilsModule = await import('../../src/utils/slack-utils.js');
+      // Test these through formatBotProtectionSlackMessage
+      formatHttpStatus = slackUtilsModule.formatBotProtectionSlackMessage;
+    });
+
+    it('should format known HTTP status codes correctly', () => {
+      const stats = {
+        totalCount: 3,
+        highConfidenceCount: 3,
+        byHttpStatus: { 403: 1, 200: 1, unknown: 1 },
+        byBlockerType: { cloudflare: 3 },
+        urls: [
+          { url: 'https://test.com/1', httpStatus: 403, blockerType: 'cloudflare' },
+          { url: 'https://test.com/2', httpStatus: 200, blockerType: 'cloudflare' },
+          { url: 'https://test.com/3', httpStatus: 'unknown', blockerType: 'cloudflare' },
+        ],
+      };
+
+      const result = formatHttpStatus({
+        siteUrl: 'https://test.com',
+        stats,
+        allowlistIps: ['1.2.3.4'],
+        allowlistUserAgent: 'TestBot/1.0',
+      });
+
+      expect(result).to.include('🚫 403 Forbidden');
+      expect(result).to.include('⚠️ 200 OK (Challenge Page)');
+      expect(result).to.include('❓ Unknown Status');
+    });
+
+    it('should handle unknown HTTP status codes with fallback (line 29)', () => {
+      const stats = {
+        totalCount: 2,
+        highConfidenceCount: 2,
+        byHttpStatus: { 429: 1, 503: 1 }, // Status codes not in the map
+        byBlockerType: { cloudflare: 2 },
+        urls: [
+          { url: 'https://test.com/1', httpStatus: 429, blockerType: 'cloudflare' },
+          { url: 'https://test.com/2', httpStatus: 503, blockerType: 'cloudflare' },
+        ],
+      };
+
+      const result = formatHttpStatus({
+        siteUrl: 'https://test.com',
+        stats,
+        allowlistIps: ['1.2.3.4'],
+        allowlistUserAgent: 'TestBot/1.0',
+      });
+
+      // Should use fallback format for unknown status codes (line 29)
+      expect(result).to.include('⚠️ 429');
+      expect(result).to.include('⚠️ 503');
+    });
+  });
+
+  describe('formatBlockerType', () => {
+    let formatBlockerType;
+
+    beforeEach(async () => {
+      const slackUtilsModule = await import('../../src/utils/slack-utils.js');
+      formatBlockerType = slackUtilsModule.formatBotProtectionSlackMessage;
+    });
+
+    it('should format known blocker types correctly', () => {
+      const stats = {
+        totalCount: 5,
+        highConfidenceCount: 5,
+        byHttpStatus: { 403: 5 },
+        byBlockerType: {
+          cloudflare: 1, akamai: 1, imperva: 1, fastly: 1, unknown: 1,
+        },
+        urls: [
+          { url: 'https://test.com/1', httpStatus: 403, blockerType: 'cloudflare' },
+          { url: 'https://test.com/2', httpStatus: 403, blockerType: 'akamai' },
+          { url: 'https://test.com/3', httpStatus: 403, blockerType: 'imperva' },
+          { url: 'https://test.com/4', httpStatus: 403, blockerType: 'fastly' },
+          { url: 'https://test.com/5', httpStatus: 403, blockerType: 'unknown' },
+        ],
+      };
+
+      const result = formatBlockerType({
+        siteUrl: 'https://test.com',
+        stats,
+        allowlistIps: ['1.2.3.4'],
+        allowlistUserAgent: 'TestBot/1.0',
+      });
+
+      expect(result).to.include('Cloudflare');
+      expect(result).to.include('Akamai');
+      expect(result).to.include('Imperva');
+      expect(result).to.include('Fastly');
+      expect(result).to.include('Unknown Blocker');
+    });
+
+    it('should handle unknown blocker types with fallback (line 46)', () => {
+      const stats = {
+        totalCount: 2,
+        highConfidenceCount: 2,
+        byHttpStatus: { 403: 2 },
+        byBlockerType: { incapsula: 1, 'custom-waf': 1 }, // Types not in the map
+        urls: [
+          { url: 'https://test.com/1', httpStatus: 403, blockerType: 'incapsula' },
+          { url: 'https://test.com/2', httpStatus: 403, blockerType: 'custom-waf' },
+        ],
+      };
+
+      const result = formatBlockerType({
+        siteUrl: 'https://test.com',
+        stats,
+        allowlistIps: ['1.2.3.4'],
+        allowlistUserAgent: 'TestBot/1.0',
+      });
+
+      // Should use fallback format for unknown blocker types (line 46)
+      expect(result).to.include('incapsula');
+      expect(result).to.include('custom-waf');
+    });
+  });
+
+  describe('formatBotProtectionSlackMessage', () => {
+    let formatBotProtectionSlackMessage;
+
+    beforeEach(async () => {
+      const slackUtilsModule = await import('../../src/utils/slack-utils.js');
+      formatBotProtectionSlackMessage = slackUtilsModule.formatBotProtectionSlackMessage;
+    });
+
+    it('should format message with sample URLs when count <= 3', () => {
+      const stats = {
+        totalCount: 3,
+        highConfidenceCount: 2,
+        byHttpStatus: { 403: 3 },
+        byBlockerType: { cloudflare: 3 },
+        urls: [
+          { url: 'https://test.com/1', httpStatus: 403, blockerType: 'cloudflare' },
+          { url: 'https://test.com/2', httpStatus: 403, blockerType: 'cloudflare' },
+          { url: 'https://test.com/3', httpStatus: 403, blockerType: 'cloudflare' },
+        ],
+      };
+
+      const result = formatBotProtectionSlackMessage({
+        siteUrl: 'https://test.com',
+        stats,
+        allowlistIps: ['1.2.3.4', '5.6.7.8'],
+        allowlistUserAgent: 'TestBot/1.0',
+      });
+
+      expect(result).to.be.a('string');
+      expect(result).to.include('3 URL'); // Changed: no longer shows "of X"
+      expect(result).to.not.include('... and');
+    });
+
+    it('should format message with "and X more" when count > 3', () => {
+      const stats = {
+        totalCount: 5,
+        highConfidenceCount: 4,
+        byHttpStatus: { 403: 5 },
+        byBlockerType: { cloudflare: 5 },
+        urls: [
+          { url: 'https://test.com/1', httpStatus: 403, blockerType: 'cloudflare' },
+          { url: 'https://test.com/2', httpStatus: 403, blockerType: 'cloudflare' },
+          { url: 'https://test.com/3', httpStatus: 403, blockerType: 'cloudflare' },
+          { url: 'https://test.com/4', httpStatus: 403, blockerType: 'cloudflare' },
+          { url: 'https://test.com/5', httpStatus: 403, blockerType: 'cloudflare' },
+        ],
+      };
+
+      const result = formatBotProtectionSlackMessage({
+        siteUrl: 'https://test.com',
+        stats,
+        allowlistIps: ['1.2.3.4', '5.6.7.8'],
+        allowlistUserAgent: 'TestBot/1.0',
+      });
+
+      expect(result).to.be.a('string');
+      expect(result).to.include('5 URL'); // Changed: no longer shows "of X"
+      expect(result).to.include('... and 2 more URLs');
+    });
+
+    it('should show per-job breakdown when jobDetails has multiple jobs', () => {
+      const stats = {
+        totalCount: 8,
+        totalUrlsInJob: 25,
+        highConfidenceCount: 8,
+        byHttpStatus: { 403: 8 },
+        byBlockerType: { cloudflare: 5, imperva: 3 },
+        urls: [
+          { url: 'https://test.com/1', httpStatus: 403, blockerType: 'cloudflare' },
+          { url: 'https://test.com/2', httpStatus: 403, blockerType: 'imperva' },
+        ],
+        isPartial: false,
+      };
+
+      const jobDetails = [
+        {
+          jobId: 'job-123',
+          blockedUrlsCount: 5,
+          totalUrlsCount: 10,
+          isPartial: false,
+        },
+        {
+          jobId: 'job-456',
+          blockedUrlsCount: 3,
+          totalUrlsCount: 15,
+          isPartial: false,
+        },
+      ];
+
+      const result = formatBotProtectionSlackMessage({
+        siteUrl: 'https://test.com',
+        stats,
+        allowlistIps: ['1.2.3.4'],
+        allowlistUserAgent: 'TestBot/1.0',
+        jobDetails,
+      });
+
+      expect(result).to.include('*📋 Per-Job Breakdown (All Audit Types):*');
+      expect(result).to.include('Job `job-123`: 5/10 blocked ✅');
+      expect(result).to.include('Job `job-456`: 3/15 blocked ✅');
+    });
+
+    it('should show partial status icon (⏳) when job is partial', () => {
+      const stats = {
+        totalCount: 5,
+        totalUrlsInJob: 20,
+        highConfidenceCount: 5,
+        byHttpStatus: { 403: 5 },
+        byBlockerType: { cloudflare: 5 },
+        urls: [
+          { url: 'https://test.com/1', httpStatus: 403, blockerType: 'cloudflare' },
+        ],
+        isPartial: true,
+      };
+
+      const jobDetails = [
+        {
+          jobId: 'job-123',
+          blockedUrlsCount: 5,
+          totalUrlsCount: 20,
+          isPartial: true,
+        },
+        {
+          jobId: 'job-456',
+          blockedUrlsCount: 3,
+          totalUrlsCount: 15,
+          isPartial: false,
+        },
+      ];
+
+      const result = formatBotProtectionSlackMessage({
+        siteUrl: 'https://test.com',
+        stats,
+        allowlistIps: ['1.2.3.4'],
+        allowlistUserAgent: 'TestBot/1.0',
+        jobDetails,
+      });
+
+      expect(result).to.include('*📋 Per-Job Breakdown (All Audit Types):*');
+      expect(result).to.include('Job `job-123`: 5/20 blocked ⏳');
+      expect(result).to.include('Job `job-456`: 3/15 blocked ✅');
+    });
+
+    it('should not show per-job breakdown when jobDetails has only one job', () => {
+      const stats = {
+        totalCount: 5,
+        totalUrlsInJob: 10,
+        highConfidenceCount: 5,
+        byHttpStatus: { 403: 5 },
+        byBlockerType: { cloudflare: 5 },
+        urls: [
+          { url: 'https://test.com/1', httpStatus: 403, blockerType: 'cloudflare' },
+        ],
+        isPartial: false,
+      };
+
+      const jobDetails = [
+        {
+          jobId: 'job-123',
+          blockedUrlsCount: 5,
+          totalUrlsCount: 10,
+          isPartial: false,
+        },
+      ];
+
+      const result = formatBotProtectionSlackMessage({
+        siteUrl: 'https://test.com',
+        stats,
+        allowlistIps: ['1.2.3.4'],
+        allowlistUserAgent: 'TestBot/1.0',
+        jobDetails,
+      });
+
+      // Per-job breakdown is always shown, even for single job
+      expect(result).to.include('*📋 Per-Job Breakdown (All Audit Types):*');
+      expect(result).to.include('Job `job-123`');
+    });
+
+    it('should not show per-job breakdown when jobDetails is empty', () => {
+      const stats = {
+        totalCount: 5,
+        totalUrlsInJob: 10,
+        highConfidenceCount: 5,
+        byHttpStatus: { 403: 5 },
+        byBlockerType: { cloudflare: 5 },
+        urls: [
+          { url: 'https://test.com/1', httpStatus: 403, blockerType: 'cloudflare' },
+        ],
+        isPartial: false,
+      };
+
+      const result = formatBotProtectionSlackMessage({
+        siteUrl: 'https://test.com',
+        stats,
+        allowlistIps: ['1.2.3.4'],
+        allowlistUserAgent: 'TestBot/1.0',
+        jobDetails: [],
+      });
+
+      expect(result).to.not.include('*📋 Per-Job Breakdown (All Audit Types):*');
+    });
+
+    it('should not show per-job breakdown when jobDetails is undefined', () => {
+      const stats = {
+        totalCount: 5,
+        totalUrlsInJob: 10,
+        highConfidenceCount: 5,
+        byHttpStatus: { 403: 5 },
+        byBlockerType: { cloudflare: 5 },
+        urls: [
+          { url: 'https://test.com/1', httpStatus: 403, blockerType: 'cloudflare' },
+        ],
+        isPartial: false,
+      };
+
+      const result = formatBotProtectionSlackMessage({
+        siteUrl: 'https://test.com',
+        stats,
+        allowlistIps: ['1.2.3.4'],
+        allowlistUserAgent: 'TestBot/1.0',
+        // jobDetails not provided (undefined)
+      });
+
+      expect(result).to.not.include('*📋 Per-Job Breakdown (All Audit Types):*');
+    });
+
+    it('should show fallback messages when statusBreakdown is empty', () => {
+      const stats = {
+        totalCount: 5,
+        totalUrlsInJob: 10,
+        highConfidenceCount: 5,
+        // Empty object - formatBreakdown returns empty string, triggers fallback
+        byHttpStatus: {},
+        // Empty object - formatBreakdown returns empty string, triggers fallback
+        byBlockerType: {},
+        // Empty array - sampleUrls will be empty string, triggers fallback
+        urls: [],
+        isPartial: false,
+      };
+
+      const result = formatBotProtectionSlackMessage({
+        siteUrl: 'https://test.com',
+        stats,
+        allowlistIps: ['1.2.3.4'],
+        allowlistUserAgent: 'TestBot/1.0',
+      });
+
+      // Fallback when statusBreakdown is empty (formatBreakdown returns empty string)
+      expect(result).to.include('*By HTTP Status:*');
+      expect(result).to.include('  • No status data available');
+
+      // Fallback when blockerBreakdown is empty (formatBreakdown returns empty string)
+      expect(result).to.include('*By Blocker Type:*');
+      expect(result).to.include('  • No blocker data available');
+
+      // Fallback when sampleUrls is empty (urls array is empty)
+      expect(result).to.include('*🔍 Sample Blocked URLs*');
+      expect(result).to.include('  • No URL details available');
     });
   });
 });

@@ -13,6 +13,7 @@
 import fs from 'fs';
 import path from 'path';
 import { isNonEmptyArray } from '@adobe/spacecat-shared-utils';
+import { ok } from '@adobe/spacecat-shared-http-utils';
 
 import { say } from '../../utils/slack-utils.js';
 
@@ -299,21 +300,21 @@ export async function runCwvDemoSuggestionsProcessor(message, context) {
 
   try {
     if (!profile || profile !== DEMO) {
-      return {
+      return ok({
         message: 'CWV processing skipped - not a demo profile',
         reason: 'non-demo-profile',
         profile,
         suggestionsAdded: 0,
-      };
+      });
     }
 
     const site = await Site.findById(siteId);
     if (!site) {
       log.error(`Site not found for siteId: ${siteId}`);
-      return {
+      return ok({
         message: 'Site not found',
         suggestionsAdded: 0,
-      };
+      });
     }
 
     const opportunities = await site.getOpportunities();
@@ -321,10 +322,10 @@ export async function runCwvDemoSuggestionsProcessor(message, context) {
 
     if (cwvOpportunities.length === 0) {
       await say(env, log, slackContext, 'No CWV opportunities found for site, skipping generic suggestions');
-      return {
+      return ok({
         message: 'No CWV opportunities found',
         suggestionsAdded: 0,
-      };
+      });
     }
 
     const suggestionsUpdated = await processCWVOpportunity(
@@ -334,18 +335,18 @@ export async function runCwvDemoSuggestionsProcessor(message, context) {
       slackContext,
     );
 
-    return {
+    return ok({
       message: 'CWV demo suggestions processor completed',
       opportunitiesProcessed: 1,
       suggestionsAdded: suggestionsUpdated,
-    };
+    });
   } catch (error) {
     log.error('Error in CWV demo suggestions processor:', error);
-    return {
+    return ok({
       message: 'CWV demo suggestions processor completed with errors',
       error: error.message,
       suggestionsAdded: 0,
-    };
+    });
   }
 }
 

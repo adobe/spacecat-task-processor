@@ -33,8 +33,11 @@ describe('Opportunity Dependency Map', () => {
       expect(OPPORTUNITY_DEPENDENCY_MAP.cwv).to.deep.equal(['RUM']);
       expect(OPPORTUNITY_DEPENDENCY_MAP['high-organic-low-ctr']).to.deep.equal(['RUM']);
       expect(OPPORTUNITY_DEPENDENCY_MAP['broken-internal-links']).to.deep.equal(['RUM', 'AHREFSImport']);
-      expect(OPPORTUNITY_DEPENDENCY_MAP['meta-tags']).to.deep.equal(['AHREFSImport']);
-      expect(OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks']).to.deep.equal(['AHREFSImport']);
+      expect(OPPORTUNITY_DEPENDENCY_MAP['meta-tags']).to.deep.equal(['AHREFSImport', 'scraping']);
+      expect(OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks']).to.deep.equal(['AHREFSImport', 'scraping']);
+      expect(OPPORTUNITY_DEPENDENCY_MAP['alt-text']).to.deep.equal(['AHREFSImport', 'scraping']);
+      expect(OPPORTUNITY_DEPENDENCY_MAP['form-accessibility']).to.deep.equal(['RUM', 'scraping']);
+      expect(OPPORTUNITY_DEPENDENCY_MAP['forms-opportunities']).to.deep.equal(['RUM', 'scraping']);
     });
   });
 
