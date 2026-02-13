@@ -1,3 +1,10 @@
+# [1.9.0](https://github.com/adobe/spacecat-task-processor/compare/v1.8.2...v1.9.0) (2026-02-13)
+
+
+### Features
+
+* bot detection logic ([#170](https://github.com/adobe/spacecat-task-processor/issues/170)) ([1741930](https://github.com/adobe/spacecat-task-processor/commit/17419301c5d7c9e2aeee301e0c0497dd7acfa7f8))
+
 ## [1.8.2](https://github.com/adobe/spacecat-task-processor/compare/v1.8.1...v1.8.2) (2026-02-07)
 
 
