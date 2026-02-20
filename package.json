@@ -76,15 +76,16 @@
     "@adobe/helix-status": "10.1.5",
     "@adobe/helix-universal": "5.4.0",
     "@adobe/helix-universal-logger": "3.0.28",
-    "@adobe/spacecat-shared-data-access": "2.105.0",
-    "@adobe/spacecat-shared-google-client": "1.4.63",
-    "@adobe/spacecat-shared-gpt-client": "1.6.16",
-    "@adobe/spacecat-shared-http-utils": "1.19.4",
-    "@adobe/spacecat-shared-ims-client": "1.11.9",
-    "@adobe/spacecat-shared-rum-api-client": "2.40.6",
-    "@adobe/spacecat-shared-scrape-client": "2.5.0",
+    "@adobe/spacecat-shared-data-access": "3.1.0",
+    "@adobe/spacecat-shared-data-access-v2": "npm:@adobe/spacecat-shared-data-access@2.109.0",
+    "@adobe/spacecat-shared-google-client": "1.5.2",
+    "@adobe/spacecat-shared-gpt-client": "1.6.17",
+    "@adobe/spacecat-shared-http-utils": "1.21.0",
+    "@adobe/spacecat-shared-ims-client": "1.11.10",
+    "@adobe/spacecat-shared-rum-api-client": "2.40.7",
+    "@adobe/spacecat-shared-scrape-client": "2.5.1",
     "@adobe/spacecat-shared-slack-client": "1.6.0",
-    "@adobe/spacecat-shared-utils": "1.91.0",
+    "@adobe/spacecat-shared-utils": "1.96.1",
     "@aws-sdk/client-lambda": "3.990.0",
     "@aws-sdk/client-sqs": "3.990.0",
     "@aws-sdk/client-s3": "3.990.0",
@@ -134,8 +135,7 @@
     "yaml": "2.8.2"
   },
   "overrides": {
-    "@adobe/fetch": "4.2.3",
-    "@adobe/spacecat-shared-data-access": "2.105.0"
+    "@adobe/fetch": "4.2.3"
   },
   "lint-staged": {
     "*.js": "eslint",

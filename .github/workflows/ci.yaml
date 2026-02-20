@@ -39,6 +39,8 @@ jobs:
           persist-credentials: 'false'
       - name: Setup Node & NPM
         uses: ./.github/actions/setup-node-npm
+        env:
+          MYSTICAT_DATA_SERVICE_REPO_READ_TOKEN: ${{ secrets.MYSTICAT_DATA_SERVICE_REPO_READ_TOKEN }}
 
       - name: Lint, Test, Coverage Upload
         uses: ./.github/actions/lint-test-coverage
@@ -88,6 +90,8 @@ jobs:
 
       - name: Setup Node & NPM
         uses: ./.github/actions/setup-node-npm
+        env:
+          MYSTICAT_DATA_SERVICE_REPO_READ_TOKEN: ${{ secrets.MYSTICAT_DATA_SERVICE_REPO_READ_TOKEN }}
 
       - name: Configure AWS
         uses: ./.github/actions/configure-aws
@@ -114,6 +118,8 @@ jobs:
 
       - name: Setup Node & NPM
         uses: ./.github/actions/setup-node-npm
+        env:
+          MYSTICAT_DATA_SERVICE_REPO_READ_TOKEN: ${{ secrets.MYSTICAT_DATA_SERVICE_REPO_READ_TOKEN }}
 
       - name: Configure AWS for STAGE
         uses: ./.github/actions/configure-aws
@@ -138,6 +144,8 @@ jobs:
 
       - name: Setup Node & NPM
         uses: ./.github/actions/setup-node-npm
+        env:
+          MYSTICAT_DATA_SERVICE_REPO_READ_TOKEN: ${{ secrets.MYSTICAT_DATA_SERVICE_REPO_READ_TOKEN }}
 
       - name: Configure AWS for DEV
         uses: ./.github/actions/configure-aws
@@ -174,6 +182,8 @@ jobs:
 
       - name: Setup Node & NPM
         uses: ./.github/actions/setup-node-npm
+        env:
+          MYSTICAT_DATA_SERVICE_REPO_READ_TOKEN: ${{ secrets.MYSTICAT_DATA_SERVICE_REPO_READ_TOKEN }}
 
       - name: Configure AWS
         uses: ./.github/actions/configure-aws
