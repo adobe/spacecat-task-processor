@@ -9,6 +9,7 @@
  * OF ANY KIND, either express or implied. See the License for the specific language
  * governing permissions and limitations under the License.
  */
+import { Config } from '@adobe/spacecat-shared-data-access/src/models/site/config.js';
 import { AzureOpenAIClient } from '@adobe/spacecat-shared-gpt-client';
 import {
   hasText,
@@ -314,19 +315,7 @@ async function persist(message, context, result) {
   const after = cfg.getBrandProfile?.() || {};
   const afterHash = after?.contentHash || null;
   const changed = beforeHash !== afterHash;
-  site.setConfig({
-    slack: cfg.getSlackConfig(),
-    handlers: cfg.getHandlers(),
-    contentAiConfig: cfg.getContentAiConfig(),
-    imports: cfg.getImports(),
-    fetchConfig: cfg.getFetchConfig(),
-    brandConfig: cfg.getBrandConfig(),
-    brandProfile: cfg.getBrandProfile(),
-    cdnLogsConfig: cfg.getCdnLogsConfig(),
-    llmo: cfg.getLlmoConfig(),
-    tokowakaConfig: cfg.getTokowakaConfig(),
-    edgeOptimizeConfig: cfg.getEdgeOptimizeConfig(),
-  });
+  site.setConfig(Config.toDynamoItem(cfg));
   await site.save();
 
   // Emit concise summary for observability/Slack step consumers via logs

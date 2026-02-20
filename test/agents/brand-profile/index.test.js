@@ -27,22 +27,6 @@ describe('agents/brand-profile', () => {
   let env;
   let log;
 
-  // Helper to create config mocks with all getters needed by the inlined toDynamoItem logic
-  const createConfigMock = (overrides = {}) => ({
-    getSlackConfig: () => undefined,
-    getHandlers: () => undefined,
-    getContentAiConfig: () => undefined,
-    getImports: () => undefined,
-    getFetchConfig: () => undefined,
-    getBrandConfig: () => undefined,
-    getBrandProfile: () => undefined,
-    getCdnLogsConfig: () => undefined,
-    getLlmoConfig: () => undefined,
-    getTokowakaConfig: () => undefined,
-    getEdgeOptimizeConfig: () => undefined,
-    ...overrides,
-  });
-
   // Mock service creators - paths relative to src/agents/brand-profile/index.js
   const createMockServices = (sb) => ({
     '../../../src/agents/brand-profile/services/regional-context.js': {
@@ -711,12 +695,12 @@ describe('agents/brand-profile', () => {
   it('persist() updates site config, saves, and logs summary when changed', async () => {
     const beforeProfile = { contentHash: 'old', version: 1 };
     let currentProfile = beforeProfile;
-    const cfg = createConfigMock({
+    const cfg = {
       getBrandProfile: () => currentProfile,
       updateBrandProfile: (p) => {
         currentProfile = { ...p, contentHash: 'new', version: 2 };
       },
-    });
+    };
     const setConfig = sinon.stub();
     const save = sinon.stub().resolves();
     const findById = sandbox.stub().resolves({
@@ -727,7 +711,12 @@ describe('agents/brand-profile', () => {
     });
     context.dataAccess.Site = { findById };
 
-    const mod = await esmock('../../../src/agents/brand-profile/index.js', {});
+    const toDynamoItem = sandbox.stub().callsFake((c) => c);
+    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
+      '@adobe/spacecat-shared-data-access/src/models/site/config.js': {
+        Config: { toDynamoItem },
+      },
+    });
 
     await mod.default.persist(
       { siteId: '123e4567-e89b-12d3-a456-426614174000', baseURL: 'https://example.com' },
@@ -736,6 +725,7 @@ describe('agents/brand-profile', () => {
     );
 
     expect(findById).to.have.been.calledOnce;
+    expect(toDynamoItem).to.have.been.calledOnceWithExactly(cfg);
     expect(setConfig).to.have.been.calledOnce;
     expect(save).to.have.been.calledOnce;
     expect(log.info).to.have.been.calledWithMatch('brand-profile persist:');
@@ -743,10 +733,10 @@ describe('agents/brand-profile', () => {
 
   it('persist() logs unchanged summary when content hash is same', async () => {
     const profile = { contentHash: 'same', version: 5 };
-    const cfg = createConfigMock({
+    const cfg = {
       getBrandProfile: () => profile,
       updateBrandProfile: sinon.stub(), // leaves hash unchanged
-    });
+    };
     const setConfig = sinon.stub();
     const save = sinon.stub().resolves();
     const findById = sandbox.stub().resolves({
@@ -757,7 +747,12 @@ describe('agents/brand-profile', () => {
     });
     context.dataAccess.Site = { findById };
 
-    const mod = await esmock('../../../src/agents/brand-profile/index.js', {});
+    const toDynamoItem = sandbox.stub().callsFake((c) => c);
+    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
+      '@adobe/spacecat-shared-data-access/src/models/site/config.js': {
+        Config: { toDynamoItem },
+      },
+    });
 
     await mod.default.persist(
       { siteId: '123e4567-e89b-12d3-a456-426614174000', baseURL: 'https://example.com' },
@@ -766,6 +761,7 @@ describe('agents/brand-profile', () => {
     );
 
     expect(findById).to.have.been.calledOnce;
+    expect(toDynamoItem).to.have.been.calledOnceWithExactly(cfg);
     expect(setConfig).to.have.been.calledOnce;
     expect(save).to.have.been.calledOnce;
     expect(log.info).to.have.been.calledWith(
@@ -775,11 +771,10 @@ describe('agents/brand-profile', () => {
   });
 
   it('persist() handles configs without getBrandProfile implementation', async () => {
-    const cfg = createConfigMock({
-      getBrandProfile: undefined,
+    const cfg = {
       updateBrandProfile: sinon.stub(),
       // getBrandProfile intentionally undefined to hit fallback branches
-    });
+    };
     const setConfig = sinon.stub();
     const save = sinon.stub().resolves();
     const findById = sandbox.stub().resolves({
@@ -790,7 +785,12 @@ describe('agents/brand-profile', () => {
     });
     context.dataAccess.Site = { findById };
 
-    const mod = await esmock('../../../src/agents/brand-profile/index.js', {});
+    const toDynamoItem = sandbox.stub().callsFake((c) => c);
+    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
+      '@adobe/spacecat-shared-data-access/src/models/site/config.js': {
+        Config: { toDynamoItem },
+      },
+    });
 
     await mod.default.persist(
       { siteId: '123e4567-e89b-12d3-a456-426614174000' },
@@ -798,6 +798,7 @@ describe('agents/brand-profile', () => {
       { foo: 'bar' },
     );
 
+    expect(toDynamoItem).to.have.been.calledOnceWithExactly(cfg);
     expect(setConfig).to.have.been.calledOnce;
     expect(save).to.have.been.calledOnce;
     expect(log.info).to.have.been.calledWith(
@@ -808,12 +809,12 @@ describe('agents/brand-profile', () => {
 
   it('persist() includes highlight blocks when main profile data is present', async () => {
     let currentProfile = { version: 1, contentHash: 'old' };
-    const cfg = createConfigMock({
+    const cfg = {
       getBrandProfile: () => currentProfile,
       updateBrandProfile: (profile) => {
         currentProfile = { ...profile, version: 2, contentHash: 'new' };
       },
-    });
+    };
     const setConfig = sinon.stub();
     const save = sinon.stub().resolves();
     const findById = sandbox.stub().resolves({
@@ -824,7 +825,11 @@ describe('agents/brand-profile', () => {
     });
     context.dataAccess.Site = { findById };
 
+    const toDynamoItem = sandbox.stub().callsFake((c) => c);
     const mod = await esmock('../../../src/agents/brand-profile/index.js', {
+      '@adobe/spacecat-shared-data-access/src/models/site/config.js': {
+        Config: { toDynamoItem },
+      },
       ...createMockServices(sandbox),
     });
 
@@ -851,12 +856,12 @@ describe('agents/brand-profile', () => {
 
   it('persist() includes enhanced context highlights in Slack blocks', async () => {
     let currentProfile = { version: 1, contentHash: 'old' };
-    const cfg = createConfigMock({
+    const cfg = {
       getBrandProfile: () => currentProfile,
       updateBrandProfile: (profile) => {
         currentProfile = { ...profile, version: 2, contentHash: 'new' };
       },
-    });
+    };
     const setConfig = sinon.stub();
     const save = sinon.stub().resolves();
     const findById = sandbox.stub().resolves({
@@ -867,7 +872,11 @@ describe('agents/brand-profile', () => {
     });
     context.dataAccess.Site = { findById };
 
+    const toDynamoItem = sandbox.stub().callsFake((c) => c);
     const mod = await esmock('../../../src/agents/brand-profile/index.js', {
+      '@adobe/spacecat-shared-data-access/src/models/site/config.js': {
+        Config: { toDynamoItem },
+      },
       ...createMockServices(sandbox),
     });
 
