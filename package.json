@@ -117,7 +117,7 @@
     "chai-as-promised": "8.0.2",
     "chokidar": "5.0.0",
     "dotenv": "17.3.1",
-    "eslint": "9.39.3",
+    "eslint": "10.0.1",
     "esmock": "2.7.3",
     "husky": "9.1.7",
     "junit-report-builder": "5.1.1",
