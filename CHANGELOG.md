@@ -1,3 +1,10 @@
+# [1.11.0](https://github.com/adobe/spacecat-task-processor/compare/v1.10.0...v1.11.0) (2026-02-25)
+
+
+### Features
+
+* add v2/v3 data access runtime switch ([#193](https://github.com/adobe/spacecat-task-processor/issues/193)) ([6dc0395](https://github.com/adobe/spacecat-task-processor/commit/6dc0395ea0a662549ebfca0b3de57e8aa6b93c17))
+
 # [1.10.0](https://github.com/adobe/spacecat-task-processor/compare/v1.9.2...v1.10.0) (2026-02-25)
 
 
