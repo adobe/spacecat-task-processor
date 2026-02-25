@@ -1,3 +1,10 @@
+# [1.10.0](https://github.com/adobe/spacecat-task-processor/compare/v1.9.2...v1.10.0) (2026-02-25)
+
+
+### Features
+
+* migrate secrets from AWS SM to Vault ([#195](https://github.com/adobe/spacecat-task-processor/issues/195)) ([226594a](https://github.com/adobe/spacecat-task-processor/commit/226594a69c3701381713c11ae2e11b5016cebb36))
+
 ## [1.9.2](https://github.com/adobe/spacecat-task-processor/compare/v1.9.1...v1.9.2) (2026-02-21)
 
 
