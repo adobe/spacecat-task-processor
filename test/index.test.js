@@ -17,7 +17,6 @@ import sinon from 'sinon';
 import sinonChai from 'sinon-chai';
 import esmock from 'esmock';
 import { main } from './utils.js';
-import { getSecretName } from '../src/index.js';
 
 use(sinonChai);
 
@@ -136,11 +135,6 @@ describe('Index Tests', () => {
     // eslint-disable-next-line no-console
     // Verify the task completion message (using partial match since timing varies)
     expect(context.log.info.calledWithMatch(sinon.match('dummy task for site-id completed in'))).to.be.true;
-  });
-
-  it('should cover getSecretName function', () => {
-    const secretName = getSecretName();
-    expect(secretName).to.equal('/helix-deploy/spacecat-services/task-manager/latest');
   });
 
   it('should handle handler throwing an error', async () => {

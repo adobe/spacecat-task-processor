@@ -11,7 +11,7 @@
  */
 import wrap from '@adobe/helix-shared-wrap';
 import { helixStatus } from '@adobe/helix-status';
-import secrets from '@adobe/helix-shared-secrets';
+import vaultSecrets from '@adobe/spacecat-shared-vault-secrets';
 import dataAccess from '@adobe/spacecat-shared-data-access';
 import {
   internalServerError,
@@ -38,14 +38,6 @@ const HANDLERS = {
   'cwv-demo-suggestions-processor': cwvDemoSuggestionsProcessor,
   dummy: (message) => ok(message), // for tests
 };
-
-// Custom secret name resolver to use the correct secret path
-function getSecretName() {
-  return '/helix-deploy/spacecat-services/task-manager/latest';
-}
-
-// Export for testing
-export { getSecretName };
 
 function getElapsedSeconds(startTime) {
   const endTime = process.hrtime(startTime);
@@ -89,14 +81,14 @@ const runSQS = wrap(processTask)
   .with(sqsWrapper)
   .with(sqsEventAdapter)
   .with(imsClientWrapper)
-  .with(secrets, { name: getSecretName })
+  .with(vaultSecrets)
   .with(helixStatus);
 
 const runDirect = wrap(processTask)
   .with(dataAccess)
   .with(sqsWrapper)
   .with(imsClientWrapper)
-  .with(secrets, { name: getSecretName })
+  .with(vaultSecrets)
   .with(helixStatus);
 
 function isSqsEvent(event, context) {
