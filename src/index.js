@@ -12,7 +12,6 @@
 import wrap from '@adobe/helix-shared-wrap';
 import { helixStatus } from '@adobe/helix-status';
 import vaultSecrets from '@adobe/spacecat-shared-vault-secrets';
-import dataAccess from '@adobe/spacecat-shared-data-access';
 import {
   internalServerError,
   notFound,
@@ -21,6 +20,7 @@ import {
 } from '@adobe/spacecat-shared-http-utils';
 import { imsClientWrapper } from '@adobe/spacecat-shared-ims-client';
 import { isNonEmptyObject, sqsEventAdapter, sqsWrapper } from '@adobe/spacecat-shared-utils';
+import dataAccess from './support/data-access.js';
 
 import { runOpportunityStatusProcessor as opportunityStatusProcessor } from './tasks/opportunity-status-processor/handler.js';
 import { runDisableImportAuditProcessor as disableImportAuditProcessor } from './tasks/disable-import-audit-processor/handler.js';
