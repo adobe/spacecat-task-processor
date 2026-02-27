@@ -10,6 +10,15 @@
         "semantic-release"
       ],
       "allowedVersions": ">=23.0"
+    },
+    {
+      "matchPackageNames": [
+        "@adobe/spacecat-shared-data-access"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "enabled": false
     }
   ]
 }
