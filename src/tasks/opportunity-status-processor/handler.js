@@ -18,7 +18,7 @@ import { resolveCanonicalUrl } from '@adobe/spacecat-shared-utils';
 import { getAuditStatus } from '../../utils/cloudwatch-utils.js';
 import { checkAndAlertBotProtection } from '../../utils/bot-detection.js';
 import { say } from '../../utils/slack-utils.js';
-import { getOpportunitiesForAudit } from './audit-opportunity-map.js';
+import { getOpportunitiesForAudit, getAuditsForOpportunity } from './audit-opportunity-map.js';
 import { OPPORTUNITY_DEPENDENCY_MAP } from './opportunity-dependency-map.js';
 
 const TASK_TYPE = 'opportunity-status-processor';
@@ -598,6 +598,15 @@ export async function runOpportunityStatusProcessor(message, context) {
     statusMessages.push(`GSC ${gscStatus}`);
     statusMessages.push(`Scraping ${scrapingStatus}`);
 
+    // Determine which audits are still pending so opportunity statuses can reflect
+    // in-progress state (⏳) rather than showing stale data as ✅/❌.
+    // Only meaningful when we have an onboardStartTime anchor to compare against.
+    let pendingAuditTypes = [];
+    if (auditTypes && auditTypes.length > 0 && onboardStartTime) {
+      // eslint-disable-next-line max-len
+      ({ pendingAuditTypes } = await checkAuditCompletionFromDB(siteId, auditTypes, onboardStartTime, dataAccess, log));
+    }
+
     // Process opportunities by type to avoid duplicates
     // Only process opportunities that are expected based on the profile's audit types
     const processedTypes = new Set();
@@ -626,23 +635,28 @@ export async function runOpportunityStatusProcessor(message, context) {
       }
       processedTypes.add(opportunityType);
 
-      // eslint-disable-next-line no-await-in-loop
-      const suggestions = await opportunity.getSuggestions();
-
       const opportunityTitle = getOpportunityTitle(opportunityType);
-      const hasSuggestions = suggestions && suggestions.length > 0;
-      const status = hasSuggestions ? ':white_check_mark:' : ':x:';
-      statusMessages.push(`${opportunityTitle} ${status}`);
 
-      // Track failed opportunities (no suggestions)
-      if (!hasSuggestions) {
-        // Use informational message for opportunities with zero suggestions
-        const reason = 'Audit executed successfully, opportunity added, but found no suggestions';
+      // If the source audit is still running, show ⏳ instead of stale ✅/❌
+      const sourceAuditIsPending = getAuditsForOpportunity(opportunityType)
+        .some((auditType) => pendingAuditTypes.includes(auditType));
 
-        failedOpportunities.push({
-          title: opportunityTitle,
-          reason,
-        });
+      if (sourceAuditIsPending) {
+        statusMessages.push(`${opportunityTitle} :hourglass_flowing_sand:`);
+      } else {
+        // eslint-disable-next-line no-await-in-loop
+        const suggestions = await opportunity.getSuggestions();
+        const hasSuggestions = suggestions && suggestions.length > 0;
+        const status = hasSuggestions ? ':white_check_mark:' : ':x:';
+        statusMessages.push(`${opportunityTitle} ${status}`);
+
+        // Track failed opportunities (no suggestions)
+        if (!hasSuggestions) {
+          failedOpportunities.push({
+            title: opportunityTitle,
+            reason: 'Audit executed successfully, opportunity added, but found no suggestions',
+          });
+        }
       }
     }
 
@@ -721,23 +735,22 @@ export async function runOpportunityStatusProcessor(message, context) {
         await say(env, log, slackContext, 'No audit errors found');
       }
 
-      // Audit completion disclaimer — check DB for pending audits and warn if any are still running
+      // Audit completion disclaimer — reuse pendingAuditTypes already computed above.
+      // Only list audit types that have known opportunity mappings; infrastructure audits
+      // (auto-suggest, auto-fix, scrape, etc.) are not shown since they don't affect
+      // the displayed opportunity statuses.
       if (auditTypes.length > 0) {
-        const { pendingAuditTypes } = await checkAuditCompletionFromDB(
-          siteId,
-          auditTypes,
-          onboardStartTime,
-          dataAccess,
-          log,
-        );
         const isRecheck = taskContext?.isRecheck === true;
-        if (pendingAuditTypes.length > 0) {
-          const pendingList = pendingAuditTypes.map(getOpportunityTitle).join(', ');
+        const relevantPendingTypes = pendingAuditTypes.filter(
+          (t) => getOpportunitiesForAudit(t).length > 0,
+        );
+        if (relevantPendingTypes.length > 0) {
+          const pendingList = relevantPendingTypes.map(getOpportunityTitle).join(', ');
           await say(
             env,
             log,
             slackContext,
-            `:warning: *Heads-up:* The following audit${pendingAuditTypes.length > 1 ? 's' : ''} `
+            `:warning: *Heads-up:* The following audit${relevantPendingTypes.length > 1 ? 's' : ''} `
             + `may still be in progress: *${pendingList}*.\n`
             + 'The statuses above reflect data available at this moment and may be incomplete. '
             + `Run \`onboard status ${siteUrl}\` to re-check once all audits have completed.`,

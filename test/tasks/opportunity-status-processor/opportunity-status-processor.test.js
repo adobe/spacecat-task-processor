@@ -2491,12 +2491,21 @@ describe('Opportunity Status Processor', () => {
 
       message.siteUrl = 'https://example.com';
       message.taskContext.auditTypes = ['cwv', 'broken-backlinks'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
+      const onboardStartTime = Date.now() - 3600000;
+      message.taskContext.onboardStartTime = onboardStartTime;
       message.taskContext.slackContext = {
         channelId: 'test-channel',
         threadTs: 'test-thread',
       };
       context.env.AWS_REGION = 'us-east-1';
+
+      // Provide fresh audit records so audits are "complete" (not pending)
+      context.dataAccess.Audit = {
+        allLatestForSite: sinon.stub().resolves([
+          { getAuditType: () => 'cwv', getAuditedAt: () => new Date(onboardStartTime + 1000).toISOString() },
+          { getAuditType: () => 'broken-backlinks', getAuditedAt: () => new Date(onboardStartTime + 1000).toISOString() },
+        ]),
+      };
 
       // Mock TWO opportunities with no suggestions to ensure loop executes multiple times
       const mockOpportunity1 = {
@@ -4261,15 +4270,58 @@ describe('Opportunity Status Processor', () => {
       expect(disclaimerCalls.some((m) => m.includes('All audits have completed'))).to.be.false;
     });
 
-    it('skips disclaimer check when auditTypes is empty', async () => {
+    it('skips disclaimer and pending check when auditTypes is empty', async () => {
       const onboardStartTime = Date.now() - 3600000;
       const testMessage = makeDisclaimerMessage(onboardStartTime, []);
       const testContext = makeDisclaimerContext([]);
 
       await disclaimerHandler.runOpportunityStatusProcessor(testMessage, testContext);
 
-      // Audit.allLatestForSite should not be called for disclaimer (auditTypes empty)
+      // No audit completion DB call when auditTypes is empty
       expect(testContext.dataAccess.Audit.allLatestForSite).to.not.have.been.called;
+      const disclaimerCalls = sayStub.args.map((a) => a[3]).filter(Boolean);
+      expect(disclaimerCalls.some((m) => m.includes('may still be in progress'))).to.be.false;
+    });
+
+    it('shows hourglass in opportunity status when source audit is pending', async () => {
+      const onboardStartTime = Date.now() - 3600000;
+      const testMessage = makeDisclaimerMessage(onboardStartTime, ['cwv']);
+      const staleAudit = {
+        getAuditType: () => 'cwv',
+        getAuditedAt: () => new Date(onboardStartTime - 1000).toISOString(),
+      };
+      const cwvOpp = {
+        getType: sinon.stub().returns('cwv'),
+        getSuggestions: sinon.stub().resolves([{ id: 'sug-1' }]),
+      };
+      const testContext = {
+        ...context,
+        dataAccess: {
+          Site: {
+            findById: sinon.stub().resolves({
+              getOpportunities: sinon.stub().resolves([cwvOpp]),
+              getBaseURL: sinon.stub().returns('https://example.com'),
+            }),
+          },
+          SiteTopPage: {
+            allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+          },
+          Audit: {
+            allLatestForSite: sinon.stub().resolves([staleAudit]),
+          },
+        },
+      };
+
+      await disclaimerHandler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      // cwv audit is pending → opportunity shows ⏳, getSuggestions is NOT called
+      expect(cwvOpp.getSuggestions).to.not.have.been.called;
+      expect(sayStub).to.have.been.calledWith(
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match(/Core Web Vitals :hourglass_flowing_sand:/),
+      );
     });
 
     it('falls back conservatively when Audit.allLatestForSite throws in disclaimer check', async () => {
@@ -4324,6 +4376,28 @@ describe('Opportunity Status Processor', () => {
         sinon.match.any,
         sinon.match(/onboard status https:\/\/example\.com/),
       );
+    });
+
+    it('excludes infrastructure audit types not in AUDIT_OPPORTUNITY_MAP from disclaimer', async () => {
+      const onboardStartTime = Date.now() - 3600000;
+      // cwv is in the map; scrape-top-pages is not
+      const testMessage = makeDisclaimerMessage(
+        onboardStartTime,
+        ['cwv', 'scrape-top-pages'],
+      );
+      const staleAudits = [
+        { getAuditType: () => 'cwv', getAuditedAt: () => new Date(onboardStartTime - 500).toISOString() },
+        { getAuditType: () => 'scrape-top-pages', getAuditedAt: () => new Date(onboardStartTime - 500).toISOString() },
+      ];
+      const testContext = makeDisclaimerContext(staleAudits);
+
+      await disclaimerHandler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      const calls = sayStub.args.map((a) => a[3]).filter(Boolean);
+      const disclaimer = calls.find((m) => m.includes('may still be in progress'));
+      expect(disclaimer).to.exist;
+      expect(disclaimer).to.include('Core Web Vitals');
+      expect(disclaimer).to.not.include('Scrape Top Pages');
     });
   });
 });
