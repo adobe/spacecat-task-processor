@@ -241,11 +241,51 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
 }
 
 /**
- * Checks scrape results for bot protection blocking
- * @param {Array} scrapeResults - Array of scrape URL results
- * @param {object} context - The context object with log
- * @returns {object|null} Bot protection details if detected, null otherwise
+ * Checks which audit types have completed since onboardStartTime by querying the database.
+ * An audit is considered completed if a record exists with auditedAt >= onboardStartTime.
+ * Falls back conservatively (all pending) if the DB query fails.
+ *
+ * @param {string} siteId - The site ID
+ * @param {Array<string>} auditTypes - Audit types expected for this onboard session
+ * @param {number} onboardStartTime - Onboarding start timestamp in ms
+ * @param {object} dataAccess - Data access object
+ * @param {object} log - Logger
+ * @returns {Promise<{pendingAuditTypes: Array<string>, completedAuditTypes: Array<string>}>}
  */
+async function checkAuditCompletionFromDB(siteId, auditTypes, onboardStartTime, dataAccess, log) {
+  const pendingAuditTypes = [];
+  const completedAuditTypes = [];
+  try {
+    const { Audit } = dataAccess;
+    const latestAudits = await Audit.allLatestForSite(siteId);
+    const auditsByType = {};
+    if (latestAudits) {
+      for (const audit of latestAudits) {
+        auditsByType[audit.getAuditType()] = audit;
+      }
+    }
+    for (const auditType of auditTypes) {
+      const audit = auditsByType[auditType];
+      if (!audit) {
+        pendingAuditTypes.push(auditType);
+      } else {
+        const auditedAt = new Date(audit.getAuditedAt()).getTime();
+        if (onboardStartTime && auditedAt < onboardStartTime) {
+          // Record exists but predates this onboard session — treat as pending
+          pendingAuditTypes.push(auditType);
+        } else {
+          completedAuditTypes.push(auditType);
+        }
+      }
+    }
+  } catch (error) {
+    log.warn(`Could not check audit completion from DB for site ${siteId}: ${error.message}`);
+    // Conservative fallback: mark all as pending so disclaimer is always shown on error
+    pendingAuditTypes.push(...auditTypes.filter((t) => !completedAuditTypes.includes(t)));
+  }
+  return { pendingAuditTypes, completedAuditTypes };
+}
+
 /**
  * Analyzes missing opportunities and determines the root cause
  * @param {Array<string>} missingOpportunities - Array of missing opportunity types
@@ -679,6 +719,37 @@ export async function runOpportunityStatusProcessor(message, context) {
         await say(env, log, slackContext, auditErrors.join('\n'));
       } else {
         await say(env, log, slackContext, 'No audit errors found');
+      }
+
+      // Audit completion disclaimer — check DB for pending audits and warn if any are still running
+      if (auditTypes.length > 0) {
+        const { pendingAuditTypes } = await checkAuditCompletionFromDB(
+          siteId,
+          auditTypes,
+          onboardStartTime,
+          dataAccess,
+          log,
+        );
+        const isRecheck = taskContext?.isRecheck === true;
+        if (pendingAuditTypes.length > 0) {
+          const pendingList = pendingAuditTypes.map(getOpportunityTitle).join(', ');
+          await say(
+            env,
+            log,
+            slackContext,
+            `:warning: *Heads-up:* The following audit${pendingAuditTypes.length > 1 ? 's' : ''} `
+            + `may still be in progress: *${pendingList}*.\n`
+            + 'The statuses above reflect data available at this moment and may be incomplete. '
+            + `Run \`onboard status ${siteUrl}\` to re-check once all audits have completed.`,
+          );
+        } else if (isRecheck) {
+          await say(
+            env,
+            log,
+            slackContext,
+            ':white_check_mark: All audits have completed. The statuses above are up to date.',
+          );
+        }
       }
     }
 
