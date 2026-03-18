@@ -4122,4 +4122,208 @@ describe('Opportunity Status Processor', () => {
       );
     });
   });
+
+  describe('Audit Completion Disclaimer', () => {
+    let sayStub;
+    let disclaimerHandler;
+
+    beforeEach(async () => {
+      sayStub = sinon.stub().resolves();
+      const esmockLocal = (await import('esmock')).default;
+      disclaimerHandler = await esmockLocal('../../../src/tasks/opportunity-status-processor/handler.js', {
+        '../../../src/utils/slack-utils.js': { say: sayStub },
+        '@adobe/spacecat-shared-utils': {
+          resolveCanonicalUrl: sinon.stub().callsFake(async (url) => url),
+        },
+        '@adobe/spacecat-shared-rum-api-client': {
+          default: {
+            createFrom: sinon.stub().returns({ retrieveDomainkey: sinon.stub().rejects() }),
+          },
+        },
+        '@adobe/spacecat-shared-google-client': {
+          default: { createFrom: sinon.stub().rejects() },
+        },
+        '@adobe/spacecat-shared-scrape-client': {
+          ScrapeClient: {
+            createFrom: sinon.stub().returns({ getScrapeJobsByBaseURL: sinon.stub().resolves([]) }),
+          },
+        },
+        '../../../src/utils/cloudwatch-utils.js': {
+          getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
+        },
+        '../../../src/utils/bot-detection.js': {
+          checkAndAlertBotProtection: sinon.stub().resolves(null),
+        },
+      });
+    });
+
+    function makeDisclaimerMessage(onboardStartTime, auditTypes, isRecheck = false) {
+      return {
+        siteId: 'test-site-id',
+        siteUrl: 'https://example.com',
+        organizationId: 'test-org-id',
+        taskContext: {
+          auditTypes,
+          slackContext: { channelId: 'test-channel', threadTs: 'test-thread' },
+          onboardStartTime,
+          isRecheck,
+        },
+      };
+    }
+
+    function makeDisclaimerContext(auditRecords) {
+      return {
+        ...context,
+        dataAccess: {
+          Site: {
+            findById: sinon.stub().resolves({
+              getOpportunities: sinon.stub().resolves([]),
+              getBaseURL: sinon.stub().returns('https://example.com'),
+            }),
+          },
+          SiteTopPage: {
+            allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+          },
+          Audit: {
+            allLatestForSite: sinon.stub().resolves(auditRecords),
+          },
+        },
+      };
+    }
+
+    it('sends pending audit warning when audit record predates onboardStartTime', async () => {
+      const onboardStartTime = Date.now() - 3600000;
+      const testMessage = makeDisclaimerMessage(onboardStartTime, ['cwv']);
+      const staleAudit = {
+        getAuditType: () => 'cwv',
+        getAuditedAt: () => new Date(onboardStartTime - 1000).toISOString(),
+      };
+      const testContext = makeDisclaimerContext([staleAudit]);
+
+      await disclaimerHandler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      expect(sayStub).to.have.been.calledWith(
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match(/may still be in progress.*Core Web Vitals/),
+      );
+    });
+
+    it('sends pending warning when no audit record exists for an expected type', async () => {
+      const onboardStartTime = Date.now() - 3600000;
+      const testMessage = makeDisclaimerMessage(onboardStartTime, ['cwv']);
+      // No audit records at all → cwv is pending
+      const testContext = makeDisclaimerContext([]);
+
+      await disclaimerHandler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      expect(sayStub).to.have.been.calledWith(
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match(/may still be in progress/),
+      );
+    });
+
+    it('sends "all complete" confirmation when isRecheck=true and all audits have run', async () => {
+      const onboardStartTime = Date.now() - 3600000;
+      const testMessage = makeDisclaimerMessage(onboardStartTime, ['cwv'], true);
+      const freshAudit = {
+        getAuditType: () => 'cwv',
+        getAuditedAt: () => new Date(onboardStartTime + 1000).toISOString(),
+      };
+      const testContext = makeDisclaimerContext([freshAudit]);
+
+      await disclaimerHandler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      expect(sayStub).to.have.been.calledWith(
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match.any,
+        ':white_check_mark: All audits have completed. The statuses above are up to date.',
+      );
+    });
+
+    it('sends no disclaimer when all audits complete and isRecheck=false', async () => {
+      const onboardStartTime = Date.now() - 3600000;
+      const testMessage = makeDisclaimerMessage(onboardStartTime, ['cwv'], false);
+      const freshAudit = {
+        getAuditType: () => 'cwv',
+        getAuditedAt: () => new Date(onboardStartTime + 1000).toISOString(),
+      };
+      const testContext = makeDisclaimerContext([freshAudit]);
+
+      await disclaimerHandler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      const disclaimerCalls = sayStub.args.map((a) => a[3]).filter(Boolean);
+      expect(disclaimerCalls.some((m) => m.includes('may still be in progress'))).to.be.false;
+      expect(disclaimerCalls.some((m) => m.includes('All audits have completed'))).to.be.false;
+    });
+
+    it('skips disclaimer check when auditTypes is empty', async () => {
+      const onboardStartTime = Date.now() - 3600000;
+      const testMessage = makeDisclaimerMessage(onboardStartTime, []);
+      const testContext = makeDisclaimerContext([]);
+
+      await disclaimerHandler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      // Audit.allLatestForSite should not be called for disclaimer (auditTypes empty)
+      expect(testContext.dataAccess.Audit.allLatestForSite).to.not.have.been.called;
+    });
+
+    it('falls back conservatively when Audit.allLatestForSite throws in disclaimer check', async () => {
+      const onboardStartTime = Date.now() - 3600000;
+      const testMessage = makeDisclaimerMessage(onboardStartTime, ['cwv']);
+      const testContext = {
+        ...context,
+        dataAccess: {
+          Site: {
+            findById: sinon.stub().resolves({
+              getOpportunities: sinon.stub().resolves([]),
+              getBaseURL: sinon.stub().returns('https://example.com'),
+            }),
+          },
+          SiteTopPage: {
+            allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+          },
+          Audit: {
+            allLatestForSite: sinon.stub().rejects(new Error('DB unavailable')),
+          },
+        },
+      };
+
+      await disclaimerHandler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      expect(testContext.log.warn).to.have.been.calledWith(
+        sinon.match(/Could not check audit completion from DB for site test-site-id: DB unavailable/),
+      );
+      // Conservative fallback: pending warning sent
+      expect(sayStub).to.have.been.calledWith(
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match(/may still be in progress/),
+      );
+    });
+
+    it('includes siteUrl in the "run onboard status" hint within pending warning', async () => {
+      const onboardStartTime = Date.now() - 3600000;
+      const testMessage = makeDisclaimerMessage(onboardStartTime, ['broken-backlinks']);
+      const staleAudit = {
+        getAuditType: () => 'broken-backlinks',
+        getAuditedAt: () => new Date(onboardStartTime - 500).toISOString(),
+      };
+      const testContext = makeDisclaimerContext([staleAudit]);
+
+      await disclaimerHandler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      expect(sayStub).to.have.been.calledWith(
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match(/onboard status https:\/\/example\.com/),
+      );
+    });
+  });
 });
