@@ -1,3 +1,10 @@
+# [1.12.0](https://github.com/adobe/spacecat-task-processor/compare/v1.11.17...v1.12.0) (2026-03-19)
+
+
+### Features
+
+* **ci:** migrate to centralized mysticat-ci workflow ([#221](https://github.com/adobe/spacecat-task-processor/issues/221)) ([6636bb9](https://github.com/adobe/spacecat-task-processor/commit/6636bb9beab51fefa6cb4ae80793b3a7deed8d5a))
+
 ## [1.11.17](https://github.com/adobe/spacecat-task-processor/compare/v1.11.16...v1.11.17) (2026-03-19)
 
 
