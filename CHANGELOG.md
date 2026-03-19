@@ -1,3 +1,10 @@
+## [1.12.1](https://github.com/adobe/spacecat-task-processor/compare/v1.12.0...v1.12.1) (2026-03-19)
+
+
+### Bug Fixes
+
+* add per-environment reserved concurrency via CLI flags ([#217](https://github.com/adobe/spacecat-task-processor/issues/217)) ([f4a8f42](https://github.com/adobe/spacecat-task-processor/commit/f4a8f4286f89737d5aa391c73fbeaab2b8ba1c00))
+
 # [1.12.0](https://github.com/adobe/spacecat-task-processor/compare/v1.11.17...v1.12.0) (2026-03-19)
 
 
