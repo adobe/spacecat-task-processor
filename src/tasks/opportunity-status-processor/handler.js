@@ -14,12 +14,16 @@ import { ok } from '@adobe/spacecat-shared-http-utils';
 import RUMAPIClient from '@adobe/spacecat-shared-rum-api-client';
 import GoogleClient from '@adobe/spacecat-shared-google-client';
 import { ScrapeClient } from '@adobe/spacecat-shared-scrape-client';
-import { resolveCanonicalUrl } from '@adobe/spacecat-shared-utils';
+import {
+  resolveCanonicalUrl,
+  getAuditsForOpportunity,
+  getOpportunityTitle,
+  OPPORTUNITY_DEPENDENCY_MAP,
+  getOpportunitiesForAudit,
+} from '@adobe/spacecat-shared-utils';
 import { getAuditStatus } from '../../utils/cloudwatch-utils.js';
 import { checkAndAlertBotProtection } from '../../utils/bot-detection.js';
 import { say } from '../../utils/slack-utils.js';
-import { getOpportunitiesForAudit, getAuditsForOpportunity } from './audit-opportunity-map.js';
-import { OPPORTUNITY_DEPENDENCY_MAP } from './opportunity-dependency-map.js';
 
 const TASK_TYPE = 'opportunity-status-processor';
 
@@ -92,33 +96,6 @@ async function isGSCConfigured(siteUrl, context) {
     log.info(`GSC is not configured for site ${siteUrl}. Reason: ${error.message}`);
     return false;
   }
-}
-
-/**
- * Gets the opportunity title from the opportunity type
- * @param {string} opportunityType - The opportunity type
- * @returns {string} The opportunity title
- */
-function getOpportunityTitle(opportunityType) {
-  const opportunityTitles = {
-    cwv: 'Core Web Vitals',
-    'meta-tags': 'SEO Meta Tags',
-    'broken-backlinks': 'Broken Backlinks',
-    'broken-internal-links': 'Broken Internal Links',
-    'alt-text': 'Alt Text',
-    sitemap: 'Sitemap',
-  };
-
-  // Check if the opportunity type exists in our map
-  if (opportunityTitles[opportunityType]) {
-    return opportunityTitles[opportunityType];
-  }
-
-  // Convert kebab-case to Title Case (e.g., "first-second" -> "First Second")
-  return opportunityType
-    .split('-')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
 }
 
 /**

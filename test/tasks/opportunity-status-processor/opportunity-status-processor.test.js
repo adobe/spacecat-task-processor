@@ -2032,7 +2032,7 @@ describe('Opportunity Status Processor', () => {
 
     it('should cover scraping dependency when checked (lines 330-331, 454-457, 595-596, 628-638)', async () => {
       // Temporarily modify OPPORTUNITY_DEPENDENCY_MAP to include a scraping dependency
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalScraping = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
       dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
 
@@ -2066,7 +2066,7 @@ describe('Opportunity Status Processor', () => {
 
     it('should cover GSC dependency when checked (lines 450-451, 592-593, 646-647)', async () => {
       // Temporarily modify OPPORTUNITY_DEPENDENCY_MAP to include GSC
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalCwv = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP.cwv;
       dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP.cwv = ['GSC'];
 
@@ -2113,7 +2113,7 @@ describe('Opportunity Status Processor', () => {
       const scrapeClientStub = sinon.stub(ScrapeClient, 'createFrom').returns(mockScrapeClient);
 
       // Temporarily add scraping dependency to trigger scraping check
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       try {
@@ -2140,7 +2140,7 @@ describe('Opportunity Status Processor', () => {
 
     it('should handle no scrape jobs found (line 149-150)', async () => {
       // Temporarily add scraping dependency to trigger scraping check
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       const mockScrapeClient = {
@@ -2193,7 +2193,7 @@ describe('Opportunity Status Processor', () => {
       const { ScrapeClient } = scrapeModule;
 
       // Temporarily add scraping dependency
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       try {
@@ -2246,7 +2246,7 @@ describe('Opportunity Status Processor', () => {
       const { ScrapeClient } = scrapeModule;
 
       // Temporarily add scraping dependency
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       try {
@@ -2299,7 +2299,7 @@ describe('Opportunity Status Processor', () => {
       const { ScrapeClient } = scrapeModule;
 
       // Temporarily add scraping dependency
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       try {
@@ -2366,7 +2366,7 @@ describe('Opportunity Status Processor', () => {
       const { ScrapeClient } = scrapeModule;
 
       // Temporarily add scraping dependency
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       try {
@@ -2427,7 +2427,7 @@ describe('Opportunity Status Processor', () => {
       const { ScrapeClient } = scrapeModule;
 
       // Temporarily add scraping dependency
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       try {
@@ -2558,7 +2558,7 @@ describe('Opportunity Status Processor', () => {
 
       const scrapeClientStub = sinon.stub(ScrapeClient, 'createFrom').returns(mockScrapeClient);
 
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       try {
@@ -2630,7 +2630,7 @@ describe('Opportunity Status Processor', () => {
     });
 
     it('should check GSC listSites when GSC is needed (lines 84-86)', async () => {
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalCwv = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP.cwv;
 
       const GoogleClientModule = await import('@adobe/spacecat-shared-google-client');
@@ -2748,7 +2748,7 @@ describe('Opportunity Status Processor', () => {
 
     it('should detect bot protection from database and send Slack alert', async function () {
       this.timeout(5000);
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       // Make broken-backlinks require scraping
@@ -2858,7 +2858,7 @@ describe('Opportunity Status Processor', () => {
 
     it('should use dev IPs when AWS_REGION is not us-east', async function () {
       this.timeout(5000);
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       // Make broken-backlinks require scraping
@@ -2955,7 +2955,7 @@ describe('Opportunity Status Processor', () => {
 
     it('should not send bot protection alert when no bot protection logs found', async function () {
       this.timeout(5000);
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
@@ -3024,7 +3024,7 @@ describe('Opportunity Status Processor', () => {
 
     it('should handle partial bot protection blocking', async function () {
       this.timeout(5000);
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       try {
@@ -3124,7 +3124,7 @@ describe('Opportunity Status Processor', () => {
 
     it('should not send alert when no bot protection detected', async function () {
       this.timeout(5000);
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
@@ -3211,7 +3211,7 @@ describe('Opportunity Status Processor', () => {
     });
 
     it('should handle scrapes without bot protection metadata', async () => {
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
@@ -3271,7 +3271,7 @@ describe('Opportunity Status Processor', () => {
     });
 
     it('should not check bot protection when slackContext is missing', async () => {
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
@@ -3327,7 +3327,7 @@ describe('Opportunity Status Processor', () => {
     });
 
     it('should not send alert when all S3 files exist (no missing files)', async () => {
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
@@ -3423,7 +3423,7 @@ describe('Opportunity Status Processor', () => {
     });
 
     it('should use fallback stats when no scrape job ID is available', async () => {
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
@@ -3516,7 +3516,7 @@ describe('Opportunity Status Processor', () => {
     });
 
     it('should handle bot protection without job ID (fallback stats)', async () => {
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
       dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
 
@@ -3595,7 +3595,7 @@ describe('Opportunity Status Processor', () => {
 
       it('should detect bot protection when abortInfo is present', async function () {
         this.timeout(5000);
-        const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+        const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
         const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
         try {
@@ -3668,7 +3668,7 @@ describe('Opportunity Status Processor', () => {
 
       it('should not detect bot protection when abortInfo is null', async function () {
         this.timeout(5000);
-        const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+        const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
         const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
         try {
@@ -3726,7 +3726,7 @@ describe('Opportunity Status Processor', () => {
 
       it('should not detect bot protection when job is complete with no abortInfo', async function () {
         this.timeout(5000);
-        const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+        const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
         const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
         try {
@@ -3785,7 +3785,7 @@ describe('Opportunity Status Processor', () => {
 
       it('should handle errors gracefully when checking bot protection', async function () {
         this.timeout(5000);
-        const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+        const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
         const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
         try {
@@ -3863,7 +3863,7 @@ describe('Opportunity Status Processor', () => {
       });
 
       // Temporarily add scraping dependency
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalAltText = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['alt-text'];
 
       try {
@@ -4011,16 +4011,14 @@ describe('Opportunity Status Processor', () => {
       const handler = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
         '@adobe/spacecat-shared-utils': {
           resolveCanonicalUrl: sinon.stub().resolves('https://example.com'),
+          getOpportunitiesForAudit: mockGetOpportunitiesForAudit,
+          AUDIT_OPPORTUNITY_MAP: {},
         },
         '../../../src/utils/bot-detection.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
         },
         '../../../src/utils/cloudwatch-utils.js': {
           getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
-        },
-        '../../../src/tasks/opportunity-status-processor/audit-opportunity-map.js': {
-          getOpportunitiesForAudit: mockGetOpportunitiesForAudit,
-          AUDIT_OPPORTUNITY_MAP: {},
         },
       });
 
