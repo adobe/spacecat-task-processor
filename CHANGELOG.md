@@ -1,3 +1,10 @@
+## [1.12.11](https://github.com/adobe/spacecat-task-processor/compare/v1.12.10...v1.12.11) (2026-03-26)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adobe/spacecat-shared-http-utils to v1.25.0 ([#231](https://github.com/adobe/spacecat-task-processor/issues/231)) ([739d7cf](https://github.com/adobe/spacecat-task-processor/commit/739d7cf94e0183e0fda49c6731597711346e402a))
+
 ## [1.12.10](https://github.com/adobe/spacecat-task-processor/compare/v1.12.9...v1.12.10) (2026-03-26)
 
 
