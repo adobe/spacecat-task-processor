@@ -247,8 +247,8 @@ async function checkAuditCompletionFromDB(siteId, auditTypes, onboardStartTime, 
         pendingAuditTypes.push(auditType);
       } else {
         const auditedAt = new Date(audit.getAuditedAt()).getTime();
-        if (onboardStartTime && auditedAt < onboardStartTime) {
-          // Record exists but predates this onboard session — treat as pending
+        if (Number.isNaN(auditedAt) || auditedAt < onboardStartTime) {
+          // Unparseable timestamp or audit predates this onboard session — treat as pending
           pendingAuditTypes.push(auditType);
         } else {
           completedAuditTypes.push(auditType);
@@ -258,6 +258,8 @@ async function checkAuditCompletionFromDB(siteId, auditTypes, onboardStartTime, 
   } catch (error) {
     log.warn(`Could not check audit completion from DB for site ${siteId}: ${error.message}`);
     // Conservative fallback: mark all as pending so disclaimer is always shown on error
+    // Reset first to avoid duplicates if some types were already pushed before the error
+    pendingAuditTypes.length = 0;
     pendingAuditTypes.push(...auditTypes.filter((t) => !completedAuditTypes.includes(t)));
   }
   return { pendingAuditTypes, completedAuditTypes };
@@ -722,7 +724,10 @@ export async function runOpportunityStatusProcessor(message, context) {
           (t) => getOpportunitiesForAudit(t).length > 0,
         );
         if (relevantPendingTypes.length > 0) {
-          const pendingList = relevantPendingTypes.map(getOpportunityTitle).join(', ');
+          const pendingOpportunityNames = relevantPendingTypes
+            .flatMap((t) => getOpportunitiesForAudit(t))
+            .map(getOpportunityTitle);
+          const pendingList = [...new Set(pendingOpportunityNames)].join(', ');
           await say(
             env,
             log,
