@@ -20,6 +20,7 @@ import {
   getOpportunityTitle,
   OPPORTUNITY_DEPENDENCY_MAP,
   getOpportunitiesForAudit,
+  computeAuditCompletion,
 } from '@adobe/spacecat-shared-utils';
 import { getAuditStatus } from '../../utils/cloudwatch-utils.js';
 import { checkAndAlertBotProtection } from '../../utils/bot-detection.js';
@@ -215,54 +216,6 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     log.error(`Scraping check failed for ${baseUrl}:`, error);
     return { available: false, results: [] };
   }
-}
-
-/**
- * Checks which audit types have completed since onboardStartTime by querying the database.
- * An audit is considered completed if a record exists with auditedAt >= onboardStartTime.
- * Falls back conservatively (all pending) if the DB query fails.
- *
- * @param {string} siteId - The site ID
- * @param {Array<string>} auditTypes - Audit types expected for this onboard session
- * @param {number} onboardStartTime - Onboarding start timestamp in ms
- * @param {object} dataAccess - Data access object
- * @param {object} log - Logger
- * @returns {Promise<{pendingAuditTypes: Array<string>, completedAuditTypes: Array<string>}>}
- */
-async function checkAuditCompletionFromDB(siteId, auditTypes, onboardStartTime, dataAccess, log) {
-  const pendingAuditTypes = [];
-  const completedAuditTypes = [];
-  try {
-    const { Audit } = dataAccess;
-    const latestAudits = await Audit.allLatestForSite(siteId);
-    const auditsByType = {};
-    if (latestAudits) {
-      for (const audit of latestAudits) {
-        auditsByType[audit.getAuditType()] = audit;
-      }
-    }
-    for (const auditType of auditTypes) {
-      const audit = auditsByType[auditType];
-      if (!audit) {
-        pendingAuditTypes.push(auditType);
-      } else {
-        const auditedAt = new Date(audit.getAuditedAt()).getTime();
-        if (Number.isNaN(auditedAt) || auditedAt < onboardStartTime) {
-          // Unparseable timestamp or audit predates this onboard session — treat as pending
-          pendingAuditTypes.push(auditType);
-        } else {
-          completedAuditTypes.push(auditType);
-        }
-      }
-    }
-  } catch (error) {
-    log.warn(`Could not check audit completion from DB for site ${siteId}: ${error.message}`);
-    // Conservative fallback: mark all as pending so disclaimer is always shown on error
-    // Reset first to avoid duplicates if some types were already pushed before the error
-    pendingAuditTypes.length = 0;
-    pendingAuditTypes.push(...auditTypes.filter((t) => !completedAuditTypes.includes(t)));
-  }
-  return { pendingAuditTypes, completedAuditTypes };
 }
 
 /**
@@ -582,8 +535,16 @@ export async function runOpportunityStatusProcessor(message, context) {
     // Only meaningful when we have an onboardStartTime anchor to compare against.
     let pendingAuditTypes = [];
     if (auditTypes && auditTypes.length > 0 && onboardStartTime) {
-      // eslint-disable-next-line max-len
-      ({ pendingAuditTypes } = await checkAuditCompletionFromDB(siteId, auditTypes, onboardStartTime, dataAccess, log));
+      try {
+        const { Audit } = dataAccess;
+        const latestAudits = await Audit.allLatestForSite(siteId);
+        const completion = computeAuditCompletion(auditTypes, onboardStartTime, latestAudits);
+        pendingAuditTypes = completion.pendingAuditTypes;
+      } catch (auditErr) {
+        log.warn(`Could not check audit completion from DB for site ${siteId}: ${auditErr.message}`);
+        // Conservative fallback: mark all as pending so disclaimer is always shown on error
+        pendingAuditTypes = [...auditTypes];
+      }
     }
 
     // Process opportunities by type to avoid duplicates
