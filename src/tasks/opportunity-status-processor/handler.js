@@ -14,12 +14,17 @@ import { ok } from '@adobe/spacecat-shared-http-utils';
 import RUMAPIClient from '@adobe/spacecat-shared-rum-api-client';
 import GoogleClient from '@adobe/spacecat-shared-google-client';
 import { ScrapeClient } from '@adobe/spacecat-shared-scrape-client';
-import { resolveCanonicalUrl } from '@adobe/spacecat-shared-utils';
+import {
+  resolveCanonicalUrl,
+  getAuditsForOpportunity,
+  getOpportunityTitle,
+  OPPORTUNITY_DEPENDENCY_MAP,
+  getOpportunitiesForAudit,
+  computeAuditCompletion,
+} from '@adobe/spacecat-shared-utils';
 import { getAuditStatus } from '../../utils/cloudwatch-utils.js';
 import { checkAndAlertBotProtection } from '../../utils/bot-detection.js';
 import { say } from '../../utils/slack-utils.js';
-import { getOpportunitiesForAudit } from './audit-opportunity-map.js';
-import { OPPORTUNITY_DEPENDENCY_MAP } from './opportunity-dependency-map.js';
 
 const TASK_TYPE = 'opportunity-status-processor';
 
@@ -92,33 +97,6 @@ async function isGSCConfigured(siteUrl, context) {
     log.info(`GSC is not configured for site ${siteUrl}. Reason: ${error.message}`);
     return false;
   }
-}
-
-/**
- * Gets the opportunity title from the opportunity type
- * @param {string} opportunityType - The opportunity type
- * @returns {string} The opportunity title
- */
-function getOpportunityTitle(opportunityType) {
-  const opportunityTitles = {
-    cwv: 'Core Web Vitals',
-    'meta-tags': 'SEO Meta Tags',
-    'broken-backlinks': 'Broken Backlinks',
-    'broken-internal-links': 'Broken Internal Links',
-    'alt-text': 'Alt Text',
-    sitemap: 'Sitemap',
-  };
-
-  // Check if the opportunity type exists in our map
-  if (opportunityTitles[opportunityType]) {
-    return opportunityTitles[opportunityType];
-  }
-
-  // Convert kebab-case to Title Case (e.g., "first-second" -> "First Second")
-  return opportunityType
-    .split('-')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
 }
 
 /**
@@ -240,12 +218,6 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
   }
 }
 
-/**
- * Checks scrape results for bot protection blocking
- * @param {Array} scrapeResults - Array of scrape URL results
- * @param {object} context - The context object with log
- * @returns {object|null} Bot protection details if detected, null otherwise
- */
 /**
  * Analyzes missing opportunities and determines the root cause
  * @param {Array<string>} missingOpportunities - Array of missing opportunity types
@@ -558,6 +530,23 @@ export async function runOpportunityStatusProcessor(message, context) {
     statusMessages.push(`GSC ${gscStatus}`);
     statusMessages.push(`Scraping ${scrapingStatus}`);
 
+    // Determine which audits are still pending so opportunity statuses can reflect
+    // in-progress state (⏳) rather than showing stale data as ✅/❌.
+    // Only meaningful when we have an onboardStartTime anchor to compare against.
+    let pendingAuditTypes = [];
+    if (auditTypes && auditTypes.length > 0 && onboardStartTime) {
+      try {
+        const { Audit } = dataAccess;
+        const latestAudits = await Audit.allLatestForSite(siteId);
+        const completion = computeAuditCompletion(auditTypes, onboardStartTime, latestAudits);
+        pendingAuditTypes = completion.pendingAuditTypes;
+      } catch (auditErr) {
+        log.warn(`Could not check audit completion from DB for site ${siteId}: ${auditErr.message}`);
+        // Conservative fallback: mark all as pending so disclaimer is always shown on error
+        pendingAuditTypes = [...auditTypes];
+      }
+    }
+
     // Process opportunities by type to avoid duplicates
     // Only process opportunities that are expected based on the profile's audit types
     const processedTypes = new Set();
@@ -586,23 +575,28 @@ export async function runOpportunityStatusProcessor(message, context) {
       }
       processedTypes.add(opportunityType);
 
-      // eslint-disable-next-line no-await-in-loop
-      const suggestions = await opportunity.getSuggestions();
-
       const opportunityTitle = getOpportunityTitle(opportunityType);
-      const hasSuggestions = suggestions && suggestions.length > 0;
-      const status = hasSuggestions ? ':white_check_mark:' : ':x:';
-      statusMessages.push(`${opportunityTitle} ${status}`);
 
-      // Track failed opportunities (no suggestions)
-      if (!hasSuggestions) {
-        // Use informational message for opportunities with zero suggestions
-        const reason = 'Audit executed successfully, opportunity added, but found no suggestions';
+      // If the source audit is still running, show ⏳ instead of stale ✅/❌
+      const sourceAuditIsPending = getAuditsForOpportunity(opportunityType)
+        .some((auditType) => pendingAuditTypes.includes(auditType));
 
-        failedOpportunities.push({
-          title: opportunityTitle,
-          reason,
-        });
+      if (sourceAuditIsPending) {
+        statusMessages.push(`${opportunityTitle} :hourglass_flowing_sand:`);
+      } else {
+        // eslint-disable-next-line no-await-in-loop
+        const suggestions = await opportunity.getSuggestions();
+        const hasSuggestions = suggestions && suggestions.length > 0;
+        const status = hasSuggestions ? ':white_check_mark:' : ':x:';
+        statusMessages.push(`${opportunityTitle} ${status}`);
+
+        // Track failed opportunities (no suggestions)
+        if (!hasSuggestions) {
+          failedOpportunities.push({
+            title: opportunityTitle,
+            reason: 'Audit executed successfully, opportunity added, but found no suggestions',
+          });
+        }
       }
     }
 
@@ -679,6 +673,39 @@ export async function runOpportunityStatusProcessor(message, context) {
         await say(env, log, slackContext, auditErrors.join('\n'));
       } else {
         await say(env, log, slackContext, 'No audit errors found');
+      }
+
+      // Audit completion disclaimer — reuse pendingAuditTypes already computed above.
+      // Only list audit types that have known opportunity mappings; infrastructure audits
+      // (auto-suggest, auto-fix, scrape, etc.) are not shown since they don't affect
+      // the displayed opportunity statuses.
+      if (auditTypes.length > 0) {
+        const isRecheck = taskContext?.isRecheck === true;
+        const relevantPendingTypes = pendingAuditTypes.filter(
+          (t) => getOpportunitiesForAudit(t).length > 0,
+        );
+        if (relevantPendingTypes.length > 0) {
+          const pendingOpportunityNames = relevantPendingTypes
+            .flatMap((t) => getOpportunitiesForAudit(t))
+            .map(getOpportunityTitle);
+          const pendingList = [...new Set(pendingOpportunityNames)].join(', ');
+          await say(
+            env,
+            log,
+            slackContext,
+            `:warning: *Heads-up:* The following audit${relevantPendingTypes.length > 1 ? 's' : ''} `
+            + `may still be in progress: *${pendingList}*.\n`
+            + 'The statuses above reflect data available at this moment and may be incomplete. '
+            + `Run \`onboard status ${siteUrl}\` to re-check once all audits have completed.`,
+          );
+        } else if (isRecheck) {
+          await say(
+            env,
+            log,
+            slackContext,
+            ':white_check_mark: All audits have completed. The statuses above are up to date.',
+          );
+        }
       }
     }
 
