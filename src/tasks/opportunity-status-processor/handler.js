@@ -698,7 +698,7 @@ export async function runOpportunityStatusProcessor(message, context) {
             + 'The statuses above reflect data available at this moment and may be incomplete. '
             + `Run \`onboard status ${siteUrl}\` to re-check once all audits have completed.`,
           );
-        } else if (isRecheck) {
+        } else if (isRecheck && onboardStartTime) {
           await say(
             env,
             log,

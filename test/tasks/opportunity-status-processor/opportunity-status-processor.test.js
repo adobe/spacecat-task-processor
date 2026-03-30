@@ -75,6 +75,9 @@ describe('Opportunity Status Processor', () => {
         SiteTopPage: {
           allBySiteIdAndSourceAndGeo: sandbox.stub().resolves([]),
         },
+        Audit: {
+          allLatestForSite: sandbox.stub().resolves([]),
+        },
       })
       .withOverrides({
         s3Client: mockS3Client,
@@ -4396,6 +4399,22 @@ describe('Opportunity Status Processor', () => {
       expect(disclaimer).to.exist;
       expect(disclaimer).to.include('Core Web Vitals');
       expect(disclaimer).to.not.include('Scrape Top Pages');
+    });
+
+    it('does not send "all complete" when isRecheck=true but onboardStartTime is absent (legacy site)', async () => {
+      // onboardStartTime is undefined — audit completion check is skipped entirely.
+      // pendingAuditTypes stays [] but we must NOT send "All audits have completed"
+      // because no check was performed.
+      const testMessage = makeDisclaimerMessage(undefined, ['cwv'], true);
+      const testContext = makeDisclaimerContext([]);
+
+      await disclaimerHandler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      // DB should not have been queried (no onboardStartTime to compare against)
+      expect(testContext.dataAccess.Audit.allLatestForSite).to.not.have.been.called;
+      const disclaimerCalls = sayStub.args.map((a) => a[3]).filter(Boolean);
+      expect(disclaimerCalls.some((m) => m.includes('All audits have completed'))).to.be.false;
+      expect(disclaimerCalls.some((m) => m.includes('may still be in progress'))).to.be.false;
     });
   });
 });
