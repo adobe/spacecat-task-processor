@@ -55,7 +55,7 @@ describe('Disable Import Audit Processor', () => {
       '../../../src/utils/slack-utils.js': {
         say: mockSay,
       },
-      '@adobe/spacecat-shared-data-access/src/models/site/config.js': {
+      '@adobe/spacecat-shared-data-access': {
         Config: { toDynamoItem: toDynamoItemStub },
       },
     });

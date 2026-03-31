@@ -11,7 +11,7 @@
  */
 
 import { ok } from '@adobe/spacecat-shared-http-utils';
-import { Config } from '@adobe/spacecat-shared-data-access/src/models/site/config.js';
+import { Config } from '@adobe/spacecat-shared-data-access';
 
 import { say } from '../../utils/slack-utils.js';
 
