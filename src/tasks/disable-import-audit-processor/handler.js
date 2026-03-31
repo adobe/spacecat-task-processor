@@ -11,6 +11,8 @@
  */
 
 import { ok } from '@adobe/spacecat-shared-http-utils';
+import { Config } from '@adobe/spacecat-shared-data-access/src/models/site/config.js';
+
 import { say } from '../../utils/slack-utils.js';
 
 const TASK_TYPE = 'disable-import-audit-processor';
@@ -54,6 +56,8 @@ export async function runDisableImportAuditProcessor(message, context) {
     for (const importType of importTypes) {
       siteConfig.disableImport(importType);
     }
+
+    site.setConfig(Config.toDynamoItem(siteConfig));
 
     const configuration = await Configuration.findLatest();
     for (const auditType of auditTypes) {
