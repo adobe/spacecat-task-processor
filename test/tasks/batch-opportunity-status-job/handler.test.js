@@ -21,8 +21,6 @@ const SITE_ID = 'site-id-1';
 const BASE_URL = 'https://site1.com';
 const UPDATED_AT = '2026-04-01T12:05:00.000Z';
 
-let runBatchOpportunityStatusJob;
-
 const createMockOpportunity = (sandbox, type, updatedAt = UPDATED_AT, suggestionCount = 0) => ({
   getType: sandbox.stub().returns(type),
   getUpdatedAt: sandbox.stub().returns(updatedAt),
@@ -43,10 +41,29 @@ const baseMessage = {
   },
 };
 
+async function buildHandler(sandbox, overrides = {}) {
+  return (await esmock(
+    '../../../src/tasks/batch-opportunity-status-job/handler.js',
+    {
+      '../../../src/tasks/opportunity-status-processor/handler.js': {
+        isRUMAvailable: sandbox.stub().resolves(false),
+        isAHREFSImportDataAvailable: sandbox.stub().resolves(false),
+        isScrapingAvailable: sandbox.stub().resolves({ available: false }),
+        ...overrides.opportunityStatusProcessor,
+      },
+      '@adobe/spacecat-shared-utils': {
+        resolveCanonicalUrl: sandbox.stub().resolves(BASE_URL),
+        ...overrides.sharedUtils,
+      },
+    },
+  )).runBatchOpportunityStatusJob;
+}
+
 describe('Batch Opportunity Status Job', () => {
   let sandbox;
   let mockContext;
   let mockSite;
+  let runBatchOpportunityStatusJob;
 
   beforeEach(async () => {
     sandbox = sinon.createSandbox();
@@ -60,21 +77,7 @@ describe('Batch Opportunity Status Job', () => {
       .build();
 
     mockSite = createMockSite(sandbox);
-
-    // Mock data source checks to avoid real network calls
-    runBatchOpportunityStatusJob = (await esmock(
-      '../../../src/tasks/batch-opportunity-status-job/handler.js',
-      {
-        '../../../src/tasks/opportunity-status-processor/handler.js': {
-          isRUMAvailable: sandbox.stub().resolves(false),
-          isAHREFSImportDataAvailable: sandbox.stub().resolves(false),
-          isScrapingAvailable: sandbox.stub().resolves({ available: false }),
-        },
-        '@adobe/spacecat-shared-utils': {
-          resolveCanonicalUrl: sandbox.stub().resolves(BASE_URL),
-        },
-      },
-    )).runBatchOpportunityStatusJob;
+    runBatchOpportunityStatusJob = await buildHandler(sandbox);
   });
 
   afterEach(() => {
@@ -214,6 +217,134 @@ describe('Batch Opportunity Status Job', () => {
       const body = await result.json();
 
       expect(body.found[0]).to.deep.include({ type: 'cwv', suggestionCount: 0 });
+    });
+
+    it('skips malformed opportunity when getType throws', async () => {
+      const malformedOpp = {
+        getType: sandbox.stub().throws(new Error('getType failed')),
+        getUpdatedAt: sandbox.stub().returns(UPDATED_AT),
+        getSuggestions: sandbox.stub().resolves([]),
+      };
+      const cwvOpp = createMockOpportunity(sandbox, 'cwv', UPDATED_AT, 1);
+      mockSite.getOpportunities.resolves([malformedOpp, cwvOpp]);
+      mockContext.dataAccess.Site.findById.resolves(mockSite);
+
+      const result = await runBatchOpportunityStatusJob(
+        { siteId: SITE_ID, siteUrl: BASE_URL, taskContext: { opportunityTypes: ['cwv'] } },
+        mockContext,
+      );
+      const body = await result.json();
+
+      expect(body.found).to.have.length(1);
+      expect(body.found[0].type).to.equal('cwv');
+      expect(mockContext.log.warn.calledWith(sinon.match(/Skipping malformed opportunity/))).to.be.true;
+    });
+
+    it('returns unexpected error response when an unhandled exception occurs', async () => {
+      mockSite.getOpportunities.resolves([]);
+      mockSite.getBaseURL.throws(new Error('Unexpected crash'));
+      mockContext.dataAccess.Site.findById.resolves(mockSite);
+
+      const result = await runBatchOpportunityStatusJob(baseMessage, mockContext);
+      const body = await result.json();
+
+      expect(body.message).to.include('Unexpected error');
+      expect(body.found).to.deep.equal([]);
+      expect(body.notFound).to.deep.equal([]);
+    });
+
+    it('skips RUM check when resolveCanonicalUrl returns null', async () => {
+      const isRUMAvailableStub = sandbox.stub().resolves(false);
+      const handler = await buildHandler(sandbox, {
+        sharedUtils: { resolveCanonicalUrl: sandbox.stub().resolves(null) },
+        opportunityStatusProcessor: { isRUMAvailable: isRUMAvailableStub },
+      });
+      mockSite.getOpportunities.resolves([]);
+      mockContext.dataAccess.Site.findById.resolves(mockSite);
+
+      await handler(baseMessage, mockContext);
+
+      expect(isRUMAvailableStub.called).to.be.false;
+    });
+
+    it('logs warn and defaults rum to false when RUM check throws', async () => {
+      const handler = await buildHandler(sandbox, {
+        opportunityStatusProcessor: {
+          isRUMAvailable: sandbox.stub().rejects(new Error('RUM service down')),
+        },
+      });
+      mockSite.getOpportunities.resolves([]);
+      mockContext.dataAccess.Site.findById.resolves(mockSite);
+
+      const result = await handler(baseMessage, mockContext);
+      const body = await result.json();
+
+      expect(body.dataSources.rum).to.be.false;
+      expect(mockContext.log.warn.calledWith(sinon.match(/RUM check failed/))).to.be.true;
+    });
+
+    it('logs warn and defaults ahrefsImport to false when AHREFS check throws', async () => {
+      const handler = await buildHandler(sandbox, {
+        opportunityStatusProcessor: {
+          isAHREFSImportDataAvailable: sandbox.stub().rejects(new Error('AHREFS down')),
+        },
+      });
+      mockSite.getOpportunities.resolves([]);
+      mockContext.dataAccess.Site.findById.resolves(mockSite);
+
+      const result = await handler(baseMessage, mockContext);
+      const body = await result.json();
+
+      expect(body.dataSources.ahrefsImport).to.be.false;
+      expect(mockContext.log.warn.calledWith(sinon.match(/AHREFS Import check failed/))).to.be.true;
+    });
+
+    it('logs warn and defaults scraping to false when scraping check throws', async () => {
+      const handler = await buildHandler(sandbox, {
+        opportunityStatusProcessor: {
+          isScrapingAvailable: sandbox.stub().rejects(new Error('Scraping down')),
+        },
+      });
+      mockSite.getOpportunities.resolves([]);
+      mockContext.dataAccess.Site.findById.resolves(mockSite);
+
+      const result = await handler(baseMessage, mockContext);
+      const body = await result.json();
+
+      expect(body.dataSources.scraping).to.be.false;
+      expect(mockContext.log.warn.calledWith(sinon.match(/Scraping check failed/))).to.be.true;
+    });
+
+    it('defaults suggestionCount to 0 when getSuggestions resolves to null', async () => {
+      const cwvOpp = createMockOpportunity(sandbox, 'cwv', UPDATED_AT);
+      cwvOpp.getSuggestions.resolves(null);
+      mockSite.getOpportunities.resolves([cwvOpp]);
+      mockContext.dataAccess.Site.findById.resolves(mockSite);
+
+      const result = await runBatchOpportunityStatusJob(
+        { siteId: SITE_ID, siteUrl: BASE_URL, taskContext: { opportunityTypes: ['cwv'] } },
+        mockContext,
+      );
+      const body = await result.json();
+
+      expect(body.found[0]).to.deep.include({ type: 'cwv', suggestionCount: 0 });
+    });
+
+    it('sets scrapingStats when scraping check returns stats', async () => {
+      const stats = { completed: 8, failed: 2, total: 10 };
+      const handler = await buildHandler(sandbox, {
+        opportunityStatusProcessor: {
+          isScrapingAvailable: sandbox.stub().resolves({ available: true, stats }),
+        },
+      });
+      mockSite.getOpportunities.resolves([]);
+      mockContext.dataAccess.Site.findById.resolves(mockSite);
+
+      const result = await handler(baseMessage, mockContext);
+      const body = await result.json();
+
+      expect(body.dataSources.scraping).to.be.true;
+      expect(body.dataSources.scrapingStats).to.deep.equal(stats);
     });
   });
 });

@@ -31,6 +31,7 @@ import { runSlackNotify as slackNotify } from './tasks/slack-notify/handler.js';
 import { runTriggerOpportunityStatusJob as triggerOpportunityStatusJob } from './tasks/trigger-opportunity-status-job/handler.js';
 import { runBatchOpportunityStatusJob as batchOpportunityStatusJob } from './tasks/batch-opportunity-status-job/handler.js';
 import { runBatchOpportunityStatusNotifier as batchOpportunityStatusNotifier } from './tasks/batch-opportunity-status-job/notifier.js';
+import { runBatchDisableImportAuditJob as batchDisableImportAuditJob } from './tasks/batch-opportunity-status-job/disable-import-audit.js';
 
 const HANDLERS = {
   'opportunity-status-processor': opportunityStatusProcessor,
@@ -41,6 +42,7 @@ const HANDLERS = {
   'cwv-demo-suggestions-processor': cwvDemoSuggestionsProcessor,
   'trigger-opportunity-status-job': triggerOpportunityStatusJob,
   'batch-opportunity-status-job': batchOpportunityStatusJob,
+  'batch-disable-import-audit-job': batchDisableImportAuditJob,
   'batch-opportunity-status-notifier': batchOpportunityStatusNotifier,
   dummy: (message) => ok(message), // for tests
 };
