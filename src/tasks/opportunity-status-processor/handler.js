@@ -29,7 +29,7 @@ const TASK_TYPE = 'opportunity-status-processor';
  * @param {object} context - The context object with env and log
  * @returns {Promise<boolean>} True if RUM is available, false otherwise
  */
-async function isRUMAvailable(domain, context) {
+export async function isRUMAvailable(domain, context) {
   const { log } = context;
 
   try {
@@ -53,7 +53,7 @@ async function isRUMAvailable(domain, context) {
  * @param {object} context - The context object with log
  * @returns {Promise<boolean>} True if AHREFS Import data is available, false otherwise
  */
-async function isAHREFSImportDataAvailable(siteId, dataAccess, context) {
+export async function isAHREFSImportDataAvailable(siteId, dataAccess, context) {
   const { log } = context;
   const { SiteTopPage } = dataAccess;
 
@@ -158,7 +158,7 @@ function sortJobsByDate(jobs) {
  * @param {number} [onboardStartTime] - Optional onboard start timestamp to filter jobs
  * @returns {Promise<{available: boolean, results: Array}>} Scraping availability and URL results
  */
-async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
+export async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
   const { log } = context;
 
   try {

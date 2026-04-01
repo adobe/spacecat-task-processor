@@ -28,6 +28,9 @@ import { runDemoUrlProcessor as demoUrlProcessor } from './tasks/demo-url-proces
 import { runCwvDemoSuggestionsProcessor as cwvDemoSuggestionsProcessor } from './tasks/cwv-demo-suggestions-processor/handler.js';
 import { runAgentExecutor as agentExecutor } from './tasks/agent-executor/handler.js';
 import { runSlackNotify as slackNotify } from './tasks/slack-notify/handler.js';
+import { runTriggerOpportunityStatusJob as triggerOpportunityStatusJob } from './tasks/trigger-opportunity-status-job/handler.js';
+import { runBatchOpportunityStatusJob as batchOpportunityStatusJob } from './tasks/batch-opportunity-status-job/handler.js';
+import { runBatchOpportunityStatusNotifier as batchOpportunityStatusNotifier } from './tasks/batch-opportunity-status-job/notifier.js';
 
 const HANDLERS = {
   'opportunity-status-processor': opportunityStatusProcessor,
@@ -36,6 +39,9 @@ const HANDLERS = {
   'agent-executor': agentExecutor,
   'slack-notify': slackNotify,
   'cwv-demo-suggestions-processor': cwvDemoSuggestionsProcessor,
+  'trigger-opportunity-status-job': triggerOpportunityStatusJob,
+  'batch-opportunity-status-job': batchOpportunityStatusJob,
+  'batch-opportunity-status-notifier': batchOpportunityStatusNotifier,
   dummy: (message) => ok(message), // for tests
 };
 
