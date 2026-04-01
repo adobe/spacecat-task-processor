@@ -1,3 +1,10 @@
+## [1.12.19](https://github.com/adobe/spacecat-task-processor/compare/v1.12.18...v1.12.19) (2026-04-01)
+
+
+### Bug Fixes
+
+* persist site config via setConfig after disableImport ([#240](https://github.com/adobe/spacecat-task-processor/issues/240)) ([39b9e0a](https://github.com/adobe/spacecat-task-processor/commit/39b9e0a4c75e1ad092f238d44b01bca791e29c16))
+
 ## [1.12.18](https://github.com/adobe/spacecat-task-processor/compare/v1.12.17...v1.12.18) (2026-03-31)
 
 
