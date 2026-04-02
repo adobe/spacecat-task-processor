@@ -354,15 +354,14 @@ export async function runOpportunityStatusProcessor(message, context) {
 
     const opportunities = await site.getOpportunities();
 
-    // Get expected opportunities based on audits from profile
+    // Get expected opportunities based on audits from profile.
+    // Infrastructure/auto-suggest audits (scrape-top-pages, *-auto-suggest, etc.) have no
+    // opportunity mappings and are silently skipped — they must not disable opportunity filtering.
     let expectedOpportunityTypes = [];
-    let hasUnknownAuditTypes = false;
     if (auditTypes && auditTypes.length > 0) {
       auditTypes.forEach((auditType) => {
         const opportunitiesForAudit = getOpportunitiesForAudit(auditType);
-        if (opportunitiesForAudit.length === 0) {
-          hasUnknownAuditTypes = true;
-        } else {
+        if (opportunitiesForAudit.length > 0) {
           expectedOpportunityTypes = [...expectedOpportunityTypes, ...opportunitiesForAudit];
         }
       });
@@ -555,13 +554,12 @@ export async function runOpportunityStatusProcessor(message, context) {
     for (const opportunity of opportunities) {
       const opportunityType = opportunity.getType();
 
-      // Filter opportunities based on profile's audit configuration
-      // Only filter if we have audits configured AND all audits map to known opportunities
-      // If there are unknown audit types, don't filter (backward compatibility)
+      // Filter opportunities to those expected by the profile's audit types.
+      // Infrastructure audits without opportunity mappings are excluded from
+      // expectedOpportunityTypes — only profile-mapped opportunities should appear.
       const shouldFilter = auditTypes
         && auditTypes.length > 0
-        && expectedOpportunityTypes.length > 0
-        && !hasUnknownAuditTypes;
+        && expectedOpportunityTypes.length > 0;
 
       if (shouldFilter && !expectedOpportunityTypes.includes(opportunityType)) {
         // This opportunity is not expected based on the configured audits - skip it

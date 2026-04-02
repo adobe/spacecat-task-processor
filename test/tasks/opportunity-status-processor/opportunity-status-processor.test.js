@@ -89,7 +89,7 @@ describe('Opportunity Status Processor', () => {
       siteId: 'test-site-id',
       organizationId: 'test-org-id',
       taskContext: {
-        auditTypes: ['cwv', 'broken-links'],
+        auditTypes: ['cwv', 'broken-backlinks'],
         slackContext: 'test-slack-context',
       },
     };
@@ -121,7 +121,7 @@ describe('Opportunity Status Processor', () => {
         taskType: 'opportunity-status-processor',
         siteId: 'test-site-id',
         organizationId: 'test-org-id',
-        auditTypes: ['cwv', 'broken-links'],
+        auditTypes: ['cwv', 'broken-backlinks'],
         onboardStartTime: undefined,
       })).to.be.true;
 
@@ -227,7 +227,7 @@ describe('Opportunity Status Processor', () => {
     });
 
     it('should process opportunities by type avoiding duplicates', async () => {
-      // Mock opportunities with duplicate types
+      // Uses default auditTypes: ['cwv', 'broken-backlinks'] — both are in AUDIT_OPPORTUNITY_MAP
       const mockOpportunities = [
         {
           getType: () => 'cwv',
@@ -238,11 +238,11 @@ describe('Opportunity Status Processor', () => {
           getSuggestions: sinon.stub().resolves(['suggestion2']),
         },
         {
-          getType: () => 'broken-links',
+          getType: () => 'broken-backlinks',
           getSuggestions: sinon.stub().resolves([]),
         },
         {
-          getType: () => 'broken-links', // Another duplicate type - should be skipped
+          getType: () => 'broken-backlinks', // Another duplicate type - should be skipped
           getSuggestions: sinon.stub().resolves(['suggestion3']),
         },
       ];
@@ -250,17 +250,12 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      // Should process all opportunities (4 total opportunities)
       expect(mockSite.getOpportunities.called).to.be.true;
 
-      // With the new logic, getSuggestions should only be called for unique opportunity types
-      // First occurrence of 'cwv' should be processed
+      // Only first occurrence of each type should have getSuggestions called
       expect(mockOpportunities[0].getSuggestions.called).to.be.true;
-      // Second occurrence of 'cwv' should be skipped (duplicate)
       expect(mockOpportunities[1].getSuggestions.called).to.be.false;
-      // First occurrence of 'broken-links' should be processed
       expect(mockOpportunities[2].getSuggestions.called).to.be.true;
-      // Second occurrence of 'broken-links' should be skipped (duplicate)
       expect(mockOpportunities[3].getSuggestions.called).to.be.false;
     });
 
