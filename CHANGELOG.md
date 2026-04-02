@@ -1,3 +1,10 @@
+# [1.13.0](https://github.com/adobe/spacecat-task-processor/compare/v1.12.21...v1.13.0) (2026-04-02)
+
+
+### Features
+
+* rename ahrefs references to seo in opportunity status processor ([#246](https://github.com/adobe/spacecat-task-processor/issues/246)) ([22388c6](https://github.com/adobe/spacecat-task-processor/commit/22388c6612deec01dcc1d068aaa9f51edfba7e14))
+
 ## [1.12.21](https://github.com/adobe/spacecat-task-processor/compare/v1.12.20...v1.12.21) (2026-04-02)
 
 
