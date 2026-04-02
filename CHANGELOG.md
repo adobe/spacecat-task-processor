@@ -1,3 +1,38 @@
+# [1.13.0](https://github.com/adobe/spacecat-task-processor/compare/v1.12.21...v1.13.0) (2026-04-02)
+
+
+### Features
+
+* rename ahrefs references to seo in opportunity status processor ([#246](https://github.com/adobe/spacecat-task-processor/issues/246)) ([22388c6](https://github.com/adobe/spacecat-task-processor/commit/22388c6612deec01dcc1d068aaa9f51edfba7e14))
+
+## [1.12.21](https://github.com/adobe/spacecat-task-processor/compare/v1.12.20...v1.12.21) (2026-04-02)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#243](https://github.com/adobe/spacecat-task-processor/issues/243)) ([9331def](https://github.com/adobe/spacecat-task-processor/commit/9331def02073bcad7d5026cb78fedf9465722f35))
+
+## [1.12.20](https://github.com/adobe/spacecat-task-processor/compare/v1.12.19...v1.12.20) (2026-04-01)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#242](https://github.com/adobe/spacecat-task-processor/issues/242)) ([f4f3c04](https://github.com/adobe/spacecat-task-processor/commit/f4f3c0471c44a06581bcf1779b3ba2ea845c8978))
+
+## [1.12.19](https://github.com/adobe/spacecat-task-processor/compare/v1.12.18...v1.12.19) (2026-04-01)
+
+
+### Bug Fixes
+
+* persist site config via setConfig after disableImport ([#240](https://github.com/adobe/spacecat-task-processor/issues/240)) ([39b9e0a](https://github.com/adobe/spacecat-task-processor/commit/39b9e0a4c75e1ad092f238d44b01bca791e29c16))
+
+## [1.12.18](https://github.com/adobe/spacecat-task-processor/compare/v1.12.17...v1.12.18) (2026-03-31)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adobe/spacecat-shared-data-access to v3.34.0 ([#241](https://github.com/adobe/spacecat-task-processor/issues/241)) ([10507e4](https://github.com/adobe/spacecat-task-processor/commit/10507e49c0b0ada96a5f154bb2ca719e901d3a98))
+
 ## [1.12.17](https://github.com/adobe/spacecat-task-processor/compare/v1.12.16...v1.12.17) (2026-03-30)
 
 

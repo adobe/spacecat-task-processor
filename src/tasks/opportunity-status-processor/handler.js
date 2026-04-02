@@ -52,25 +52,25 @@ async function isRUMAvailable(domain, context) {
 }
 
 /**
- * Checks if AHREFSImport data is available by checking if top pages exist for the site
+ * Checks if SEO import data is available by checking if top pages exist for the site
  * @param {string} siteId - The site ID to check
  * @param {object} dataAccess - The data access object
  * @param {object} context - The context object with log
- * @returns {Promise<boolean>} True if AHREFS Import data is available, false otherwise
+ * @returns {Promise<boolean>} True if SEO import data is available, false otherwise
  */
-async function isAHREFSImportDataAvailable(siteId, dataAccess, context) {
+async function isSEOImportDataAvailable(siteId, dataAccess, context) {
   const { log } = context;
   const { SiteTopPage } = dataAccess;
 
   try {
-    const topPages = await SiteTopPage.allBySiteIdAndSourceAndGeo(siteId, 'ahrefs', 'global');
+    const topPages = await SiteTopPage.allBySiteIdAndSourceAndGeo(siteId, 'seo', 'global');
 
     const hasData = topPages && topPages.length > 0;
-    log.info(`AHREFS Import data availability for site ${siteId}: ${hasData ? 'Available' : 'Not available'} (${topPages?.length || 0} top pages)`);
+    log.info(`SEO Import data availability for site ${siteId}: ${hasData ? 'Available' : 'Not available'} (${topPages?.length || 0} top pages)`);
 
     return hasData;
   } catch (error) {
-    log.error(`Error checking AHREFS Import data availability for site ${siteId}: ${error.message}`);
+    log.error(`Error checking SEO Import data availability for site ${siteId}: ${error.message}`);
     return false;
   }
 }
@@ -276,8 +276,8 @@ async function analyzeMissingOpportunities(
       for (const dep of dependencies) {
         if (dep === 'RUM' && !serviceStatus.rum) {
           unmetDeps.push('RUM');
-        } else if (dep === 'AHREFSImport' && !serviceStatus.ahrefsImport) {
-          unmetDeps.push('AHREFS Import');
+        } else if (dep === 'SEOImport' && !serviceStatus.seoImport) {
+          unmetDeps.push('SEO Import');
         } else if (dep === 'scraping' && !serviceStatus.scraping) {
           unmetDeps.push('Scraping');
         }
@@ -348,7 +348,7 @@ export async function runOpportunityStatusProcessor(message, context) {
 
     // Check data source availability and service preconditions
     let rumAvailable = false;
-    let ahrefsImportAvailable = false;
+    let seoImportAvailable = false;
     let gscConfigured = false;
     let scrapingAvailable = false;
 
@@ -378,7 +378,7 @@ export async function runOpportunityStatusProcessor(message, context) {
     });
 
     const needsRUM = requiredDependencies.has('RUM');
-    const needsAHREFSImport = requiredDependencies.has('AHREFSImport');
+    const needsSEOImport = requiredDependencies.has('SEOImport');
     const needsScraping = requiredDependencies.has('scraping');
     const needsGSC = requiredDependencies.has('GSC');
 
@@ -478,14 +478,14 @@ export async function runOpportunityStatusProcessor(message, context) {
       }
     }
 
-    if (needsAHREFSImport) {
-      ahrefsImportAvailable = await isAHREFSImportDataAvailable(siteId, dataAccess, context);
+    if (needsSEOImport) {
+      seoImportAvailable = await isSEOImportDataAvailable(siteId, dataAccess, context);
     }
 
     // Determine service status for dependency checking
     const serviceStatus = {
       rum: rumAvailable,
-      ahrefsImport: ahrefsImportAvailable,
+      seoImport: seoImportAvailable,
       gsc: gscConfigured,
       scraping: scrapingAvailable,
     };
@@ -521,12 +521,12 @@ export async function runOpportunityStatusProcessor(message, context) {
 
     // Data source and service precondition status
     const rumStatus = rumAvailable ? ':white_check_mark:' : ':x:';
-    const ahrefsImportStatus = ahrefsImportAvailable ? ':white_check_mark:' : ':x:';
+    const seoImportStatus = seoImportAvailable ? ':white_check_mark:' : ':x:';
     const gscStatus = gscConfigured ? ':white_check_mark:' : ':x:';
     const scrapingStatus = scrapingAvailable ? ':white_check_mark:' : ':x:';
 
     statusMessages.push(`RUM ${rumStatus}`);
-    statusMessages.push(`AHREFS Import ${ahrefsImportStatus}`);
+    statusMessages.push(`SEO Import ${seoImportStatus}`);
     statusMessages.push(`GSC ${gscStatus}`);
     statusMessages.push(`Scraping ${scrapingStatus}`);
 
@@ -608,8 +608,8 @@ export async function runOpportunityStatusProcessor(message, context) {
       if (needsRUM) {
         dataSourceMessages.push(`RUM ${rumAvailable ? ':white_check_mark:' : ':x:'}`);
       }
-      if (needsAHREFSImport) {
-        dataSourceMessages.push(`AHREFS Import ${ahrefsImportAvailable ? ':white_check_mark:' : ':x:'}`);
+      if (needsSEOImport) {
+        dataSourceMessages.push(`SEO Import ${seoImportAvailable ? ':white_check_mark:' : ':x:'}`);
       }
       if (needsGSC) {
         dataSourceMessages.push(`GSC ${gscConfigured ? ':white_check_mark:' : ':x:'}`);
@@ -629,7 +629,7 @@ export async function runOpportunityStatusProcessor(message, context) {
       await say(env, log, slackContext, `*Opportunity Statuses for site ${siteUrl}*`);
       const opportunityMessages = statusMessages.filter(
         (msg) => !msg.includes('RUM')
-          && !msg.includes('AHREFS Import')
+          && !msg.includes('SEO Import')
           && !msg.includes('GSC')
           && !msg.includes('Scraping'),
       );
@@ -717,11 +717,11 @@ export async function runOpportunityStatusProcessor(message, context) {
       opportunitiesProcessed: opportunities.length,
       dataSources: {
         rum: rumAvailable,
-        ahrefsImport: ahrefsImportAvailable,
+        seoImport: seoImportAvailable,
         gsc: gscConfigured,
       },
       servicePreconditions: {
-        import: ahrefsImportAvailable, // Import and AHREFS are the same
+        import: seoImportAvailable,
         scraping: scrapingAvailable,
       },
     };
