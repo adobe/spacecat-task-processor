@@ -92,7 +92,7 @@ describe('Disable Import Audit Processor', () => {
       siteUrl: 'https://example.com',
       organizationId: 'test-org-id',
       taskContext: {
-        importTypes: ['ahrefs', 'screaming-frog'],
+        importTypes: ['seo', 'screaming-frog'],
         auditTypes: ['cwv', 'broken-links'],
         slackContext: 'test-slack-context',
       },
@@ -113,7 +113,7 @@ describe('Disable Import Audit Processor', () => {
           taskType: 'disable-import-audit-processor',
           siteId: 'test-site-id',
           organizationId: 'test-org-id',
-          importTypes: ['ahrefs', 'screaming-frog'],
+          importTypes: ['seo', 'screaming-frog'],
           auditTypes: ['cwv', 'broken-links'],
           scheduledRun: false,
         });
@@ -123,7 +123,7 @@ describe('Disable Import Audit Processor', () => {
         expect(mockSite.getConfig).to.have.been.calledOnce;
 
         // Verify import types were disabled
-        expect(mockSiteConfig.disableImport).to.have.been.calledWith('ahrefs');
+        expect(mockSiteConfig.disableImport).to.have.been.calledWith('seo');
         expect(mockSiteConfig.disableImport).to.have.been.calledWith('screaming-frog');
         expect(mockSiteConfig.disableImport).to.have.callCount(2);
 
@@ -149,7 +149,7 @@ describe('Disable Import Audit Processor', () => {
           context.env,
           context.log,
           'test-slack-context',
-          ':broom: *For site: https://example.com: Disabled imports*: ahrefs, screaming-frog *and audits*: cwv, broken-links',
+          ':broom: *For site: https://example.com: Disabled imports*: seo, screaming-frog *and audits*: cwv, broken-links',
         );
         expect(mockSay.secondCall).to.have.been.calledWith(
           context.env,
@@ -240,7 +240,7 @@ describe('Disable Import Audit Processor', () => {
           taskType: 'disable-import-audit-processor',
           siteId: 'test-site-id',
           organizationId: 'test-org-id',
-          importTypes: ['ahrefs', 'screaming-frog'],
+          importTypes: ['seo', 'screaming-frog'],
           auditTypes: ['cwv', 'broken-links'],
           scheduledRun: true,
         });
