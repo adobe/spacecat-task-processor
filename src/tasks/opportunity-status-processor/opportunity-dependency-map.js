@@ -12,7 +12,7 @@
 
 /**
  * Maps opportunity types to their required dependencies
- * Dependencies can be data sources (RUM, AHREFSImport, GSC, scraping)
+ * Dependencies can be data sources (RUM, SEOImport, GSC, scraping)
  *
  * Key: Opportunity type
  * Value: Array of required dependencies for this opportunity to be generated
@@ -20,10 +20,10 @@
 export const OPPORTUNITY_DEPENDENCY_MAP = {
   cwv: ['RUM'],
   'high-organic-low-ctr': ['RUM'],
-  'broken-internal-links': ['RUM', 'AHREFSImport'],
-  'meta-tags': ['AHREFSImport', 'scraping'], // meta-tags audit uses scraping
-  'broken-backlinks': ['AHREFSImport', 'scraping'], // broken-backlinks audit uses scraping
-  'alt-text': ['AHREFSImport', 'scraping'], // alt-text audit uses scraping
+  'broken-internal-links': ['RUM', 'SEOImport'],
+  'meta-tags': ['SEOImport', 'scraping'], // meta-tags audit uses scraping
+  'broken-backlinks': ['SEOImport', 'scraping'], // broken-backlinks audit uses scraping
+  'alt-text': ['SEOImport', 'scraping'], // alt-text audit uses scraping
   'form-accessibility': ['RUM', 'scraping'], // forms audit uses scraping
   'forms-opportunities': ['RUM', 'scraping'], // forms audit uses scraping
 };

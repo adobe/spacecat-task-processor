@@ -300,10 +300,10 @@ describe('Opportunity Status Processor', () => {
       expect(mockSite.getOpportunities.called).to.be.true;
     });
 
-    it('should check AHREFS Import data availability', async () => {
-      // Set audit type that requires AHREFSImport
+    it('should check SEO Import data availability', async () => {
+      // Set audit type that requires SEOImport
       message.taskContext.auditTypes = ['meta-tags'];
-      // Mock AHREFSImport data available
+      // Mock SEOImport data available
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.resolves([
         { url: 'https://example.com/page1', traffic: 100 },
         { url: 'https://example.com/page2', traffic: 50 },
@@ -319,14 +319,14 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.calledWith('test-site-id', 'ahrefs', 'global')).to.be.true;
-      expect(context.log.info.calledWith('AHREFS Import data availability for site test-site-id: Available (2 top pages)')).to.be.true;
+      expect(context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.calledWith('test-site-id', 'seo', 'global')).to.be.true;
+      expect(context.log.info.calledWith('SEO Import data availability for site test-site-id: Available (2 top pages)')).to.be.true;
     });
 
-    it('should handle AHREFSImport data not available', async () => {
-      // Set audit type that requires AHREFSImport
+    it('should handle SEOImport data not available', async () => {
+      // Set audit type that requires SEOImport
       message.taskContext.auditTypes = ['meta-tags'];
-      // Mock AHREFSImport data not available
+      // Mock SEOImport data not available
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.resolves([]);
 
       const mockOpportunities = [
@@ -339,13 +339,13 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.log.info.calledWith('AHREFS Import data availability for site test-site-id: Not available (0 top pages)')).to.be.true;
+      expect(context.log.info.calledWith('SEO Import data availability for site test-site-id: Not available (0 top pages)')).to.be.true;
     });
 
-    it('should handle AHREFSImport check errors', async () => {
-      // Set audit type that requires AHREFSImport
+    it('should handle SEOImport check errors', async () => {
+      // Set audit type that requires SEOImport
       message.taskContext.auditTypes = ['meta-tags'];
-      // Mock AHREFSImport check error
+      // Mock SEOImport check error
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.rejects(new Error('Database error'));
 
       const mockOpportunities = [
@@ -358,7 +358,7 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.log.error.calledWith('Error checking AHREFS Import data availability for site test-site-id: Database error')).to.be.true;
+      expect(context.log.error.calledWith('Error checking SEO Import data availability for site test-site-id: Database error')).to.be.true;
     });
   });
 
@@ -817,12 +817,12 @@ describe('Opportunity Status Processor', () => {
       expect(context.log.info.calledWithMatch('Processing opportunities')).to.be.true;
     });
 
-    it('should detect AHREFSImport failure from runbook', async () => {
+    it('should detect SEOImport failure from runbook', async () => {
       const mockOpportunities = [
         {
           getType: () => 'seo',
           getSuggestions: sinon.stub().resolves([]),
-          getData: () => ({ runbook: 'AHREFSImport data is required for this analysis' }),
+          getData: () => ({ runbook: 'SEOImport data is required for this analysis' }),
         },
       ];
       mockSite.getOpportunities.resolves(mockOpportunities);
@@ -1045,35 +1045,35 @@ describe('Opportunity Status Processor', () => {
     });
   });
 
-  describe('Import and AHREFSImport Checks', () => {
-    it('should handle AHREFSImport check errors gracefully', async () => {
-      // Set audit type that requires AHREFSImport
+  describe('Import and SEOImport Checks', () => {
+    it('should handle SEOImport check errors gracefully', async () => {
+      // Set audit type that requires SEOImport
       message.taskContext.auditTypes = ['meta-tags'];
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.rejects(new Error('Database error'));
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.log.error.calledWithMatch('Error checking AHREFS Import data availability')).to.be.true;
+      expect(context.log.error.calledWithMatch('Error checking SEO Import data availability')).to.be.true;
     });
 
-    it('should check AHREFSImport data with specific source and geo parameters', async () => {
-      // Set audit type that requires AHREFSImport
+    it('should check SEOImport data with specific source and geo parameters', async () => {
+      // Set audit type that requires SEOImport
       message.taskContext.auditTypes = ['meta-tags'];
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
-        .withArgs('test-site-id', 'ahrefs', 'global')
+        .withArgs('test-site-id', 'seo', 'global')
         .resolves([{ url: 'https://example.com/page1' }]);
 
       await runOpportunityStatusProcessor(message, context);
 
       expect(context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
-        .calledWith('test-site-id', 'ahrefs', 'global')).to.be.true;
+        .calledWith('test-site-id', 'seo', 'global')).to.be.true;
     });
 
-    it('should log AHREFS Import data availability with page count', async () => {
-      // Set audit type that requires AHREFSImport
+    it('should log SEO Import data availability with page count', async () => {
+      // Set audit type that requires SEOImport
       message.taskContext.auditTypes = ['meta-tags'];
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
-        .withArgs('test-site-id', 'ahrefs', 'global')
+        .withArgs('test-site-id', 'seo', 'global')
         .resolves([
           { url: 'https://example.com/page1' },
           { url: 'https://example.com/page2' },
@@ -1082,7 +1082,7 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.log.info.calledWithMatch('AHREFS Import data availability')).to.be.true;
+      expect(context.log.info.calledWithMatch('SEO Import data availability')).to.be.true;
       expect(context.log.info.calledWithMatch('3 top pages')).to.be.true;
     });
   });
@@ -1560,9 +1560,9 @@ describe('Opportunity Status Processor', () => {
       };
       message.taskContext.auditTypes = ['cwv', 'broken-backlinks'];
 
-      // Mock AHREFSImport and Import available
+      // Mock SEOImport and Import available
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
-        .withArgs(message.siteId, 'ahrefs', 'global')
+        .withArgs(message.siteId, 'seo', 'global')
         .resolves([{ url: 'https://example.com/page1' }]);
 
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
@@ -1578,7 +1578,7 @@ describe('Opportunity Status Processor', () => {
         {
           getType: () => 'broken-backlinks',
           getSuggestions: sinon.stub().resolves([]),
-          getData: () => ({ runbook: 'AHREFSImport data required' }),
+          getData: () => ({ runbook: 'SEOImport data required' }),
         },
       ];
       mockSite.getOpportunities.resolves(mockOpportunities);
@@ -1893,13 +1893,13 @@ describe('Opportunity Status Processor', () => {
         threadTs: 'test-thread',
       };
 
-      // Mock import and AHREFSImport as available
+      // Mock import and SEOImport as available
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo = sinon.stub();
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
         .withArgs(message.siteId)
         .resolves([{ url: 'https://example.com/page1' }]);
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
-        .withArgs(message.siteId, 'ahrefs', 'global')
+        .withArgs(message.siteId, 'seo', 'global')
         .resolves([{ url: 'https://example.com/page1', traffic: 1000 }]);
 
       const mockOpportunities = [
@@ -1912,7 +1912,7 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      // When no siteUrl, RUM/GSC/Scraping are false, but AHREFSImport and Import are true
+      // When no siteUrl, RUM/GSC/Scraping are false, but SEOImport and Import are true
       // This will trigger "Services requiring log analysis" log,
       // not "All service preconditions passed"
       // The test verifies the function executes without errors

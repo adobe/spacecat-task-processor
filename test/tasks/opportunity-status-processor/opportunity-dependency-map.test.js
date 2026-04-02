@@ -32,10 +32,10 @@ describe('Opportunity Dependency Map', () => {
     it('should map opportunities to dependencies correctly', () => {
       expect(OPPORTUNITY_DEPENDENCY_MAP.cwv).to.deep.equal(['RUM']);
       expect(OPPORTUNITY_DEPENDENCY_MAP['high-organic-low-ctr']).to.deep.equal(['RUM']);
-      expect(OPPORTUNITY_DEPENDENCY_MAP['broken-internal-links']).to.deep.equal(['RUM', 'AHREFSImport']);
-      expect(OPPORTUNITY_DEPENDENCY_MAP['meta-tags']).to.deep.equal(['AHREFSImport', 'scraping']);
-      expect(OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks']).to.deep.equal(['AHREFSImport', 'scraping']);
-      expect(OPPORTUNITY_DEPENDENCY_MAP['alt-text']).to.deep.equal(['AHREFSImport', 'scraping']);
+      expect(OPPORTUNITY_DEPENDENCY_MAP['broken-internal-links']).to.deep.equal(['RUM', 'SEOImport']);
+      expect(OPPORTUNITY_DEPENDENCY_MAP['meta-tags']).to.deep.equal(['SEOImport', 'scraping']);
+      expect(OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks']).to.deep.equal(['SEOImport', 'scraping']);
+      expect(OPPORTUNITY_DEPENDENCY_MAP['alt-text']).to.deep.equal(['SEOImport', 'scraping']);
       expect(OPPORTUNITY_DEPENDENCY_MAP['form-accessibility']).to.deep.equal(['RUM', 'scraping']);
       expect(OPPORTUNITY_DEPENDENCY_MAP['forms-opportunities']).to.deep.equal(['RUM', 'scraping']);
     });
@@ -53,7 +53,7 @@ describe('Opportunity Dependency Map', () => {
       expect(dependencies).to.be.an('array');
       expect(dependencies).to.have.lengthOf(2);
       expect(dependencies).to.include('RUM');
-      expect(dependencies).to.include('AHREFSImport');
+      expect(dependencies).to.include('SEOImport');
     });
 
     it('should return empty array for opportunity with no dependencies', () => {
