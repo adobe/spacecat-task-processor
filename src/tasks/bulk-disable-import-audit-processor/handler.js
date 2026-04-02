@@ -10,12 +10,56 @@
  * governing permissions and limitations under the License.
  */
 
-import { ok } from '@adobe/spacecat-shared-http-utils';
+import { ok, internalServerError } from '@adobe/spacecat-shared-http-utils';
 import { Config } from '@adobe/spacecat-shared-data-access';
 
 import { say } from '../../utils/slack-utils.js';
 
 const TASK_TYPE = 'bulk-disable-import-audit-processor';
+const SITE_BATCH_SIZE = 10;
+
+async function processSiteEntry(siteEntry, Site, log) {
+  const {
+    siteUrl,
+    siteId,
+    importTypes = [],
+    auditTypes = [],
+    scheduledRun: siteScheduledRun = false,
+  } = siteEntry;
+
+  if (!siteUrl) {
+    log.warn(`Skipping site entry with missing siteUrl (siteId: ${siteId})`);
+    return { siteUrl: siteId || 'unknown', status: 'error', error: 'Missing siteUrl' };
+  }
+
+  if (siteScheduledRun) {
+    log.info(`Scheduled run for site ${siteUrl} - skipping`);
+    return { siteUrl, status: 'skipped' };
+  }
+
+  try {
+    const site = await Site.findByBaseURL(siteUrl);
+    if (!site) {
+      log.warn(`Site not found for siteUrl: ${siteUrl} (siteId: ${siteId})`);
+      return { siteUrl, status: 'not_found' };
+    }
+
+    const siteConfig = site.getConfig();
+    for (const importType of importTypes) {
+      siteConfig.disableImport(importType);
+    }
+    site.setConfig(Config.toDynamoItem(siteConfig));
+    await site.save();
+
+    log.info(`Disabled imports [${importTypes.join(', ')}] and audits [${auditTypes.join(', ')}] for site: ${siteUrl}`);
+    return {
+      site, siteUrl, importTypes, auditTypes, status: 'disabled',
+    };
+  } catch (error) {
+    log.error(`Error processing site ${siteUrl}:`, error);
+    return { siteUrl, status: 'error', error: 'Site processing failed' };
+  }
+}
 
 /**
  * Runs the bulk disable import and audit processor for multiple sites.
@@ -52,46 +96,43 @@ export async function runBulkDisableImportAuditProcessor(message, context) {
     return ok({ message: 'No sites to process' });
   }
 
-  const configuration = await Configuration.findLatest();
+  let configuration;
+  try {
+    configuration = await Configuration.findLatest();
+  } catch (error) {
+    log.error('Failed to load configuration:', error);
+    await say(env, log, slackContext, ':x: Bulk disable: failed to load configuration');
+    return internalServerError('Failed to load configuration');
+  }
+
   const results = [];
 
-  for (const siteEntry of sites) {
-    const {
-      siteUrl,
-      siteId,
-      importTypes = [],
-      auditTypes = [],
-    } = siteEntry;
+  for (let i = 0; i < sites.length; i += SITE_BATCH_SIZE) {
+    const batch = sites.slice(i, i + SITE_BATCH_SIZE);
+    // eslint-disable-next-line no-await-in-loop
+    const batchOutcomes = await Promise.allSettled(
+      batch.map((siteEntry) => processSiteEntry(siteEntry, Site, log)),
+    );
 
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      const site = await Site.findByBaseURL(siteUrl);
-      if (!site) {
-        log.warn(`Site not found for siteUrl: ${siteUrl} (siteId: ${siteId})`);
-        results.push({ siteUrl, status: 'not_found' });
-        // eslint-disable-next-line no-continue
-        continue;
+    for (const outcome of batchOutcomes) {
+      // processSiteEntry always resolves — rejected case is a safeguard only
+      const result = outcome.status === 'fulfilled'
+        ? outcome.value
+        : { siteUrl: 'unknown', status: 'error', error: 'Unexpected processing error' };
+
+      if (result.status === 'disabled') {
+        for (const auditType of result.auditTypes) {
+          configuration.disableHandlerForSite(auditType, result.site);
+        }
+        results.push({
+          siteUrl: result.siteUrl,
+          status: 'disabled',
+          importTypes: result.importTypes,
+          auditTypes: result.auditTypes,
+        });
+      } else {
+        results.push({ siteUrl: result.siteUrl, status: result.status, error: result.error });
       }
-
-      const siteConfig = site.getConfig();
-      for (const importType of importTypes) {
-        siteConfig.disableImport(importType);
-      }
-      site.setConfig(Config.toDynamoItem(siteConfig));
-      // eslint-disable-next-line no-await-in-loop
-      await site.save();
-
-      for (const auditType of auditTypes) {
-        configuration.disableHandlerForSite(auditType, site);
-      }
-
-      log.info(`Disabled imports [${importTypes.join(', ')}] and audits [${auditTypes.join(', ')}] for site: ${siteUrl}`);
-      results.push({
-        siteUrl, status: 'disabled', importTypes, auditTypes,
-      });
-    } catch (error) {
-      log.error(`Error processing site ${siteUrl}:`, error);
-      results.push({ siteUrl, status: 'error', error: error.message });
     }
   }
 
@@ -100,26 +141,30 @@ export async function runBulkDisableImportAuditProcessor(message, context) {
     log.info(`Saved configuration after processing ${sites.length} sites`);
   } catch (error) {
     log.error('Failed to save configuration:', error);
-    await say(env, log, slackContext, `:x: Bulk disable: failed to save configuration after processing ${sites.length} sites: ${error.message}`);
-    return ok({ message: 'Bulk disable completed with configuration save error', results });
+    await say(env, log, slackContext, `:x: Bulk disable: failed to save configuration after processing ${sites.length} sites`);
+    return internalServerError('Failed to save configuration');
   }
 
   const succeeded = results.filter((r) => r.status === 'disabled');
   const failed = results.filter((r) => r.status === 'error' || r.status === 'not_found');
 
-  const summaryLines = succeeded.map((r) => {
-    const importsText = r.importTypes?.length > 0 ? r.importTypes.join(', ') : 'None';
-    const auditsText = r.auditTypes?.length > 0 ? r.auditTypes.join(', ') : 'None';
-    return `:broom: *${r.siteUrl}*: disabled imports: ${importsText} | audits: ${auditsText}`;
-  });
+  try {
+    const summaryLines = succeeded.map((r) => {
+      const importsText = r.importTypes?.length > 0 ? r.importTypes.join(', ') : 'None';
+      const auditsText = r.auditTypes?.length > 0 ? r.auditTypes.join(', ') : 'None';
+      return `:broom: *${r.siteUrl}*: disabled imports: ${importsText} | audits: ${auditsText}`;
+    });
 
-  if (summaryLines.length > 0) {
-    await say(env, log, slackContext, summaryLines.join('\n'));
-  }
+    if (summaryLines.length > 0) {
+      await say(env, log, slackContext, summaryLines.join('\n'));
+    }
 
-  if (failed.length > 0) {
-    const failedText = failed.map((r) => `${r.siteUrl} (${r.status})`).join(', ');
-    await say(env, log, slackContext, `:warning: Bulk disable: ${failed.length} site(s) had issues: ${failedText}`);
+    if (failed.length > 0) {
+      const failedText = failed.map((r) => `${r.siteUrl} (${r.status})`).join(', ');
+      await say(env, log, slackContext, `:warning: Bulk disable: ${failed.length} site(s) had issues: ${failedText}`);
+    }
+  } catch (error) {
+    log.error('Failed to send Slack summary:', error);
   }
 
   return ok({ message: 'Bulk disable import and audit processor completed', results });

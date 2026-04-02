@@ -104,6 +104,48 @@ describe('Bulk Disable Import Audit Processor', () => {
       const body = await result.json();
       expect(body.message).to.include('Scheduled run');
     });
+
+    it('skips individual site when per-site scheduledRun is true', async () => {
+      message.sites[0].scheduledRun = true;
+
+      const result = await runBulkDisableImportAuditProcessor(message, context);
+
+      expect(context.dataAccess.Site.findByBaseURL).to.not.have.been.called;
+      expect(mockSite.save).to.not.have.been.called;
+      expect(mockConfiguration.disableHandlerForSite).to.not.have.been.called;
+
+      const body = await result.json();
+      expect(body.message).to.equal('Bulk disable import and audit processor completed');
+      expect(body.results[0].status).to.equal('skipped');
+    });
+
+    it('processes other sites when only one has per-site scheduledRun true', async () => {
+      const mockSite2 = {
+        getId: sinon.stub().returns('site-id-2'),
+        getConfig: sinon.stub().returns({ disableImport: sinon.stub() }),
+        setConfig: sinon.stub(),
+        save: sinon.stub().resolves(),
+      };
+      // First site is skipped (scheduledRun=true); findByBaseURL is called once for site 2
+      context.dataAccess.Site.findByBaseURL.resolves(mockSite2);
+
+      message.sites = [
+        {
+          siteId: 's-1', siteUrl: 'https://example.com', scheduledRun: true, importTypes: ['top-pages'], auditTypes: [],
+        },
+        {
+          siteId: 's-2', siteUrl: 'https://other.com', importTypes: [], auditTypes: ['cwv'],
+        },
+      ];
+
+      const result = await runBulkDisableImportAuditProcessor(message, context);
+
+      expect(context.dataAccess.Site.findByBaseURL).to.have.been.calledOnceWith('https://other.com');
+      expect(mockSite2.save).to.have.been.calledOnce;
+      const body = await result.json();
+      expect(body.results[0].status).to.equal('skipped');
+      expect(body.results[1].status).to.equal('disabled');
+    });
   });
 
   describe('empty sites handling', () => {
@@ -255,6 +297,25 @@ describe('Bulk Disable Import Audit Processor', () => {
       expect(summaryCall.args[3]).to.include('https://example.com');
       expect(summaryCall.args[3]).to.include('https://other.com');
     });
+
+    it('processes sites in parallel batches of 10', async () => {
+      const siteEntries = Array.from({ length: 25 }, (_, i) => ({
+        siteId: `site-${i}`,
+        siteUrl: `https://site${i}.com`,
+        importTypes: [],
+        auditTypes: [],
+      }));
+      context.dataAccess.Site.findByBaseURL.resolves(mockSite);
+      message.sites = siteEntries;
+
+      const result = await runBulkDisableImportAuditProcessor(message, context);
+
+      expect(context.dataAccess.Site.findByBaseURL).to.have.callCount(25);
+      expect(mockConfiguration.save).to.have.been.calledOnce;
+
+      const body = await result.json();
+      expect(body.results).to.have.length(25);
+    });
   });
 
   describe('site not found handling', () => {
@@ -325,7 +386,7 @@ describe('Bulk Disable Import Audit Processor', () => {
 
       const body = await result.json();
       expect(body.results[0].status).to.equal('error');
-      expect(body.results[0].error).to.equal('DB connection lost');
+      expect(body.results[0].error).to.equal('Site processing failed');
     });
 
     it('records error and continues when site.save throws', async () => {
@@ -346,21 +407,81 @@ describe('Bulk Disable Import Audit Processor', () => {
       const warningCall = mockSay.getCalls().find((c) => c.args[3].includes(':warning:'));
       expect(warningCall).to.exist;
     });
+
+    it('does not include internal error details in slack warning message', async () => {
+      context.dataAccess.Site.findByBaseURL.rejects(new Error('arn:aws:dynamodb:us-east-1:123456789:table/Sites'));
+
+      await runBulkDisableImportAuditProcessor(message, context);
+
+      const warningCall = mockSay.getCalls().find((c) => c.args[3].includes(':warning:'));
+      expect(warningCall).to.exist;
+      expect(warningCall.args[3]).to.not.include('arn:aws');
+    });
+  });
+
+  describe('siteUrl validation', () => {
+    it('records error when siteUrl is missing from site entry', async () => {
+      message.sites[0] = { siteId: 'site-id-1', importTypes: ['top-pages'], auditTypes: [] };
+
+      const result = await runBulkDisableImportAuditProcessor(message, context);
+
+      expect(context.dataAccess.Site.findByBaseURL).to.not.have.been.called;
+      expect(context.log.warn).to.have.been.calledWithMatch(/missing siteUrl/);
+
+      const body = await result.json();
+      expect(body.results[0].status).to.equal('error');
+      expect(body.results[0].error).to.equal('Missing siteUrl');
+    });
+
+    it('records error when siteUrl is null', async () => {
+      message.sites[0] = {
+        siteId: 'site-id-1', siteUrl: null, importTypes: [], auditTypes: [],
+      };
+
+      const result = await runBulkDisableImportAuditProcessor(message, context);
+
+      expect(context.dataAccess.Site.findByBaseURL).to.not.have.been.called;
+      const body = await result.json();
+      expect(body.results[0].status).to.equal('error');
+    });
+  });
+
+  describe('Configuration.findLatest() failure', () => {
+    it('returns 500 and sends slack error when Configuration.findLatest throws', async () => {
+      context.dataAccess.Configuration.findLatest.rejects(new Error('DynamoDB unavailable'));
+
+      const result = await runBulkDisableImportAuditProcessor(message, context);
+
+      expect(result.status).to.equal(500);
+      expect(context.log.error).to.have.been.calledWithMatch(/Failed to load configuration/);
+
+      const errorCall = mockSay.getCalls().find((c) => c.args[3].includes(':x:'));
+      expect(errorCall).to.exist;
+      expect(errorCall.args[3]).to.not.include('DynamoDB');
+
+      expect(context.dataAccess.Site.findByBaseURL).to.not.have.been.called;
+    });
+
+    it('does not process any sites when Configuration.findLatest fails', async () => {
+      context.dataAccess.Configuration.findLatest.rejects(new Error('timeout'));
+
+      await runBulkDisableImportAuditProcessor(message, context);
+
+      expect(mockSite.save).to.not.have.been.called;
+      expect(mockConfiguration.save).to.not.have.been.called;
+    });
   });
 
   describe('configuration.save() failure', () => {
-    it('returns error message and results when configuration.save fails', async () => {
+    it('returns 500 when configuration.save fails', async () => {
       const configError = new Error('DynamoDB write failed');
       mockConfiguration.save.rejects(configError);
 
       const result = await runBulkDisableImportAuditProcessor(message, context);
 
+      expect(result.status).to.equal(500);
       expect(context.log.error).to.have.been.calledWithMatch(/Failed to save configuration/);
       expect(mockSay).to.have.been.calledWithMatch(sinon.match.any, sinon.match.any, sinon.match.any, sinon.match(/:x:/));
-
-      const body = await result.json();
-      expect(body.message).to.include('configuration save error');
-      expect(body.results).to.have.length(1);
     });
 
     it('sends slack error message with site count when configuration.save fails', async () => {
@@ -371,6 +492,16 @@ describe('Bulk Disable Import Audit Processor', () => {
       const errorCall = mockSay.getCalls().find((c) => c.args[3].includes(':x:'));
       expect(errorCall).to.exist;
       expect(errorCall.args[3]).to.include('1 sites');
+    });
+
+    it('does not include internal error details in slack error message', async () => {
+      mockConfiguration.save.rejects(new Error('arn:aws:dynamodb:us-east-1:123456789:table/Config'));
+
+      await runBulkDisableImportAuditProcessor(message, context);
+
+      const errorCall = mockSay.getCalls().find((c) => c.args[3].includes(':x:'));
+      expect(errorCall).to.exist;
+      expect(errorCall.args[3]).to.not.include('arn:aws');
     });
   });
 
@@ -389,6 +520,18 @@ describe('Bulk Disable Import Audit Processor', () => {
 
       const summaryCall = mockSay.getCalls().find((c) => c.args[3].includes(':broom:'));
       expect(summaryCall.args[2]).to.deep.equal({ channelId: 'C1', threadTs: 'ts1' });
+    });
+
+    it('logs error but does not throw when slack summary say() fails', async () => {
+      mockSay.onFirstCall().rejects(new Error('Slack API unavailable'));
+
+      const result = await runBulkDisableImportAuditProcessor(message, context);
+
+      expect(context.log.error).to.have.been.calledWithMatch(/Failed to send Slack summary/);
+      // All data was already written — result is still 200
+      expect(result.status).to.equal(200);
+      const body = await result.json();
+      expect(body.message).to.equal('Bulk disable import and audit processor completed');
     });
   });
 });
