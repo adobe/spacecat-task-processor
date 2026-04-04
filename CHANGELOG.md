@@ -1,3 +1,11 @@
+## [1.13.1](https://github.com/adobe/spacecat-task-processor/compare/v1.13.0...v1.13.1) (2026-04-04)
+
+
+### Bug Fixes
+
+* Add disclaimer about onboard status ([#218](https://github.com/adobe/spacecat-task-processor/issues/218)) ([304f4ad](https://github.com/adobe/spacecat-task-processor/commit/304f4ade0c6daeeead11db99c5b855374005b187))
+* **deps:** update external fixes ([#247](https://github.com/adobe/spacecat-task-processor/issues/247)) ([ccaaba3](https://github.com/adobe/spacecat-task-processor/commit/ccaaba3ddc8f824c837b3127ebe9431adf3ceb76))
+
 # [1.13.0](https://github.com/adobe/spacecat-task-processor/compare/v1.12.21...v1.13.0) (2026-04-02)
 
 
