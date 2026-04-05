@@ -29,6 +29,7 @@ export default defineConfig([
     },
     rules: {
       'no-unused-expressions': 'off',
+      curly: 'off',
     },
   },
   {
