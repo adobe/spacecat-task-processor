@@ -1,3 +1,25 @@
+# [1.14.0](https://github.com/adobe/spacecat-task-processor/compare/v1.13.2...v1.14.0) (2026-04-06)
+
+
+### Features
+
+* add bulk-disable-import-audit-processor task handler ([#244](https://github.com/adobe/spacecat-task-processor/issues/244)) ([afb4c6f](https://github.com/adobe/spacecat-task-processor/commit/afb4c6fd407676e0e45500288529f3008f39198c))
+
+## [1.13.2](https://github.com/adobe/spacecat-task-processor/compare/v1.13.1...v1.13.2) (2026-04-05)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#245](https://github.com/adobe/spacecat-task-processor/issues/245)) ([7543a76](https://github.com/adobe/spacecat-task-processor/commit/7543a76b9244f3dbb6a2c4c2fe1c870db185c104))
+
+## [1.13.1](https://github.com/adobe/spacecat-task-processor/compare/v1.13.0...v1.13.1) (2026-04-04)
+
+
+### Bug Fixes
+
+* Add disclaimer about onboard status ([#218](https://github.com/adobe/spacecat-task-processor/issues/218)) ([304f4ad](https://github.com/adobe/spacecat-task-processor/commit/304f4ade0c6daeeead11db99c5b855374005b187))
+* **deps:** update external fixes ([#247](https://github.com/adobe/spacecat-task-processor/issues/247)) ([ccaaba3](https://github.com/adobe/spacecat-task-processor/commit/ccaaba3ddc8f824c837b3127ebe9431adf3ceb76))
+
 # [1.13.0](https://github.com/adobe/spacecat-task-processor/compare/v1.12.21...v1.13.0) (2026-04-02)
 
 
