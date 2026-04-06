@@ -1,3 +1,10 @@
+# [1.14.0](https://github.com/adobe/spacecat-task-processor/compare/v1.13.2...v1.14.0) (2026-04-06)
+
+
+### Features
+
+* add bulk-disable-import-audit-processor task handler ([#244](https://github.com/adobe/spacecat-task-processor/issues/244)) ([afb4c6f](https://github.com/adobe/spacecat-task-processor/commit/afb4c6fd407676e0e45500288529f3008f39198c))
+
 ## [1.13.2](https://github.com/adobe/spacecat-task-processor/compare/v1.13.1...v1.13.2) (2026-04-05)
 
 
