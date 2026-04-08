@@ -76,7 +76,9 @@ const EXCLUDE_PATTERNS = [
  * @returns {number|null} Year as integer, or null
  */
 function extractYear(dateString) {
-  if (!dateString) return null;
+  if (!dateString) {
+    return null;
+  }
   try {
     if (dateString.includes('T')) {
       return parseInt(dateString.split('-')[0], 10);
@@ -94,7 +96,9 @@ function extractYear(dateString) {
  * @returns {string} Cleaned category string
  */
 function cleanCategory(typeLabel) {
-  if (!typeLabel) return '';
+  if (!typeLabel) {
+    return '';
+  }
   const clean = typeLabel.replace(/_/g, ' ');
   return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
 }
@@ -219,7 +223,9 @@ async function queryWikidataProducts(wikidataId, log) {
  * @returns {object[]} Normalized items
  */
 function normalizeItems(items, status = 'current') {
-  if (!Array.isArray(items)) return [];
+  if (!Array.isArray(items)) {
+    return [];
+  }
 
   return items.map((item) => {
     if (typeof item === 'string') {
