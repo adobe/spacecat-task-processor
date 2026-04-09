@@ -220,7 +220,9 @@ async function processCWVOpportunity(opportunity, logger, env, slackContext) {
     const sayPromises = [];
 
     for (const suggestion of sortedSuggestions) {
-      if (suggestionsToUpdate.length >= MAX_CWV_DEMO_SUGGESTIONS) break;
+      if (suggestionsToUpdate.length >= MAX_CWV_DEMO_SUGGESTIONS) {
+        break;
+      }
 
       const data = suggestion.getData();
       const metrics = data.metrics || [];

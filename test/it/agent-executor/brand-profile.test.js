@@ -10,8 +10,6 @@
  * governing permissions and limitations under the License.
  */
 
-/* eslint-env mocha */
-
 /**
  * Manual integration test for running the brand-profile agent through the agent executor.
  *

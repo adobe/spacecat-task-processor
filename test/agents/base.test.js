@@ -10,8 +10,6 @@
  * governing permissions and limitations under the License.
  */
 
-/* eslint-env mocha */
-
 import { expect } from 'chai';
 import path from 'path';
 import fs from 'fs';
@@ -47,7 +45,9 @@ describe('agents/base utilities', () => {
     const unlink = (filePath) => {
       try {
         fs.unlinkSync(filePath);
-      } catch (e) { /* ignore */ }
+      } catch (e) {
+        /* ignore */
+      }
     };
 
     it('reads a file via relative path against static prompt dirname', () => {
