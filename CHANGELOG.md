@@ -1,3 +1,10 @@
+## [1.14.6](https://github.com/adobe/spacecat-task-processor/compare/v1.14.5...v1.14.6) (2026-04-09)
+
+
+### Bug Fixes
+
+* enforce curly braces and remove deprecated eslint-env comments ([#253](https://github.com/adobe/spacecat-task-processor/issues/253)) ([09e4365](https://github.com/adobe/spacecat-task-processor/commit/09e436577eec40c31b1ae7c15384a5479fe59828))
+
 ## [1.14.5](https://github.com/adobe/spacecat-task-processor/compare/v1.14.4...v1.14.5) (2026-04-08)
 
 
