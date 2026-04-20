@@ -10,8 +10,6 @@
  * governing permissions and limitations under the License.
  */
 
-/* eslint-env mocha */
-
 import { expect, use } from 'chai';
 import sinon from 'sinon';
 import sinonChai from 'sinon-chai';
@@ -75,6 +73,9 @@ describe('Opportunity Status Processor', () => {
         SiteTopPage: {
           allBySiteIdAndSourceAndGeo: sandbox.stub().resolves([]),
         },
+        Audit: {
+          allLatestForSite: sandbox.stub().resolves([]),
+        },
       })
       .withOverrides({
         s3Client: mockS3Client,
@@ -86,7 +87,7 @@ describe('Opportunity Status Processor', () => {
       siteId: 'test-site-id',
       organizationId: 'test-org-id',
       taskContext: {
-        auditTypes: ['cwv', 'broken-links'],
+        auditTypes: ['cwv', 'broken-backlinks'],
         slackContext: 'test-slack-context',
       },
     };
@@ -118,7 +119,7 @@ describe('Opportunity Status Processor', () => {
         taskType: 'opportunity-status-processor',
         siteId: 'test-site-id',
         organizationId: 'test-org-id',
-        auditTypes: ['cwv', 'broken-links'],
+        auditTypes: ['cwv', 'broken-backlinks'],
         onboardStartTime: undefined,
       })).to.be.true;
 
@@ -224,7 +225,7 @@ describe('Opportunity Status Processor', () => {
     });
 
     it('should process opportunities by type avoiding duplicates', async () => {
-      // Mock opportunities with duplicate types
+      // Uses default auditTypes: ['cwv', 'broken-backlinks'] — both are in AUDIT_OPPORTUNITY_MAP
       const mockOpportunities = [
         {
           getType: () => 'cwv',
@@ -235,11 +236,11 @@ describe('Opportunity Status Processor', () => {
           getSuggestions: sinon.stub().resolves(['suggestion2']),
         },
         {
-          getType: () => 'broken-links',
+          getType: () => 'broken-backlinks',
           getSuggestions: sinon.stub().resolves([]),
         },
         {
-          getType: () => 'broken-links', // Another duplicate type - should be skipped
+          getType: () => 'broken-backlinks', // Another duplicate type - should be skipped
           getSuggestions: sinon.stub().resolves(['suggestion3']),
         },
       ];
@@ -247,17 +248,12 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      // Should process all opportunities (4 total opportunities)
       expect(mockSite.getOpportunities.called).to.be.true;
 
-      // With the new logic, getSuggestions should only be called for unique opportunity types
-      // First occurrence of 'cwv' should be processed
+      // Only first occurrence of each type should have getSuggestions called
       expect(mockOpportunities[0].getSuggestions.called).to.be.true;
-      // Second occurrence of 'cwv' should be skipped (duplicate)
       expect(mockOpportunities[1].getSuggestions.called).to.be.false;
-      // First occurrence of 'broken-links' should be processed
       expect(mockOpportunities[2].getSuggestions.called).to.be.true;
-      // Second occurrence of 'broken-links' should be skipped (duplicate)
       expect(mockOpportunities[3].getSuggestions.called).to.be.false;
     });
 
@@ -300,10 +296,10 @@ describe('Opportunity Status Processor', () => {
       expect(mockSite.getOpportunities.called).to.be.true;
     });
 
-    it('should check AHREFS Import data availability', async () => {
-      // Set audit type that requires AHREFSImport
+    it('should check SEO Import data availability', async () => {
+      // Set audit type that requires SEOImport
       message.taskContext.auditTypes = ['meta-tags'];
-      // Mock AHREFSImport data available
+      // Mock SEOImport data available
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.resolves([
         { url: 'https://example.com/page1', traffic: 100 },
         { url: 'https://example.com/page2', traffic: 50 },
@@ -319,14 +315,14 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.calledWith('test-site-id', 'ahrefs', 'global')).to.be.true;
-      expect(context.log.info.calledWith('AHREFS Import data availability for site test-site-id: Available (2 top pages)')).to.be.true;
+      expect(context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.calledWith('test-site-id', 'seo', 'global')).to.be.true;
+      expect(context.log.info.calledWith('SEO Import data availability for site test-site-id: Available (2 top pages)')).to.be.true;
     });
 
-    it('should handle AHREFSImport data not available', async () => {
-      // Set audit type that requires AHREFSImport
+    it('should handle SEOImport data not available', async () => {
+      // Set audit type that requires SEOImport
       message.taskContext.auditTypes = ['meta-tags'];
-      // Mock AHREFSImport data not available
+      // Mock SEOImport data not available
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.resolves([]);
 
       const mockOpportunities = [
@@ -339,13 +335,13 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.log.info.calledWith('AHREFS Import data availability for site test-site-id: Not available (0 top pages)')).to.be.true;
+      expect(context.log.info.calledWith('SEO Import data availability for site test-site-id: Not available (0 top pages)')).to.be.true;
     });
 
-    it('should handle AHREFSImport check errors', async () => {
-      // Set audit type that requires AHREFSImport
+    it('should handle SEOImport check errors', async () => {
+      // Set audit type that requires SEOImport
       message.taskContext.auditTypes = ['meta-tags'];
-      // Mock AHREFSImport check error
+      // Mock SEOImport check error
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.rejects(new Error('Database error'));
 
       const mockOpportunities = [
@@ -358,7 +354,7 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.log.error.calledWith('Error checking AHREFS Import data availability for site test-site-id: Database error')).to.be.true;
+      expect(context.log.error.calledWith('Error checking SEO Import data availability for site test-site-id: Database error')).to.be.true;
     });
   });
 
@@ -817,12 +813,12 @@ describe('Opportunity Status Processor', () => {
       expect(context.log.info.calledWithMatch('Processing opportunities')).to.be.true;
     });
 
-    it('should detect AHREFSImport failure from runbook', async () => {
+    it('should detect SEOImport failure from runbook', async () => {
       const mockOpportunities = [
         {
           getType: () => 'seo',
           getSuggestions: sinon.stub().resolves([]),
-          getData: () => ({ runbook: 'AHREFSImport data is required for this analysis' }),
+          getData: () => ({ runbook: 'SEOImport data is required for this analysis' }),
         },
       ];
       mockSite.getOpportunities.resolves(mockOpportunities);
@@ -1045,35 +1041,35 @@ describe('Opportunity Status Processor', () => {
     });
   });
 
-  describe('Import and AHREFSImport Checks', () => {
-    it('should handle AHREFSImport check errors gracefully', async () => {
-      // Set audit type that requires AHREFSImport
+  describe('Import and SEOImport Checks', () => {
+    it('should handle SEOImport check errors gracefully', async () => {
+      // Set audit type that requires SEOImport
       message.taskContext.auditTypes = ['meta-tags'];
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.rejects(new Error('Database error'));
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.log.error.calledWithMatch('Error checking AHREFS Import data availability')).to.be.true;
+      expect(context.log.error.calledWithMatch('Error checking SEO Import data availability')).to.be.true;
     });
 
-    it('should check AHREFSImport data with specific source and geo parameters', async () => {
-      // Set audit type that requires AHREFSImport
+    it('should check SEOImport data with specific source and geo parameters', async () => {
+      // Set audit type that requires SEOImport
       message.taskContext.auditTypes = ['meta-tags'];
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
-        .withArgs('test-site-id', 'ahrefs', 'global')
+        .withArgs('test-site-id', 'seo', 'global')
         .resolves([{ url: 'https://example.com/page1' }]);
 
       await runOpportunityStatusProcessor(message, context);
 
       expect(context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
-        .calledWith('test-site-id', 'ahrefs', 'global')).to.be.true;
+        .calledWith('test-site-id', 'seo', 'global')).to.be.true;
     });
 
-    it('should log AHREFS Import data availability with page count', async () => {
-      // Set audit type that requires AHREFSImport
+    it('should log SEO Import data availability with page count', async () => {
+      // Set audit type that requires SEOImport
       message.taskContext.auditTypes = ['meta-tags'];
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
-        .withArgs('test-site-id', 'ahrefs', 'global')
+        .withArgs('test-site-id', 'seo', 'global')
         .resolves([
           { url: 'https://example.com/page1' },
           { url: 'https://example.com/page2' },
@@ -1082,7 +1078,7 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      expect(context.log.info.calledWithMatch('AHREFS Import data availability')).to.be.true;
+      expect(context.log.info.calledWithMatch('SEO Import data availability')).to.be.true;
       expect(context.log.info.calledWithMatch('3 top pages')).to.be.true;
     });
   });
@@ -1560,9 +1556,9 @@ describe('Opportunity Status Processor', () => {
       };
       message.taskContext.auditTypes = ['cwv', 'broken-backlinks'];
 
-      // Mock AHREFSImport and Import available
+      // Mock SEOImport and Import available
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
-        .withArgs(message.siteId, 'ahrefs', 'global')
+        .withArgs(message.siteId, 'seo', 'global')
         .resolves([{ url: 'https://example.com/page1' }]);
 
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
@@ -1578,7 +1574,7 @@ describe('Opportunity Status Processor', () => {
         {
           getType: () => 'broken-backlinks',
           getSuggestions: sinon.stub().resolves([]),
-          getData: () => ({ runbook: 'AHREFSImport data required' }),
+          getData: () => ({ runbook: 'SEOImport data required' }),
         },
       ];
       mockSite.getOpportunities.resolves(mockOpportunities);
@@ -1893,13 +1889,13 @@ describe('Opportunity Status Processor', () => {
         threadTs: 'test-thread',
       };
 
-      // Mock import and AHREFSImport as available
+      // Mock import and SEOImport as available
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo = sinon.stub();
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
         .withArgs(message.siteId)
         .resolves([{ url: 'https://example.com/page1' }]);
       context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
-        .withArgs(message.siteId, 'ahrefs', 'global')
+        .withArgs(message.siteId, 'seo', 'global')
         .resolves([{ url: 'https://example.com/page1', traffic: 1000 }]);
 
       const mockOpportunities = [
@@ -1912,7 +1908,7 @@ describe('Opportunity Status Processor', () => {
 
       await runOpportunityStatusProcessor(message, context);
 
-      // When no siteUrl, RUM/GSC/Scraping are false, but AHREFSImport and Import are true
+      // When no siteUrl, RUM/GSC/Scraping are false, but SEOImport and Import are true
       // This will trigger "Services requiring log analysis" log,
       // not "All service preconditions passed"
       // The test verifies the function executes without errors
@@ -2032,7 +2028,7 @@ describe('Opportunity Status Processor', () => {
 
     it('should cover scraping dependency when checked (lines 330-331, 454-457, 595-596, 628-638)', async () => {
       // Temporarily modify OPPORTUNITY_DEPENDENCY_MAP to include a scraping dependency
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalScraping = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
       dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
 
@@ -2066,7 +2062,7 @@ describe('Opportunity Status Processor', () => {
 
     it('should cover GSC dependency when checked (lines 450-451, 592-593, 646-647)', async () => {
       // Temporarily modify OPPORTUNITY_DEPENDENCY_MAP to include GSC
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalCwv = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP.cwv;
       dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP.cwv = ['GSC'];
 
@@ -2113,7 +2109,7 @@ describe('Opportunity Status Processor', () => {
       const scrapeClientStub = sinon.stub(ScrapeClient, 'createFrom').returns(mockScrapeClient);
 
       // Temporarily add scraping dependency to trigger scraping check
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       try {
@@ -2140,7 +2136,7 @@ describe('Opportunity Status Processor', () => {
 
     it('should handle no scrape jobs found (line 149-150)', async () => {
       // Temporarily add scraping dependency to trigger scraping check
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       const mockScrapeClient = {
@@ -2193,7 +2189,7 @@ describe('Opportunity Status Processor', () => {
       const { ScrapeClient } = scrapeModule;
 
       // Temporarily add scraping dependency
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       try {
@@ -2246,7 +2242,7 @@ describe('Opportunity Status Processor', () => {
       const { ScrapeClient } = scrapeModule;
 
       // Temporarily add scraping dependency
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       try {
@@ -2299,7 +2295,7 @@ describe('Opportunity Status Processor', () => {
       const { ScrapeClient } = scrapeModule;
 
       // Temporarily add scraping dependency
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       try {
@@ -2366,7 +2362,7 @@ describe('Opportunity Status Processor', () => {
       const { ScrapeClient } = scrapeModule;
 
       // Temporarily add scraping dependency
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       try {
@@ -2427,7 +2423,7 @@ describe('Opportunity Status Processor', () => {
       const { ScrapeClient } = scrapeModule;
 
       // Temporarily add scraping dependency
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       try {
@@ -2491,12 +2487,21 @@ describe('Opportunity Status Processor', () => {
 
       message.siteUrl = 'https://example.com';
       message.taskContext.auditTypes = ['cwv', 'broken-backlinks'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
+      const onboardStartTime = Date.now() - 3600000;
+      message.taskContext.onboardStartTime = onboardStartTime;
       message.taskContext.slackContext = {
         channelId: 'test-channel',
         threadTs: 'test-thread',
       };
       context.env.AWS_REGION = 'us-east-1';
+
+      // Provide fresh audit records so audits are "complete" (not pending)
+      context.dataAccess.Audit = {
+        allLatestForSite: sinon.stub().resolves([
+          { getAuditType: () => 'cwv', getAuditedAt: () => new Date(onboardStartTime + 1000).toISOString() },
+          { getAuditType: () => 'broken-backlinks', getAuditedAt: () => new Date(onboardStartTime + 1000).toISOString() },
+        ]),
+      };
 
       // Mock TWO opportunities with no suggestions to ensure loop executes multiple times
       const mockOpportunity1 = {
@@ -2549,7 +2554,7 @@ describe('Opportunity Status Processor', () => {
 
       const scrapeClientStub = sinon.stub(ScrapeClient, 'createFrom').returns(mockScrapeClient);
 
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       try {
@@ -2621,7 +2626,7 @@ describe('Opportunity Status Processor', () => {
     });
 
     it('should check GSC listSites when GSC is needed (lines 84-86)', async () => {
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalCwv = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP.cwv;
 
       const GoogleClientModule = await import('@adobe/spacecat-shared-google-client');
@@ -2739,7 +2744,7 @@ describe('Opportunity Status Processor', () => {
 
     it('should detect bot protection from database and send Slack alert', async function () {
       this.timeout(5000);
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       // Make broken-backlinks require scraping
@@ -2849,7 +2854,7 @@ describe('Opportunity Status Processor', () => {
 
     it('should use dev IPs when AWS_REGION is not us-east', async function () {
       this.timeout(5000);
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       // Make broken-backlinks require scraping
@@ -2946,7 +2951,7 @@ describe('Opportunity Status Processor', () => {
 
     it('should not send bot protection alert when no bot protection logs found', async function () {
       this.timeout(5000);
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
@@ -3015,7 +3020,7 @@ describe('Opportunity Status Processor', () => {
 
     it('should handle partial bot protection blocking', async function () {
       this.timeout(5000);
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       try {
@@ -3115,7 +3120,7 @@ describe('Opportunity Status Processor', () => {
 
     it('should not send alert when no bot protection detected', async function () {
       this.timeout(5000);
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
@@ -3202,7 +3207,7 @@ describe('Opportunity Status Processor', () => {
     });
 
     it('should handle scrapes without bot protection metadata', async () => {
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
@@ -3262,7 +3267,7 @@ describe('Opportunity Status Processor', () => {
     });
 
     it('should not check bot protection when slackContext is missing', async () => {
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
@@ -3318,7 +3323,7 @@ describe('Opportunity Status Processor', () => {
     });
 
     it('should not send alert when all S3 files exist (no missing files)', async () => {
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
@@ -3414,7 +3419,7 @@ describe('Opportunity Status Processor', () => {
     });
 
     it('should use fallback stats when no scrape job ID is available', async () => {
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
       const scrapeModule = await import('@adobe/spacecat-shared-scrape-client');
@@ -3507,7 +3512,7 @@ describe('Opportunity Status Processor', () => {
     });
 
     it('should handle bot protection without job ID (fallback stats)', async () => {
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
       dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = ['scraping'];
 
@@ -3586,7 +3591,7 @@ describe('Opportunity Status Processor', () => {
 
       it('should detect bot protection when abortInfo is present', async function () {
         this.timeout(5000);
-        const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+        const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
         const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
         try {
@@ -3659,7 +3664,7 @@ describe('Opportunity Status Processor', () => {
 
       it('should not detect bot protection when abortInfo is null', async function () {
         this.timeout(5000);
-        const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+        const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
         const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
         try {
@@ -3717,7 +3722,7 @@ describe('Opportunity Status Processor', () => {
 
       it('should not detect bot protection when job is complete with no abortInfo', async function () {
         this.timeout(5000);
-        const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+        const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
         const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
         try {
@@ -3776,7 +3781,7 @@ describe('Opportunity Status Processor', () => {
 
       it('should handle errors gracefully when checking bot protection', async function () {
         this.timeout(5000);
-        const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+        const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
         const originalBrokenBacklinks = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'];
 
         try {
@@ -3854,7 +3859,7 @@ describe('Opportunity Status Processor', () => {
       });
 
       // Temporarily add scraping dependency
-      const dependencyMapModule = await import('../../../src/tasks/opportunity-status-processor/opportunity-dependency-map.js');
+      const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
       const originalAltText = dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['alt-text'];
 
       try {
@@ -4002,16 +4007,14 @@ describe('Opportunity Status Processor', () => {
       const handler = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
         '@adobe/spacecat-shared-utils': {
           resolveCanonicalUrl: sinon.stub().resolves('https://example.com'),
+          getOpportunitiesForAudit: mockGetOpportunitiesForAudit,
+          AUDIT_OPPORTUNITY_MAP: {},
         },
         '../../../src/utils/bot-detection.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
         },
         '../../../src/utils/cloudwatch-utils.js': {
           getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
-        },
-        '../../../src/tasks/opportunity-status-processor/audit-opportunity-map.js': {
-          getOpportunitiesForAudit: mockGetOpportunitiesForAudit,
-          AUDIT_OPPORTUNITY_MAP: {},
         },
       });
 
@@ -4120,6 +4123,291 @@ describe('Opportunity Status Processor', () => {
         'Could not resolve canonical URL or parse siteUrl for data source checks: https://example.com',
         sinon.match.instanceOf(Error),
       );
+    });
+  });
+
+  describe('Audit Completion Disclaimer', () => {
+    let sayStub;
+    let disclaimerHandler;
+
+    beforeEach(async () => {
+      sayStub = sinon.stub().resolves();
+      const esmockLocal = (await import('esmock')).default;
+      disclaimerHandler = await esmockLocal('../../../src/tasks/opportunity-status-processor/handler.js', {
+        '../../../src/utils/slack-utils.js': { say: sayStub },
+        '@adobe/spacecat-shared-utils': {
+          resolveCanonicalUrl: sinon.stub().callsFake(async (url) => url),
+        },
+        '@adobe/spacecat-shared-rum-api-client': {
+          default: {
+            createFrom: sinon.stub().returns({ retrieveDomainkey: sinon.stub().rejects() }),
+          },
+        },
+        '@adobe/spacecat-shared-google-client': {
+          default: { createFrom: sinon.stub().rejects() },
+        },
+        '@adobe/spacecat-shared-scrape-client': {
+          ScrapeClient: {
+            createFrom: sinon.stub().returns({ getScrapeJobsByBaseURL: sinon.stub().resolves([]) }),
+          },
+        },
+        '../../../src/utils/cloudwatch-utils.js': {
+          getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
+        },
+        '../../../src/utils/bot-detection.js': {
+          checkAndAlertBotProtection: sinon.stub().resolves(null),
+        },
+      });
+    });
+
+    function makeDisclaimerMessage(onboardStartTime, auditTypes, isRecheck = false) {
+      return {
+        siteId: 'test-site-id',
+        siteUrl: 'https://example.com',
+        organizationId: 'test-org-id',
+        taskContext: {
+          auditTypes,
+          slackContext: { channelId: 'test-channel', threadTs: 'test-thread' },
+          onboardStartTime,
+          isRecheck,
+        },
+      };
+    }
+
+    function makeDisclaimerContext(auditRecords) {
+      return {
+        ...context,
+        dataAccess: {
+          Site: {
+            findById: sinon.stub().resolves({
+              getOpportunities: sinon.stub().resolves([]),
+              getBaseURL: sinon.stub().returns('https://example.com'),
+            }),
+          },
+          SiteTopPage: {
+            allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+          },
+          Audit: {
+            allLatestForSite: sinon.stub().resolves(auditRecords),
+          },
+        },
+      };
+    }
+
+    it('sends pending audit warning when audit record predates onboardStartTime', async () => {
+      const onboardStartTime = Date.now() - 3600000;
+      const testMessage = makeDisclaimerMessage(onboardStartTime, ['cwv']);
+      const staleAudit = {
+        getAuditType: () => 'cwv',
+        getAuditedAt: () => new Date(onboardStartTime - 1000).toISOString(),
+      };
+      const testContext = makeDisclaimerContext([staleAudit]);
+
+      await disclaimerHandler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      expect(sayStub).to.have.been.calledWith(
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match(/may still be in progress.*Core Web Vitals/),
+      );
+    });
+
+    it('sends pending warning when no audit record exists for an expected type', async () => {
+      const onboardStartTime = Date.now() - 3600000;
+      const testMessage = makeDisclaimerMessage(onboardStartTime, ['cwv']);
+      // No audit records at all → cwv is pending
+      const testContext = makeDisclaimerContext([]);
+
+      await disclaimerHandler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      expect(sayStub).to.have.been.calledWith(
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match(/may still be in progress/),
+      );
+    });
+
+    it('sends "all complete" confirmation when isRecheck=true and all audits have run', async () => {
+      const onboardStartTime = Date.now() - 3600000;
+      const testMessage = makeDisclaimerMessage(onboardStartTime, ['cwv'], true);
+      const freshAudit = {
+        getAuditType: () => 'cwv',
+        getAuditedAt: () => new Date(onboardStartTime + 1000).toISOString(),
+      };
+      const testContext = makeDisclaimerContext([freshAudit]);
+
+      await disclaimerHandler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      expect(sayStub).to.have.been.calledWith(
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match.any,
+        ':white_check_mark: All audits have completed. The statuses above are up to date.',
+      );
+    });
+
+    it('sends no disclaimer when all audits complete and isRecheck=false', async () => {
+      const onboardStartTime = Date.now() - 3600000;
+      const testMessage = makeDisclaimerMessage(onboardStartTime, ['cwv'], false);
+      const freshAudit = {
+        getAuditType: () => 'cwv',
+        getAuditedAt: () => new Date(onboardStartTime + 1000).toISOString(),
+      };
+      const testContext = makeDisclaimerContext([freshAudit]);
+
+      await disclaimerHandler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      const disclaimerCalls = sayStub.args.map((a) => a[3]).filter(Boolean);
+      expect(disclaimerCalls.some((m) => m.includes('may still be in progress'))).to.be.false;
+      expect(disclaimerCalls.some((m) => m.includes('All audits have completed'))).to.be.false;
+    });
+
+    it('skips disclaimer and pending check when auditTypes is empty', async () => {
+      const onboardStartTime = Date.now() - 3600000;
+      const testMessage = makeDisclaimerMessage(onboardStartTime, []);
+      const testContext = makeDisclaimerContext([]);
+
+      await disclaimerHandler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      // No audit completion DB call when auditTypes is empty
+      expect(testContext.dataAccess.Audit.allLatestForSite).to.not.have.been.called;
+      const disclaimerCalls = sayStub.args.map((a) => a[3]).filter(Boolean);
+      expect(disclaimerCalls.some((m) => m.includes('may still be in progress'))).to.be.false;
+    });
+
+    it('shows hourglass in opportunity status when source audit is pending', async () => {
+      const onboardStartTime = Date.now() - 3600000;
+      const testMessage = makeDisclaimerMessage(onboardStartTime, ['cwv']);
+      const staleAudit = {
+        getAuditType: () => 'cwv',
+        getAuditedAt: () => new Date(onboardStartTime - 1000).toISOString(),
+      };
+      const cwvOpp = {
+        getType: sinon.stub().returns('cwv'),
+        getSuggestions: sinon.stub().resolves([{ id: 'sug-1' }]),
+      };
+      const testContext = {
+        ...context,
+        dataAccess: {
+          Site: {
+            findById: sinon.stub().resolves({
+              getOpportunities: sinon.stub().resolves([cwvOpp]),
+              getBaseURL: sinon.stub().returns('https://example.com'),
+            }),
+          },
+          SiteTopPage: {
+            allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+          },
+          Audit: {
+            allLatestForSite: sinon.stub().resolves([staleAudit]),
+          },
+        },
+      };
+
+      await disclaimerHandler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      // cwv audit is pending → opportunity shows ⏳, getSuggestions is NOT called
+      expect(cwvOpp.getSuggestions).to.not.have.been.called;
+      expect(sayStub).to.have.been.calledWith(
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match(/Core Web Vitals :hourglass_flowing_sand:/),
+      );
+    });
+
+    it('falls back conservatively when Audit.allLatestForSite throws in disclaimer check', async () => {
+      const onboardStartTime = Date.now() - 3600000;
+      const testMessage = makeDisclaimerMessage(onboardStartTime, ['cwv']);
+      const testContext = {
+        ...context,
+        dataAccess: {
+          Site: {
+            findById: sinon.stub().resolves({
+              getOpportunities: sinon.stub().resolves([]),
+              getBaseURL: sinon.stub().returns('https://example.com'),
+            }),
+          },
+          SiteTopPage: {
+            allBySiteIdAndSourceAndGeo: sinon.stub().resolves([]),
+          },
+          Audit: {
+            allLatestForSite: sinon.stub().rejects(new Error('DB unavailable')),
+          },
+        },
+      };
+
+      await disclaimerHandler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      expect(testContext.log.warn).to.have.been.calledWith(
+        sinon.match(/Could not check audit completion from DB for site test-site-id: DB unavailable/),
+      );
+      // Conservative fallback: pending warning sent
+      expect(sayStub).to.have.been.calledWith(
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match(/may still be in progress/),
+      );
+    });
+
+    it('includes siteUrl in the "run onboard status" hint within pending warning', async () => {
+      const onboardStartTime = Date.now() - 3600000;
+      const testMessage = makeDisclaimerMessage(onboardStartTime, ['broken-backlinks']);
+      const staleAudit = {
+        getAuditType: () => 'broken-backlinks',
+        getAuditedAt: () => new Date(onboardStartTime - 500).toISOString(),
+      };
+      const testContext = makeDisclaimerContext([staleAudit]);
+
+      await disclaimerHandler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      expect(sayStub).to.have.been.calledWith(
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match.any,
+        sinon.match(/onboard status https:\/\/example\.com/),
+      );
+    });
+
+    it('excludes infrastructure audit types not in AUDIT_OPPORTUNITY_MAP from disclaimer', async () => {
+      const onboardStartTime = Date.now() - 3600000;
+      // cwv is in the map; scrape-top-pages is not
+      const testMessage = makeDisclaimerMessage(
+        onboardStartTime,
+        ['cwv', 'scrape-top-pages'],
+      );
+      const staleAudits = [
+        { getAuditType: () => 'cwv', getAuditedAt: () => new Date(onboardStartTime - 500).toISOString() },
+        { getAuditType: () => 'scrape-top-pages', getAuditedAt: () => new Date(onboardStartTime - 500).toISOString() },
+      ];
+      const testContext = makeDisclaimerContext(staleAudits);
+
+      await disclaimerHandler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      const calls = sayStub.args.map((a) => a[3]).filter(Boolean);
+      const disclaimer = calls.find((m) => m.includes('may still be in progress'));
+      expect(disclaimer).to.exist;
+      expect(disclaimer).to.include('Core Web Vitals');
+      expect(disclaimer).to.not.include('Scrape Top Pages');
+    });
+
+    it('does not send "all complete" when isRecheck=true but onboardStartTime is absent (legacy site)', async () => {
+      // onboardStartTime is undefined — audit completion check is skipped entirely.
+      // pendingAuditTypes stays [] but we must NOT send "All audits have completed"
+      // because no check was performed.
+      const testMessage = makeDisclaimerMessage(undefined, ['cwv'], true);
+      const testContext = makeDisclaimerContext([]);
+
+      await disclaimerHandler.runOpportunityStatusProcessor(testMessage, testContext);
+
+      // DB should not have been queried (no onboardStartTime to compare against)
+      expect(testContext.dataAccess.Audit.allLatestForSite).to.not.have.been.called;
+      const disclaimerCalls = sayStub.args.map((a) => a[3]).filter(Boolean);
+      expect(disclaimerCalls.some((m) => m.includes('All audits have completed'))).to.be.false;
+      expect(disclaimerCalls.some((m) => m.includes('may still be in progress'))).to.be.false;
     });
   });
 });

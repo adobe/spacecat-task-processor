@@ -14,12 +14,17 @@ import { ok } from '@adobe/spacecat-shared-http-utils';
 import RUMAPIClient from '@adobe/spacecat-shared-rum-api-client';
 import GoogleClient from '@adobe/spacecat-shared-google-client';
 import { ScrapeClient } from '@adobe/spacecat-shared-scrape-client';
-import { resolveCanonicalUrl } from '@adobe/spacecat-shared-utils';
+import {
+  resolveCanonicalUrl,
+  getAuditsForOpportunity,
+  getOpportunityTitle,
+  OPPORTUNITY_DEPENDENCY_MAP,
+  getOpportunitiesForAudit,
+  computeAuditCompletion,
+} from '@adobe/spacecat-shared-utils';
 import { getAuditStatus } from '../../utils/cloudwatch-utils.js';
 import { checkAndAlertBotProtection } from '../../utils/bot-detection.js';
 import { say } from '../../utils/slack-utils.js';
-import { getOpportunitiesForAudit } from './audit-opportunity-map.js';
-import { OPPORTUNITY_DEPENDENCY_MAP } from './opportunity-dependency-map.js';
 
 const TASK_TYPE = 'opportunity-status-processor';
 
@@ -47,25 +52,25 @@ async function isRUMAvailable(domain, context) {
 }
 
 /**
- * Checks if AHREFSImport data is available by checking if top pages exist for the site
+ * Checks if SEO import data is available by checking if top pages exist for the site
  * @param {string} siteId - The site ID to check
  * @param {object} dataAccess - The data access object
  * @param {object} context - The context object with log
- * @returns {Promise<boolean>} True if AHREFS Import data is available, false otherwise
+ * @returns {Promise<boolean>} True if SEO import data is available, false otherwise
  */
-async function isAHREFSImportDataAvailable(siteId, dataAccess, context) {
+async function isSEOImportDataAvailable(siteId, dataAccess, context) {
   const { log } = context;
   const { SiteTopPage } = dataAccess;
 
   try {
-    const topPages = await SiteTopPage.allBySiteIdAndSourceAndGeo(siteId, 'ahrefs', 'global');
+    const topPages = await SiteTopPage.allBySiteIdAndSourceAndGeo(siteId, 'seo', 'global');
 
     const hasData = topPages && topPages.length > 0;
-    log.info(`AHREFS Import data availability for site ${siteId}: ${hasData ? 'Available' : 'Not available'} (${topPages?.length || 0} top pages)`);
+    log.info(`SEO Import data availability for site ${siteId}: ${hasData ? 'Available' : 'Not available'} (${topPages?.length || 0} top pages)`);
 
     return hasData;
   } catch (error) {
-    log.error(`Error checking AHREFS Import data availability for site ${siteId}: ${error.message}`);
+    log.error(`Error checking SEO Import data availability for site ${siteId}: ${error.message}`);
     return false;
   }
 }
@@ -92,33 +97,6 @@ async function isGSCConfigured(siteUrl, context) {
     log.info(`GSC is not configured for site ${siteUrl}. Reason: ${error.message}`);
     return false;
   }
-}
-
-/**
- * Gets the opportunity title from the opportunity type
- * @param {string} opportunityType - The opportunity type
- * @returns {string} The opportunity title
- */
-function getOpportunityTitle(opportunityType) {
-  const opportunityTitles = {
-    cwv: 'Core Web Vitals',
-    'meta-tags': 'SEO Meta Tags',
-    'broken-backlinks': 'Broken Backlinks',
-    'broken-internal-links': 'Broken Internal Links',
-    'alt-text': 'Alt Text',
-    sitemap: 'Sitemap',
-  };
-
-  // Check if the opportunity type exists in our map
-  if (opportunityTitles[opportunityType]) {
-    return opportunityTitles[opportunityType];
-  }
-
-  // Convert kebab-case to Title Case (e.g., "first-second" -> "First Second")
-  return opportunityType
-    .split('-')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
 }
 
 /**
@@ -241,12 +219,6 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
 }
 
 /**
- * Checks scrape results for bot protection blocking
- * @param {Array} scrapeResults - Array of scrape URL results
- * @param {object} context - The context object with log
- * @returns {object|null} Bot protection details if detected, null otherwise
- */
-/**
  * Analyzes missing opportunities and determines the root cause
  * @param {Array<string>} missingOpportunities - Array of missing opportunity types
  * @param {Array<string>} auditTypes - Array of audit types from profile
@@ -304,8 +276,8 @@ async function analyzeMissingOpportunities(
       for (const dep of dependencies) {
         if (dep === 'RUM' && !serviceStatus.rum) {
           unmetDeps.push('RUM');
-        } else if (dep === 'AHREFSImport' && !serviceStatus.ahrefsImport) {
-          unmetDeps.push('AHREFS Import');
+        } else if (dep === 'SEOImport' && !serviceStatus.seoImport) {
+          unmetDeps.push('SEO Import');
         } else if (dep === 'scraping' && !serviceStatus.scraping) {
           unmetDeps.push('Scraping');
         }
@@ -376,21 +348,20 @@ export async function runOpportunityStatusProcessor(message, context) {
 
     // Check data source availability and service preconditions
     let rumAvailable = false;
-    let ahrefsImportAvailable = false;
+    let seoImportAvailable = false;
     let gscConfigured = false;
     let scrapingAvailable = false;
 
     const opportunities = await site.getOpportunities();
 
-    // Get expected opportunities based on audits from profile
+    // Get expected opportunities based on audits from profile.
+    // Infrastructure/auto-suggest audits (scrape-top-pages, *-auto-suggest, etc.) have no
+    // opportunity mappings and are silently skipped — they must not disable opportunity filtering.
     let expectedOpportunityTypes = [];
-    let hasUnknownAuditTypes = false;
     if (auditTypes && auditTypes.length > 0) {
       auditTypes.forEach((auditType) => {
         const opportunitiesForAudit = getOpportunitiesForAudit(auditType);
-        if (opportunitiesForAudit.length === 0) {
-          hasUnknownAuditTypes = true;
-        } else {
+        if (opportunitiesForAudit.length > 0) {
           expectedOpportunityTypes = [...expectedOpportunityTypes, ...opportunitiesForAudit];
         }
       });
@@ -406,7 +377,7 @@ export async function runOpportunityStatusProcessor(message, context) {
     });
 
     const needsRUM = requiredDependencies.has('RUM');
-    const needsAHREFSImport = requiredDependencies.has('AHREFSImport');
+    const needsSEOImport = requiredDependencies.has('SEOImport');
     const needsScraping = requiredDependencies.has('scraping');
     const needsGSC = requiredDependencies.has('GSC');
 
@@ -506,14 +477,14 @@ export async function runOpportunityStatusProcessor(message, context) {
       }
     }
 
-    if (needsAHREFSImport) {
-      ahrefsImportAvailable = await isAHREFSImportDataAvailable(siteId, dataAccess, context);
+    if (needsSEOImport) {
+      seoImportAvailable = await isSEOImportDataAvailable(siteId, dataAccess, context);
     }
 
     // Determine service status for dependency checking
     const serviceStatus = {
       rum: rumAvailable,
-      ahrefsImport: ahrefsImportAvailable,
+      seoImport: seoImportAvailable,
       gsc: gscConfigured,
       scraping: scrapingAvailable,
     };
@@ -549,14 +520,31 @@ export async function runOpportunityStatusProcessor(message, context) {
 
     // Data source and service precondition status
     const rumStatus = rumAvailable ? ':white_check_mark:' : ':x:';
-    const ahrefsImportStatus = ahrefsImportAvailable ? ':white_check_mark:' : ':x:';
+    const seoImportStatus = seoImportAvailable ? ':white_check_mark:' : ':x:';
     const gscStatus = gscConfigured ? ':white_check_mark:' : ':x:';
     const scrapingStatus = scrapingAvailable ? ':white_check_mark:' : ':x:';
 
     statusMessages.push(`RUM ${rumStatus}`);
-    statusMessages.push(`AHREFS Import ${ahrefsImportStatus}`);
+    statusMessages.push(`SEO Import ${seoImportStatus}`);
     statusMessages.push(`GSC ${gscStatus}`);
     statusMessages.push(`Scraping ${scrapingStatus}`);
+
+    // Determine which audits are still pending so opportunity statuses can reflect
+    // in-progress state (⏳) rather than showing stale data as ✅/❌.
+    // Only meaningful when we have an onboardStartTime anchor to compare against.
+    let pendingAuditTypes = [];
+    if (auditTypes && auditTypes.length > 0 && onboardStartTime) {
+      try {
+        const { Audit } = dataAccess;
+        const latestAudits = await Audit.allLatestForSite(siteId);
+        const completion = computeAuditCompletion(auditTypes, onboardStartTime, latestAudits);
+        pendingAuditTypes = completion.pendingAuditTypes;
+      } catch (auditErr) {
+        log.warn(`Could not check audit completion from DB for site ${siteId}: ${auditErr.message}`);
+        // Conservative fallback: mark all as pending so disclaimer is always shown on error
+        pendingAuditTypes = [...auditTypes];
+      }
+    }
 
     // Process opportunities by type to avoid duplicates
     // Only process opportunities that are expected based on the profile's audit types
@@ -566,13 +554,12 @@ export async function runOpportunityStatusProcessor(message, context) {
     for (const opportunity of opportunities) {
       const opportunityType = opportunity.getType();
 
-      // Filter opportunities based on profile's audit configuration
-      // Only filter if we have audits configured AND all audits map to known opportunities
-      // If there are unknown audit types, don't filter (backward compatibility)
+      // Filter opportunities to those expected by the profile's audit types.
+      // Infrastructure audits without opportunity mappings are excluded from
+      // expectedOpportunityTypes — only profile-mapped opportunities should appear.
       const shouldFilter = auditTypes
         && auditTypes.length > 0
-        && expectedOpportunityTypes.length > 0
-        && !hasUnknownAuditTypes;
+        && expectedOpportunityTypes.length > 0;
 
       if (shouldFilter && !expectedOpportunityTypes.includes(opportunityType)) {
         // This opportunity is not expected based on the configured audits - skip it
@@ -586,23 +573,28 @@ export async function runOpportunityStatusProcessor(message, context) {
       }
       processedTypes.add(opportunityType);
 
-      // eslint-disable-next-line no-await-in-loop
-      const suggestions = await opportunity.getSuggestions();
-
       const opportunityTitle = getOpportunityTitle(opportunityType);
-      const hasSuggestions = suggestions && suggestions.length > 0;
-      const status = hasSuggestions ? ':white_check_mark:' : ':x:';
-      statusMessages.push(`${opportunityTitle} ${status}`);
 
-      // Track failed opportunities (no suggestions)
-      if (!hasSuggestions) {
-        // Use informational message for opportunities with zero suggestions
-        const reason = 'Audit executed successfully, opportunity added, but found no suggestions';
+      // If the source audit is still running, show ⏳ instead of stale ✅/❌
+      const sourceAuditIsPending = getAuditsForOpportunity(opportunityType)
+        .some((auditType) => pendingAuditTypes.includes(auditType));
 
-        failedOpportunities.push({
-          title: opportunityTitle,
-          reason,
-        });
+      if (sourceAuditIsPending) {
+        statusMessages.push(`${opportunityTitle} :hourglass_flowing_sand:`);
+      } else {
+        // eslint-disable-next-line no-await-in-loop
+        const suggestions = await opportunity.getSuggestions();
+        const hasSuggestions = suggestions && suggestions.length > 0;
+        const status = hasSuggestions ? ':white_check_mark:' : ':x:';
+        statusMessages.push(`${opportunityTitle} ${status}`);
+
+        // Track failed opportunities (no suggestions)
+        if (!hasSuggestions) {
+          failedOpportunities.push({
+            title: opportunityTitle,
+            reason: 'Audit executed successfully, opportunity added, but found no suggestions',
+          });
+        }
       }
     }
 
@@ -614,8 +606,8 @@ export async function runOpportunityStatusProcessor(message, context) {
       if (needsRUM) {
         dataSourceMessages.push(`RUM ${rumAvailable ? ':white_check_mark:' : ':x:'}`);
       }
-      if (needsAHREFSImport) {
-        dataSourceMessages.push(`AHREFS Import ${ahrefsImportAvailable ? ':white_check_mark:' : ':x:'}`);
+      if (needsSEOImport) {
+        dataSourceMessages.push(`SEO Import ${seoImportAvailable ? ':white_check_mark:' : ':x:'}`);
       }
       if (needsGSC) {
         dataSourceMessages.push(`GSC ${gscConfigured ? ':white_check_mark:' : ':x:'}`);
@@ -635,7 +627,7 @@ export async function runOpportunityStatusProcessor(message, context) {
       await say(env, log, slackContext, `*Opportunity Statuses for site ${siteUrl}*`);
       const opportunityMessages = statusMessages.filter(
         (msg) => !msg.includes('RUM')
-          && !msg.includes('AHREFS Import')
+          && !msg.includes('SEO Import')
           && !msg.includes('GSC')
           && !msg.includes('Scraping'),
       );
@@ -680,6 +672,39 @@ export async function runOpportunityStatusProcessor(message, context) {
       } else {
         await say(env, log, slackContext, 'No audit errors found');
       }
+
+      // Audit completion disclaimer — reuse pendingAuditTypes already computed above.
+      // Only list audit types that have known opportunity mappings; infrastructure audits
+      // (auto-suggest, auto-fix, scrape, etc.) are not shown since they don't affect
+      // the displayed opportunity statuses.
+      if (auditTypes.length > 0) {
+        const isRecheck = taskContext?.isRecheck === true;
+        const relevantPendingTypes = pendingAuditTypes.filter(
+          (t) => getOpportunitiesForAudit(t).length > 0,
+        );
+        if (relevantPendingTypes.length > 0) {
+          const pendingOpportunityNames = relevantPendingTypes
+            .flatMap((t) => getOpportunitiesForAudit(t))
+            .map(getOpportunityTitle);
+          const pendingList = [...new Set(pendingOpportunityNames)].join(', ');
+          await say(
+            env,
+            log,
+            slackContext,
+            `:warning: *Heads-up:* The following audit${relevantPendingTypes.length > 1 ? 's' : ''} `
+            + `may still be in progress: *${pendingList}*.\n`
+            + 'The statuses above reflect data available at this moment and may be incomplete. '
+            + `Run \`onboard status ${siteUrl}\` to re-check once all audits have completed.`,
+          );
+        } else if (isRecheck && onboardStartTime) {
+          await say(
+            env,
+            log,
+            slackContext,
+            ':white_check_mark: All audits have completed. The statuses above are up to date.',
+          );
+        }
+      }
     }
 
     log.info(`Processed ${opportunities.length} opportunities for site ${siteId}`);
@@ -690,11 +715,11 @@ export async function runOpportunityStatusProcessor(message, context) {
       opportunitiesProcessed: opportunities.length,
       dataSources: {
         rum: rumAvailable,
-        ahrefsImport: ahrefsImportAvailable,
+        seoImport: seoImportAvailable,
         gsc: gscConfigured,
       },
       servicePreconditions: {
-        import: ahrefsImportAvailable, // Import and AHREFS are the same
+        import: seoImportAvailable,
         scraping: scrapingAvailable,
       },
     };

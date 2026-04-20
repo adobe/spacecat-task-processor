@@ -10,8 +10,6 @@
  * governing permissions and limitations under the License.
  */
 
-/* eslint-env mocha */
-
 import { expect, use } from 'chai';
 import sinon from 'sinon';
 import sinonChai from 'sinon-chai';
@@ -30,6 +28,13 @@ describe('Disable Import Audit Processor', () => {
   let mockSite;
   let mockSiteConfig;
   let mockConfiguration;
+  let toDynamoItemStub;
+
+  const serializedConfigFixture = {
+    slack: {},
+    handlers: {},
+    imports: [],
+  };
 
   beforeEach(async () => {
     // Reset all stubs
@@ -41,10 +46,15 @@ describe('Disable Import Audit Processor', () => {
     // Mock the say function
     mockSay = sandbox.stub().resolves();
 
+    toDynamoItemStub = sandbox.stub().returns(serializedConfigFixture);
+
     // Dynamic import with mocked dependencies
     const handlerModule = await esmock('../../../src/tasks/disable-import-audit-processor/handler.js', {
       '../../../src/utils/slack-utils.js': {
         say: mockSay,
+      },
+      '@adobe/spacecat-shared-data-access': {
+        Config: { toDynamoItem: toDynamoItemStub },
       },
     });
     runDisableImportAuditProcessor = handlerModule.runDisableImportAuditProcessor;
@@ -56,6 +66,7 @@ describe('Disable Import Audit Processor', () => {
 
     mockSite = {
       getConfig: sandbox.stub().returns(mockSiteConfig),
+      setConfig: sandbox.stub(),
       save: sandbox.stub().resolves(),
     };
 
@@ -79,7 +90,7 @@ describe('Disable Import Audit Processor', () => {
       siteUrl: 'https://example.com',
       organizationId: 'test-org-id',
       taskContext: {
-        importTypes: ['ahrefs', 'screaming-frog'],
+        importTypes: ['seo', 'screaming-frog'],
         auditTypes: ['cwv', 'broken-links'],
         slackContext: 'test-slack-context',
       },
@@ -100,7 +111,7 @@ describe('Disable Import Audit Processor', () => {
           taskType: 'disable-import-audit-processor',
           siteId: 'test-site-id',
           organizationId: 'test-org-id',
-          importTypes: ['ahrefs', 'screaming-frog'],
+          importTypes: ['seo', 'screaming-frog'],
           auditTypes: ['cwv', 'broken-links'],
           scheduledRun: false,
         });
@@ -110,9 +121,12 @@ describe('Disable Import Audit Processor', () => {
         expect(mockSite.getConfig).to.have.been.calledOnce;
 
         // Verify import types were disabled
-        expect(mockSiteConfig.disableImport).to.have.been.calledWith('ahrefs');
+        expect(mockSiteConfig.disableImport).to.have.been.calledWith('seo');
         expect(mockSiteConfig.disableImport).to.have.been.calledWith('screaming-frog');
         expect(mockSiteConfig.disableImport).to.have.callCount(2);
+
+        expect(toDynamoItemStub).to.have.been.calledOnceWith(mockSiteConfig);
+        expect(mockSite.setConfig).to.have.been.calledOnceWith(serializedConfigFixture);
 
         // Verify audit types were disabled
         expect(context.dataAccess.Configuration.findLatest).to.have.been.calledOnce;
@@ -133,7 +147,7 @@ describe('Disable Import Audit Processor', () => {
           context.env,
           context.log,
           'test-slack-context',
-          ':broom: *For site: https://example.com: Disabled imports*: ahrefs, screaming-frog *and audits*: cwv, broken-links',
+          ':broom: *For site: https://example.com: Disabled imports*: seo, screaming-frog *and audits*: cwv, broken-links',
         );
         expect(mockSay.secondCall).to.have.been.calledWith(
           context.env,
@@ -159,6 +173,9 @@ describe('Disable Import Audit Processor', () => {
         // Verify saves were still called
         expect(mockSite.save).to.have.been.calledOnce;
         expect(mockConfiguration.save).to.have.been.calledOnce;
+
+        expect(toDynamoItemStub).to.have.been.calledOnceWith(mockSiteConfig);
+        expect(mockSite.setConfig).to.have.been.calledOnceWith(serializedConfigFixture);
 
         // Verify Slack messages with "None" text
         expect(mockSay.firstCall).to.have.been.calledWith(
@@ -190,6 +207,9 @@ describe('Disable Import Audit Processor', () => {
           ':broom: *For site: https://example.com: Disabled imports*: None *and audits*: None',
         );
 
+        expect(toDynamoItemStub).to.have.been.calledOnceWith(mockSiteConfig);
+        expect(mockSite.setConfig).to.have.been.calledOnceWith(serializedConfigFixture);
+
         expect(result).to.exist;
       });
 
@@ -200,6 +220,8 @@ describe('Disable Import Audit Processor', () => {
 
         // Should complete without error
         expect(context.log.info).to.have.been.calledWith('For site: https://example.com: Disabled imports and audits');
+        expect(toDynamoItemStub).to.have.been.calledOnceWith(mockSiteConfig);
+        expect(mockSite.setConfig).to.have.been.calledOnceWith(serializedConfigFixture);
         expect(mockSay).to.have.been.calledTwice;
         expect(result).to.exist;
       });
@@ -216,7 +238,7 @@ describe('Disable Import Audit Processor', () => {
           taskType: 'disable-import-audit-processor',
           siteId: 'test-site-id',
           organizationId: 'test-org-id',
-          importTypes: ['ahrefs', 'screaming-frog'],
+          importTypes: ['seo', 'screaming-frog'],
           auditTypes: ['cwv', 'broken-links'],
           scheduledRun: true,
         });
@@ -275,6 +297,7 @@ describe('Disable Import Audit Processor', () => {
         const result = await runDisableImportAuditProcessor(message, context);
 
         expect(context.log.error).to.have.been.calledWith('Error in disable import and audit processor:', sinon.match.instanceOf(Error));
+        expect(mockSite.setConfig).to.not.have.been.called;
         expect(mockSite.save).to.not.have.been.called;
         expect(mockConfiguration.save).to.not.have.been.called;
 
@@ -296,6 +319,8 @@ describe('Disable Import Audit Processor', () => {
         const result = await runDisableImportAuditProcessor(message, context);
 
         expect(context.log.error).to.have.been.calledWith('Error in disable import and audit processor:', saveError);
+        expect(toDynamoItemStub).to.have.been.calledOnceWith(mockSiteConfig);
+        expect(mockSite.setConfig).to.have.been.calledOnceWith(serializedConfigFixture);
         expect(mockSay).to.have.been.calledWith(
           context.env,
           context.log,
@@ -313,6 +338,8 @@ describe('Disable Import Audit Processor', () => {
         const result = await runDisableImportAuditProcessor(message, context);
 
         expect(context.log.error).to.have.been.calledWith('Error in disable import and audit processor:', saveError);
+        expect(toDynamoItemStub).to.have.been.calledOnceWith(mockSiteConfig);
+        expect(mockSite.setConfig).to.have.been.calledOnceWith(serializedConfigFixture);
         expect(mockSay).to.have.been.calledWith(
           context.env,
           context.log,
@@ -330,6 +357,7 @@ describe('Disable Import Audit Processor', () => {
         const result = await runDisableImportAuditProcessor(message, context);
 
         expect(context.log.error).to.have.been.calledWith('Error in disable import and audit processor:', lookupError);
+        expect(mockSite.setConfig).to.not.have.been.called;
         expect(mockSay).to.have.been.calledWith(
           context.env,
           context.log,
@@ -347,6 +375,8 @@ describe('Disable Import Audit Processor', () => {
         const result = await runDisableImportAuditProcessor(message, context);
 
         expect(context.log.error).to.have.been.calledWith('Error in disable import and audit processor:', configError);
+        expect(toDynamoItemStub).to.have.been.calledOnceWith(mockSiteConfig);
+        expect(mockSite.setConfig).to.have.been.calledOnceWith(serializedConfigFixture);
         expect(mockSay).to.have.been.calledWith(
           context.env,
           context.log,
@@ -365,6 +395,8 @@ describe('Disable Import Audit Processor', () => {
         const result = await runDisableImportAuditProcessor(message, context);
 
         // Should still complete successfully despite Slack error
+        expect(toDynamoItemStub).to.have.been.calledOnceWith(mockSiteConfig);
+        expect(mockSite.setConfig).to.have.been.calledOnceWith(serializedConfigFixture);
         expect(mockSite.save).to.have.been.calledOnce;
         expect(mockConfiguration.save).to.have.been.calledOnce;
         expect(result).to.exist;
@@ -420,6 +452,9 @@ describe('Disable Import Audit Processor', () => {
           'test-slack-context',
           ':broom: *For site: https://example.com: Disabled imports*: single-import *and audits*: single-audit',
         );
+
+        expect(toDynamoItemStub).to.have.been.calledOnceWith(mockSiteConfig);
+        expect(mockSite.setConfig).to.have.been.calledOnceWith(serializedConfigFixture);
 
         expect(result).to.exist;
       });
