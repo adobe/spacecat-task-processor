@@ -1,3 +1,19 @@
+# [1.15.0](https://github.com/adobe/spacecat-task-processor/compare/v1.14.6...v1.15.0) (2026-04-20)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#255](https://github.com/adobe/spacecat-task-processor/issues/255)) ([0b8b9c9](https://github.com/adobe/spacecat-task-processor/commit/0b8b9c9fb1b63954af6df084c024d88b9494fadd))
+* **deps:** update adobe fixes ([#256](https://github.com/adobe/spacecat-task-processor/issues/256)) ([037446d](https://github.com/adobe/spacecat-task-processor/commit/037446d80ddd78566aa31f61abe440957466b2cd))
+* **deps:** update adobe fixes ([#260](https://github.com/adobe/spacecat-task-processor/issues/260)) ([6f28cb3](https://github.com/adobe/spacecat-task-processor/commit/6f28cb3513457d82d31d799ded4529fe9fdeefcc))
+* **deps:** update external fixes ([#257](https://github.com/adobe/spacecat-task-processor/issues/257)) ([6d9d15a](https://github.com/adobe/spacecat-task-processor/commit/6d9d15a7d1f36bc28196c3615223f1ac573f9348))
+* **deps:** update external fixes ([#262](https://github.com/adobe/spacecat-task-processor/issues/262)) ([431bec0](https://github.com/adobe/spacecat-task-processor/commit/431bec078a0610a5de5db09f627861a5988f5bb1))
+
+
+### Features
+
+* add VPC configuration support via helix-deploy 13.4 ([#209](https://github.com/adobe/spacecat-task-processor/issues/209)) ([20a167f](https://github.com/adobe/spacecat-task-processor/commit/20a167f04dd6e288195c422f66b5f064be64b511)), closes [adobe/helix-deploy#898](https://github.com/adobe/helix-deploy/issues/898)
+
 ## [1.14.6](https://github.com/adobe/spacecat-task-processor/compare/v1.14.5...v1.14.6) (2026-04-09)
 
 
