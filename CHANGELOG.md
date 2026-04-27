@@ -1,3 +1,10 @@
+## [1.15.2](https://github.com/adobe/spacecat-task-processor/compare/v1.15.1...v1.15.2) (2026-04-27)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adobe/spacecat-shared-data-access to v3.53.0 ([#265](https://github.com/adobe/spacecat-task-processor/issues/265)) ([5204a46](https://github.com/adobe/spacecat-task-processor/commit/5204a4646f52512751193c6d778de6ac620bcd06))
+
 ## [1.15.1](https://github.com/adobe/spacecat-task-processor/compare/v1.15.0...v1.15.1) (2026-04-25)
 
 
