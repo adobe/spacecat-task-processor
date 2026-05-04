@@ -1,3 +1,10 @@
+## [1.15.7](https://github.com/adobe/spacecat-task-processor/compare/v1.15.6...v1.15.7) (2026-05-04)
+
+
+### Bug Fixes
+
+* **deps:** update dependency diff to v9 ([#258](https://github.com/adobe/spacecat-task-processor/issues/258)) ([0bb6027](https://github.com/adobe/spacecat-task-processor/commit/0bb6027a2adf60c0d6adda17a0f3ea290e7fe0ba))
+
 ## [1.15.6](https://github.com/adobe/spacecat-task-processor/compare/v1.15.5...v1.15.6) (2026-05-02)
 
 
