@@ -1,3 +1,10 @@
+## [1.15.16](https://github.com/adobe/spacecat-task-processor/compare/v1.15.15...v1.15.16) (2026-05-20)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adobe/helix-universal to v5.4.2 ([#282](https://github.com/adobe/spacecat-task-processor/issues/282)) ([7dc2e03](https://github.com/adobe/spacecat-task-processor/commit/7dc2e031f1db1750a1856612bdd6db35d35580f0))
+
 ## [1.15.15](https://github.com/adobe/spacecat-task-processor/compare/v1.15.14...v1.15.15) (2026-05-18)
 
 
