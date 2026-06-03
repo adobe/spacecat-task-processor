@@ -71,6 +71,7 @@ describe('Disable Import Audit Processor', () => {
     };
 
     mockConfiguration = {
+      isHandlerEnabledForSite: sandbox.stub().returns(true),
       disableHandlerForSite: sandbox.stub(),
       save: sandbox.stub().resolves(),
     };
@@ -153,7 +154,7 @@ describe('Disable Import Audit Processor', () => {
           context.env,
           context.log,
           'test-slack-context',
-          ':information_source: The list of enabled imports and audits may differ from the disabled ones because items that are already enabled are not automatically disabled. When schedule run flag is true then no imports and audits are disabled.',
+          ':information_source: Only audits currently enabled for the site are disabled. Scheduled sites skip disable entirely.',
         );
 
         // Verify successful completion
@@ -172,7 +173,7 @@ describe('Disable Import Audit Processor', () => {
 
         // Verify saves were still called
         expect(mockSite.save).to.have.been.calledOnce;
-        expect(mockConfiguration.save).to.have.been.calledOnce;
+        expect(mockConfiguration.save).not.to.have.been.called;
 
         expect(toDynamoItemStub).to.have.been.calledOnceWith(mockSiteConfig);
         expect(mockSite.setConfig).to.have.been.calledOnceWith(serializedConfigFixture);
