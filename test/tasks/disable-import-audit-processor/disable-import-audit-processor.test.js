@@ -154,7 +154,7 @@ describe('Disable Import Audit Processor', () => {
           context.env,
           context.log,
           'test-slack-context',
-          ':information_source: Only audits currently enabled for the site are disabled. Scheduled sites skip disable entirely.',
+          ':information_source: Only audits currently enabled for the site are disabled. When scheduledRun=true, disable is skipped entirely.',
         );
 
         // Verify successful completion

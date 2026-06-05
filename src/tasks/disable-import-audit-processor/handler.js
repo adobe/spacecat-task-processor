@@ -72,14 +72,18 @@ export async function runDisableImportAuditProcessor(message, context) {
     if (auditsDisabled.length > 0) {
       await configuration.save();
     }
-    log.info(`For site: ${siteUrl}: Disabled imports and audits`);
+    if (auditsDisabled.length > 0) {
+      log.info(`For site: ${siteUrl}: Disabled imports and audits`);
+    } else {
+      log.info(`For site: ${siteUrl}: Disabled imports; audits unchanged`);
+    }
 
     const importsText = importTypes.length > 0 ? importTypes.join(', ') : 'None';
     const auditsText = auditsDisabled.length > 0 ? auditsDisabled.join(', ') : 'None';
 
     let slackMessage = `:broom: *For site: ${siteUrl}: Disabled imports*: ${importsText} *and audits*: ${auditsText}`;
     await say(env, log, slackContext, slackMessage);
-    slackMessage = ':information_source: Only audits currently enabled for the site are disabled. Scheduled sites skip disable entirely.';
+    slackMessage = ':information_source: Only audits currently enabled for the site are disabled. When scheduledRun=true, disable is skipped entirely.';
     await say(env, log, slackContext, slackMessage);
   } catch (error) {
     log.error('Error in disable import and audit processor:', error);
