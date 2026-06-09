@@ -60,20 +60,30 @@ export async function runDisableImportAuditProcessor(message, context) {
     site.setConfig(Config.toDynamoItem(siteConfig));
 
     const configuration = await Configuration.findLatest();
+    const auditsDisabled = [];
     for (const auditType of auditTypes) {
-      configuration.disableHandlerForSite(auditType, site);
+      if (configuration.isHandlerEnabledForSite(auditType, site)) {
+        configuration.disableHandlerForSite(auditType, site);
+        auditsDisabled.push(auditType);
+      }
     }
 
     await site.save();
-    await configuration.save();
-    log.info(`For site: ${siteUrl}: Disabled imports and audits`);
+    if (auditsDisabled.length > 0) {
+      await configuration.save();
+    }
+    if (auditsDisabled.length > 0) {
+      log.info(`For site: ${siteUrl}: Disabled imports and audits`);
+    } else {
+      log.info(`For site: ${siteUrl}: Disabled imports; audits unchanged`);
+    }
 
     const importsText = importTypes.length > 0 ? importTypes.join(', ') : 'None';
-    const auditsText = auditTypes.length > 0 ? auditTypes.join(', ') : 'None';
+    const auditsText = auditsDisabled.length > 0 ? auditsDisabled.join(', ') : 'None';
 
     let slackMessage = `:broom: *For site: ${siteUrl}: Disabled imports*: ${importsText} *and audits*: ${auditsText}`;
     await say(env, log, slackContext, slackMessage);
-    slackMessage = ':information_source: The list of enabled imports and audits may differ from the disabled ones because items that are already enabled are not automatically disabled. When schedule run flag is true then no imports and audits are disabled.';
+    slackMessage = ':information_source: Only audits currently enabled for the site are disabled. When scheduledRun=true, disable is skipped entirely.';
     await say(env, log, slackContext, slackMessage);
   } catch (error) {
     log.error('Error in disable import and audit processor:', error);
