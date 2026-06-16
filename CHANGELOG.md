@@ -1,3 +1,10 @@
+## [1.15.37](https://github.com/adobe/spacecat-task-processor/compare/v1.15.36...v1.15.37) (2026-06-16)
+
+
+### Bug Fixes
+
+* remove dormant data-access-v2 fallback (drops electrodb/jsonschema, fixes DEP0169 log noise) ([#306](https://github.com/adobe/spacecat-task-processor/issues/306)) ([1c983a8](https://github.com/adobe/spacecat-task-processor/commit/1c983a845a60de91405bfec5291672a06fc78ab0))
+
 ## [1.15.36](https://github.com/adobe/spacecat-task-processor/compare/v1.15.35...v1.15.36) (2026-06-13)
 
 
