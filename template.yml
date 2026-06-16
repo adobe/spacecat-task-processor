@@ -29,7 +29,7 @@ Resources:
           IMS_CLIENT_ID: !Ref IMS_CLIENT_ID
           IMS_CLIENT_CODE: !Ref IMS_CLIENT_CODE
           IMS_CLIENT_SECRET: !Ref IMS_CLIENT_SECRET
-          DYNAMO_TABLE_NAME_DATA: !Ref DYNAMO_TABLE_NAME_DATA
+          POSTGREST_URL: !Ref POSTGREST_URL
       Role: arn:aws:iam::682033462621:role/spacecat-role-lambda-generic
       Events:
         ApiEvent:
@@ -94,6 +94,6 @@ Parameters:
   IMS_CLIENT_SECRET:
     Type: String
     Description: IMS Client Secret
-  DYNAMO_TABLE_NAME_DATA:
+  POSTGREST_URL:
     Type: String
-    Description: DynamoDB Table Name for Data
+    Description: PostgREST URL for the data service
