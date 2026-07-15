@@ -276,7 +276,7 @@ All LLM calls have retry logic (2 retries) for transient failures.
 ## Persistence
 
 The `persist()` function:
-1. Loads the site from DynamoDB
+1. Loads the site from the data service (PostgREST)
 2. Updates brandProfile via `config.updateBrandProfile()`
 3. Auto-increments version number
 4. Computes content hash for change detection

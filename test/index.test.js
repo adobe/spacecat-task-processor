@@ -54,6 +54,7 @@ describe('Index Tests', () => {
         clientCode: 'test-client-code',
         clientSecret: 'test-client-secret',
         DEFAULT_TENANT_ID: 'default-tenant',
+        POSTGREST_URL: 'https://data-svc.example.com',
       },
       imsHost: 'https://ims-na1.adobelogin.com',
       clientId: 'test-client-id',
@@ -116,6 +117,7 @@ describe('Index Tests', () => {
       IMSORG_TO_TENANT: JSON.stringify({
         'TEST_ORG_ID@AdobeOrg': 'test-org',
       }),
+      POSTGREST_URL: 'https://data-svc.example.com',
     };
 
     const resp = await main(sqsEvent, context);

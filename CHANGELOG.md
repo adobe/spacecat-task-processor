@@ -1,3 +1,206 @@
+## [1.15.56](https://github.com/adobe/spacecat-task-processor/compare/v1.15.55...v1.15.56) (2026-07-11)
+
+
+### Bug Fixes
+
+* **deps:** update external fixes ([#327](https://github.com/adobe/spacecat-task-processor/issues/327)) ([c552e25](https://github.com/adobe/spacecat-task-processor/commit/c552e25759431b2a689ff37ef1eb93325265de75))
+
+## [1.15.55](https://github.com/adobe/spacecat-task-processor/compare/v1.15.54...v1.15.55) (2026-07-10)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adobe/spacecat-shared-http-utils to v1.34.0 ([#326](https://github.com/adobe/spacecat-task-processor/issues/326)) ([6987add](https://github.com/adobe/spacecat-task-processor/commit/6987add2ef86d956412f597bdddf5a2c5cfe595c))
+
+## [1.15.54](https://github.com/adobe/spacecat-task-processor/compare/v1.15.53...v1.15.54) (2026-07-04)
+
+
+### Bug Fixes
+
+* **deps:** update external fixes ([#324](https://github.com/adobe/spacecat-task-processor/issues/324)) ([3b3f595](https://github.com/adobe/spacecat-task-processor/commit/3b3f5953e3b2fc967ba287ffaeb6effee926dbe0))
+
+## [1.15.53](https://github.com/adobe/spacecat-task-processor/compare/v1.15.52...v1.15.53) (2026-07-03)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adobe/spacecat-shared-utils to v1.124.1 ([#323](https://github.com/adobe/spacecat-task-processor/issues/323)) ([b82d496](https://github.com/adobe/spacecat-task-processor/commit/b82d4966d6a7b25f2b169a83317e527eb73031c0))
+
+## [1.15.52](https://github.com/adobe/spacecat-task-processor/compare/v1.15.51...v1.15.52) (2026-07-02)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#322](https://github.com/adobe/spacecat-task-processor/issues/322)) ([d290911](https://github.com/adobe/spacecat-task-processor/commit/d290911822fc51c4af4429a30be8f45e1d69cddc))
+
+## [1.15.51](https://github.com/adobe/spacecat-task-processor/compare/v1.15.50...v1.15.51) (2026-07-01)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adobe/spacecat-shared-http-utils to v1.33.0 ([#321](https://github.com/adobe/spacecat-task-processor/issues/321)) ([0e0ecc9](https://github.com/adobe/spacecat-task-processor/commit/0e0ecc92eff4dc071e3c917c9a0a9f7dc9d1e84a))
+
+## [1.15.50](https://github.com/adobe/spacecat-task-processor/compare/v1.15.49...v1.15.50) (2026-06-30)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#320](https://github.com/adobe/spacecat-task-processor/issues/320)) ([e9ffe23](https://github.com/adobe/spacecat-task-processor/commit/e9ffe237042e21dc8fdb6c47aacac1cf07c4063d))
+
+## [1.15.49](https://github.com/adobe/spacecat-task-processor/compare/v1.15.48...v1.15.49) (2026-06-27)
+
+
+### Bug Fixes
+
+* **deps:** update external fixes ([#318](https://github.com/adobe/spacecat-task-processor/issues/318)) ([f615b40](https://github.com/adobe/spacecat-task-processor/commit/f615b40590b48147a76ee2c3b45107b11ac7c834))
+
+## [1.15.48](https://github.com/adobe/spacecat-task-processor/compare/v1.15.47...v1.15.48) (2026-06-27)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#317](https://github.com/adobe/spacecat-task-processor/issues/317)) ([1a96b06](https://github.com/adobe/spacecat-task-processor/commit/1a96b06c3cb5c82dc792b848729fbc9abbb003a6))
+
+## [1.15.47](https://github.com/adobe/spacecat-task-processor/compare/v1.15.46...v1.15.47) (2026-06-25)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adobe/spacecat-shared-utils to v1.122.0 ([#316](https://github.com/adobe/spacecat-task-processor/issues/316)) ([0ecdc89](https://github.com/adobe/spacecat-task-processor/commit/0ecdc89aaf172db3c8d8c1b06d2031fc68a140b3))
+
+## [1.15.46](https://github.com/adobe/spacecat-task-processor/compare/v1.15.45...v1.15.46) (2026-06-24)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#315](https://github.com/adobe/spacecat-task-processor/issues/315)) ([3147b29](https://github.com/adobe/spacecat-task-processor/commit/3147b296f9dc7d23717ac5be13af4ca12b794d50))
+
+## [1.15.45](https://github.com/adobe/spacecat-task-processor/compare/v1.15.44...v1.15.45) (2026-06-24)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#314](https://github.com/adobe/spacecat-task-processor/issues/314)) ([628c378](https://github.com/adobe/spacecat-task-processor/commit/628c37877e84c24dbb8149fe414543a58b2bc254))
+
+## [1.15.44](https://github.com/adobe/spacecat-task-processor/compare/v1.15.43...v1.15.44) (2026-06-23)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#312](https://github.com/adobe/spacecat-task-processor/issues/312)) ([8ff7f6e](https://github.com/adobe/spacecat-task-processor/commit/8ff7f6ebb89527976baa727ec65a1893a3080786))
+
+## [1.15.43](https://github.com/adobe/spacecat-task-processor/compare/v1.15.42...v1.15.43) (2026-06-22)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes to v1.30.0 ([#311](https://github.com/adobe/spacecat-task-processor/issues/311)) ([55d2731](https://github.com/adobe/spacecat-task-processor/commit/55d2731fe9d827f65b369803210690e3d60218d7))
+
+## [1.15.42](https://github.com/adobe/spacecat-task-processor/compare/v1.15.41...v1.15.42) (2026-06-20)
+
+
+### Bug Fixes
+
+* **deps:** update external fixes ([#310](https://github.com/adobe/spacecat-task-processor/issues/310)) ([41c26f3](https://github.com/adobe/spacecat-task-processor/commit/41c26f3c00850d8eabdda4260371fad76a9acf97))
+
+## [1.15.41](https://github.com/adobe/spacecat-task-processor/compare/v1.15.40...v1.15.41) (2026-06-19)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#309](https://github.com/adobe/spacecat-task-processor/issues/309)) ([b1d3c2c](https://github.com/adobe/spacecat-task-processor/commit/b1d3c2c2a67e9102f1a6f6b62263a3a58c3504d9))
+
+## [1.15.40](https://github.com/adobe/spacecat-task-processor/compare/v1.15.39...v1.15.40) (2026-06-18)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes to v3.78.0 ([#308](https://github.com/adobe/spacecat-task-processor/issues/308)) ([0ea477f](https://github.com/adobe/spacecat-task-processor/commit/0ea477f130f650699c99f072cbbc9d5cdaa35a9f))
+
+## [1.15.39](https://github.com/adobe/spacecat-task-processor/compare/v1.15.38...v1.15.39) (2026-06-17)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes to v1.120.0 ([#307](https://github.com/adobe/spacecat-task-processor/issues/307)) ([4bd2601](https://github.com/adobe/spacecat-task-processor/commit/4bd2601583b90fdf43b8664ec4c78373df083d65))
+
+## [1.15.38](https://github.com/adobe/spacecat-task-processor/compare/v1.15.37...v1.15.38) (2026-06-16)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#305](https://github.com/adobe/spacecat-task-processor/issues/305)) ([004c295](https://github.com/adobe/spacecat-task-processor/commit/004c295a79222611a8c802aafdd99f3a2450e4b9))
+
+## [1.15.37](https://github.com/adobe/spacecat-task-processor/compare/v1.15.36...v1.15.37) (2026-06-16)
+
+
+### Bug Fixes
+
+* remove dormant data-access-v2 fallback (drops electrodb/jsonschema, fixes DEP0169 log noise) ([#306](https://github.com/adobe/spacecat-task-processor/issues/306)) ([1c983a8](https://github.com/adobe/spacecat-task-processor/commit/1c983a845a60de91405bfec5291672a06fc78ab0))
+
+## [1.15.36](https://github.com/adobe/spacecat-task-processor/compare/v1.15.35...v1.15.36) (2026-06-13)
+
+
+### Bug Fixes
+
+* **deps:** update external fixes ([#304](https://github.com/adobe/spacecat-task-processor/issues/304)) ([8b56199](https://github.com/adobe/spacecat-task-processor/commit/8b561997d24e11132fc939e73e9e9f9e9bb1f79f))
+
+## [1.15.35](https://github.com/adobe/spacecat-task-processor/compare/v1.15.34...v1.15.35) (2026-06-13)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes to v1.119.0 ([#303](https://github.com/adobe/spacecat-task-processor/issues/303)) ([b36425e](https://github.com/adobe/spacecat-task-processor/commit/b36425ec1041c5f72c4397c640c93b53f5527be9))
+
+## [1.15.34](https://github.com/adobe/spacecat-task-processor/compare/v1.15.33...v1.15.34) (2026-06-12)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes to v3.74.3 ([#302](https://github.com/adobe/spacecat-task-processor/issues/302)) ([cba5a00](https://github.com/adobe/spacecat-task-processor/commit/cba5a00139afec5a52a0c44eeba509ecb505b843))
+
+## [1.15.33](https://github.com/adobe/spacecat-task-processor/compare/v1.15.32...v1.15.33) (2026-06-12)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes to v3.74.2 ([#301](https://github.com/adobe/spacecat-task-processor/issues/301)) ([74d7bc1](https://github.com/adobe/spacecat-task-processor/commit/74d7bc133d999aaae62d25a6b41a4790695896d0))
+
+## [1.15.32](https://github.com/adobe/spacecat-task-processor/compare/v1.15.31...v1.15.32) (2026-06-11)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes to v1.118.0 ([#300](https://github.com/adobe/spacecat-task-processor/issues/300)) ([02c8936](https://github.com/adobe/spacecat-task-processor/commit/02c893626004067bff99019c6b55f3016ec23227))
+
+## [1.15.31](https://github.com/adobe/spacecat-task-processor/compare/v1.15.30...v1.15.31) (2026-06-10)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#299](https://github.com/adobe/spacecat-task-processor/issues/299)) ([4b253d4](https://github.com/adobe/spacecat-task-processor/commit/4b253d40e09f1636a6774a5d390e3c3f7db11229))
+
+## [1.15.30](https://github.com/adobe/spacecat-task-processor/compare/v1.15.29...v1.15.30) (2026-06-06)
+
+
+### Bug Fixes
+
+* **deps:** update external fixes ([#298](https://github.com/adobe/spacecat-task-processor/issues/298)) ([b363e53](https://github.com/adobe/spacecat-task-processor/commit/b363e535dbea6c3a8a6d263b7b776e7137ccd309))
+
+## [1.15.29](https://github.com/adobe/spacecat-task-processor/compare/v1.15.28...v1.15.29) (2026-06-04)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#297](https://github.com/adobe/spacecat-task-processor/issues/297)) ([26b0327](https://github.com/adobe/spacecat-task-processor/commit/26b0327a80cfa8a39794c12547e7f4d07fc74f12))
+
+## [1.15.28](https://github.com/adobe/spacecat-task-processor/compare/v1.15.27...v1.15.28) (2026-06-02)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adobe/spacecat-shared-data-access to v3.74.0 ([#295](https://github.com/adobe/spacecat-task-processor/issues/295)) ([6336341](https://github.com/adobe/spacecat-task-processor/commit/63363414c7b7e8255d82a3cfd38b1c79fce9345b))
+
 ## [1.15.27](https://github.com/adobe/spacecat-task-processor/compare/v1.15.26...v1.15.27) (2026-05-30)
 
 
