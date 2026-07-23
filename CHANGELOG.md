@@ -1,3 +1,10 @@
+# [1.16.0](https://github.com/adobe/spacecat-task-processor/compare/v1.15.58...v1.16.0) (2026-07-23)
+
+
+### Features
+
+* simplify disable-import-audit handler — remove tier-based audit skip ([#296](https://github.com/adobe/spacecat-task-processor/issues/296)) ([a3aafdf](https://github.com/adobe/spacecat-task-processor/commit/a3aafdf47f34ecea8bfbd15bfab5ab808b9d3675))
+
 ## [1.15.58](https://github.com/adobe/spacecat-task-processor/compare/v1.15.57...v1.15.58) (2026-07-18)
 
 
