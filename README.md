@@ -7,12 +7,11 @@ SpaceCat Task Processor is a Node.js service that processes messages from the AW
 ## Features
 - Receives and processes messages from SQS
 - Supports multiple task types via modular handlers
-- Built-in handlers for audit status, demo URL preparation, disabling imports/audits, generic agent execution, and Slack notifications
+- Built-in handlers for audit status, demo URL preparation, generic agent execution, and Slack notifications
 - Extensible and easy to add new handlers
 
 ## Handlers
 - **opportunity-status-processor**: Checks and reports status audits for a site
-- **disable-import-audit-processor**: Disables specified imports and audits for a site
 - **demo-url-processor**: Prepares and shares a demo URL for a site
 - **agent-executor**: Runs registered AI/LLM agents (e.g., the brand-profile agent) asynchronously after onboarding flows
 - **slack-notify**: Sends Slack notifications (text or block messages) from workflows
