@@ -87,7 +87,7 @@
     "@adobe/spacecat-shared-gpt-client": "1.7.1",
     "@adobe/spacecat-shared-http-utils": "1.34.0",
     "@adobe/spacecat-shared-ims-client": "1.14.0",
-    "@adobe/spacecat-shared-rum-api-client": "2.44.0",
+    "@adobe/spacecat-shared-rum-api-client": "2.44.1",
     "@adobe/spacecat-shared-scrape-client": "2.7.1",
     "@adobe/spacecat-shared-slack-client": "1.7.2",
     "@adobe/spacecat-shared-utils": "1.125.0",
