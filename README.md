@@ -52,6 +52,22 @@ The `agent-executor` (and the provided brand-profile agent) rely on the Azure Op
 | `AZURE_COMPLETION_DEPLOYMENT` | Deployment/model name (e.g., `gpt-4o`) |
 
 When invoking the integration test, you can also set `BRAND_PROFILE_TEST_BASE_URL` to control which site is analyzed and `BRAND_PROFILE_IT_FULL=1` to print the complete agent response (otherwise the preview is truncated for readability).
+
+#### Brand-profile entity validation (LLMO-6580)
+
+The brand-profile product and competitor-summary paths bind every Wikipedia/Wikidata lookup to an entity that is validated against the customer's site, so a foreign entity's catalogue can never be attached to a customer.
+
+- **Brand-name resolution** (`services/brand-resolver.js`) never emits a bare 2-3 letter acronym or a `dev`/`www`/`store`/`support` subdomain label as a high-confidence brand name. It returns a `confidence` signal (`high`/`medium`/`low`); low-confidence acronyms may only proceed if an entity validates by a strong P856 (official-website host) match against the site's registrable domain.
+- **Entity binding** (`services/wikipedia.js`): `findValidatedWikidataEntity` keeps a Wikidata candidate only if its official-website host (claim P856) shares the site's registrable domain, or — for non-low-confidence names — its label/aliases overlap the brand name. Fallback article text is fetched by the validated entity's **exact** English Wikipedia sitelink title (`fetchWikipediaExtractByTitle`), never by a decoupled `opensearch "<name> company"` query. If nothing validates, the pipeline produces **no** products.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `BRAND_PROFILE_ENABLE_WIKI_PRODUCTS` | `false` | Kill-switch for the entire Wikipedia/Wikidata product + competitor-summary path. When `false`, `extractProducts` returns an empty result (`products_metadata.source = "disabled"`) and no validated summary is fetched; sitemap-based product extraction and the rest of the profile still run. Ship `false` for net-new runs until the P0-a scrub and P2 backfill complete, then flip to `true`. Read from Vault per-service config (`dx_mysticat/{env}/task-processor`). |
+
+`products_metadata.source` terminal values: `sitemap`, `wikidata`, `hybrid`, `wikipedia_llm`, `disabled`, `skipped_low_confidence` (low-confidence name with no P856-validated entity), `none_no_validated_entity`, and the pre-existing `none`/`sitemap_*` states. Additive provenance fields: `source_entity_label`, `source_wikipedia_title`, `validation` (`p856`|`label`), `safety_filtered` (harmful content dropped from an unvalidated source), and `sensitive_category` (sensitive content kept from a validated/own-site source, flagged for human review).
+
+**Persist guard:** `persist()` never overwrites a stored brand profile whose `products_metadata.source == "manual-curated"` — the curated `products`/`products_metadata` are preserved while all other fields update. This protects the hand-curated blocks during the P2 regeneration sweep.
+
 - To lint code:
   ```sh
   npm run lint

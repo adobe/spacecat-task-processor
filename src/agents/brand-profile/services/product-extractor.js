@@ -23,11 +23,27 @@
 
 import { AzureOpenAIClient } from '@adobe/spacecat-shared-gpt-client';
 import { readPromptFile, renderTemplate } from '../../base.js';
-import { findWikidataId, fetchWikipediaFullText } from './wikipedia.js';
+import { findValidatedWikidataEntity, fetchWikipediaExtractByTitle } from './wikipedia.js';
 
 const USER_AGENT = 'SpaceCat/1.0 (https://github.com/adobe/spacecat; spacecat@adobe.com)';
 const WIKIDATA_SPARQL = 'https://query.wikidata.org/sparql';
 const MIN_PRODUCTS_THRESHOLD = 3;
+
+// Harm denylist (LLMO-6580 / AI-ethics Tier-2). Word-boundary matched against product/
+// service/sub-brand names and categories. Deliberate stems (terror, smuggl, insurgen)
+// avoid false hits on words like "armature" or "Churchill".
+const HARM_PATTERNS = [
+  // crime / terror
+  /\bterror/i, /\bsmuggl/i, /\binsurgen/i, /\bcartel/i, /\bmafia/i, /\bcriminal/i, /\bnarco/i,
+  // weapons / military
+  /\bweapon/i, /\bfirearm/i, /\bammunition/i, /\bmissile/i, /\bwarhead/i, /\bexplosive/i,
+  // adult / sexual
+  /\bpornograph/i, /\bescort\b/i,
+  // drugs
+  /\bnarcotic/i, /\bheroin\b/i, /\bcocaine\b/i, /\bmethamphetamine\b/i,
+  // hate / extremism
+  /\bextremis/i, /\bneo-?nazi/i, /\bjihad/i,
+];
 
 // Generic SPARQL query - works for any industry
 const PRODUCTS_SPARQL = `
@@ -291,51 +307,112 @@ function normalizeResults(result) {
  * @param {object} secondary - Secondary results (usually Wikipedia)
  * @returns {object} Merged result
  */
-/* c8 ignore start */
 function mergeResults(primary, secondary) {
-  const existingProductNames = new Set(
-    (primary.products || []).map((p) => (p.name || '').toLowerCase()),
-  );
-  const existingServiceNames = new Set(
-    (primary.services || []).map((s) => (s.name || '').toLowerCase()),
-  );
-  const existingSubBrands = new Set(primary.sub_brands || []);
-  const existingDiscontinued = new Set(
-    (primary.discontinued || []).map((d) => (d.name || '').toLowerCase()),
-  );
+  // `primary` is always the well-formed result object (four arrays; Wikidata product
+  // names are non-empty by construction). `secondary` is extractFromWikipedia output
+  // (four arrays, but LLM entries may have empty names).
+  const existingProductNames = new Set(primary.products.map((p) => p.name.toLowerCase()));
+  const existingServiceNames = new Set(primary.services.map((s) => s.name.toLowerCase()));
+  const existingSubBrands = new Set(primary.sub_brands);
+  const existingDiscontinued = new Set(primary.discontinued.map((d) => d.name.toLowerCase()));
 
-  // Add new products from secondary
-  const newProducts = (secondary.products || []).filter((product) => {
+  const newProducts = secondary.products.filter((product) => {
     const nameLower = (product.name || '').toLowerCase();
     return nameLower && !existingProductNames.has(nameLower);
   });
 
-  // Add new services from secondary
-  const newServices = (secondary.services || []).filter((service) => {
+  const newServices = secondary.services.filter((service) => {
     const nameLower = (service.name || '').toLowerCase();
     return nameLower && !existingServiceNames.has(nameLower);
   });
 
-  // Add sub-brands (merge unique)
-  const newSubBrands = (secondary.sub_brands || []).filter(
-    (sub) => !existingSubBrands.has(sub),
-  );
+  const newSubBrands = secondary.sub_brands.filter((sub) => !existingSubBrands.has(sub));
 
-  // Add discontinued (merge unique)
-  const newDiscontinued = (secondary.discontinued || []).filter((disc) => {
+  const newDiscontinued = secondary.discontinued.filter((disc) => {
     const nameLower = (disc.name || '').toLowerCase();
     return nameLower && !existingDiscontinued.has(nameLower);
   });
 
   return {
     ...primary,
-    products: [...(primary.products || []), ...newProducts],
-    services: [...(primary.services || []), ...newServices],
-    sub_brands: [...(primary.sub_brands || []), ...newSubBrands],
-    discontinued: [...(primary.discontinued || []), ...newDiscontinued],
+    products: [...primary.products, ...newProducts],
+    services: [...primary.services, ...newServices],
+    sub_brands: [...primary.sub_brands, ...newSubBrands],
+    discontinued: [...primary.discontinued, ...newDiscontinued],
   };
 }
-/* c8 ignore stop */
+
+/**
+ * Does a string trip the harm denylist?
+ * @param {string} text - Text to scan
+ * @returns {boolean}
+ */
+function hitsHarm(text) {
+  const t = String(text || '');
+  return HARM_PATTERNS.some((re) => re.test(t));
+}
+
+/**
+ * Does a normalized product/service item ({ name, category }) trip the harm denylist?
+ * @param {object} item - Item to scan
+ * @returns {boolean}
+ */
+function itemHitsHarm(item) {
+  return hitsHarm(item.name) || hitsHarm(item.category);
+}
+
+/**
+ * Content-safety / plausibility backstop (LLMO-6580 ask 4, defence in depth).
+ *
+ * Provenance rule:
+ * - When the content came from a strongly (P856) validated entity — or the
+ *   customer's own sitemap (`own_site`) — a real defense/pharma/gaming customer
+ *   may legitimately list sensitive products: KEEP the content and set
+ *   `metadata.sensitive_category` for human review.
+ * - When the source is unvalidated or only weakly (label) matched, HARD-DROP any
+ *   harmful item/service/sub-brand and set `metadata.safety_filtered`.
+ *
+ * @param {object} result - Extraction result (mutated defensively via copy)
+ * @param {object} opts - { entityValidated: 'p856'|'label'|'own_site'|null }
+ * @param {object} log - Logger instance
+ * @returns {object} Possibly-filtered result
+ */
+function applyContentSafetyGate(result, { entityValidated }, log) {
+  // Strong provenance = a P856-validated Wikidata entity or the customer's own sitemap.
+  const strongProvenance = entityValidated === 'p856' || entityValidated === 'own_site';
+
+  // `result` always carries the four arrays (initialized by every caller).
+  const dropped = [
+    ...result.products.filter(itemHitsHarm).map((p) => p.name),
+    ...result.services.filter(itemHitsHarm).map((s) => s.name),
+    ...result.sub_brands.filter(hitsHarm),
+    ...result.discontinued.filter(itemHitsHarm).map((d) => d.name),
+  ];
+
+  if (dropped.length === 0) {
+    return result;
+  }
+
+  if (strongProvenance) {
+    // Keep legitimate sensitive content (defense/pharma/gaming), flag for review.
+    log.warn(`Sensitive categories from validated source kept for review: ${dropped.join(', ')}`);
+    return {
+      ...result,
+      metadata: { ...result.metadata, sensitive_category: true },
+    };
+  }
+
+  // Weak/no provenance: hard-drop harmful content.
+  log.warn(`Dropping harmful content from unvalidated source: ${dropped.join(', ')}`);
+  return {
+    ...result,
+    products: result.products.filter((it) => !itemHitsHarm(it)),
+    services: result.services.filter((it) => !itemHitsHarm(it)),
+    sub_brands: result.sub_brands.filter((s) => !hitsHarm(s)),
+    discontinued: result.discontinued.filter((it) => !itemHitsHarm(it)),
+    metadata: { ...result.metadata, safety_filtered: true },
+  };
+}
 
 /**
  * Extract current products from sitemap URLs using LLM.
@@ -418,7 +495,10 @@ export async function extractFromSitemap(sitemapUrl, brandName, gpt, log) {
     return result;
   }
 
-  return normalizeResults(result);
+  // Content-safety backstop. The sitemap is the customer's OWN site, so treat it as
+  // strong (`own_site`) provenance: keep legitimate sensitive content but flag it.
+  const gated = applyContentSafetyGate(result, { entityValidated: 'own_site' }, log);
+  return normalizeResults(gated);
 }
 
 /**
@@ -469,15 +549,30 @@ async function extractFromWikipedia(brandName, wikipediaText, gpt, log) {
 }
 
 /**
- * Extract products using Wikidata + Wikipedia fallback.
- * @param {string} brandName - Brand/company name
- * @param {string} [wikipediaSummary] - Optional Wikipedia text for fallback
+ * Extract products bound to a VALIDATED Wikidata entity (LLMO-6580).
+ *
+ * Every Wikipedia/Wikidata fetch is bound to an entity that validates against the
+ * customer's site (P856 host match, or a weak label match for non-low-confidence
+ * names). If nothing validates, we produce NO products rather than guessing.
+ *
+ * @param {object} options - Options
+ * @param {string} options.brandName - Brand/company name
+ * @param {string} [options.brandConfidence='medium'] - 'high' | 'medium' | 'low'
+ * @param {string} [options.registrableDomain=''] - Site registrable domain
+ * @param {string} [options.wikipediaSummary=null] - Optional pre-fetched fallback text
+ * @param {boolean} [options.enableWikiProducts=true] - Kill-switch for the entire path
  * @param {object} gpt - AzureOpenAIClient instance
  * @param {object} log - Logger instance
  * @returns {Promise<object>} Extraction result
  */
-export async function extractProducts(brandName, wikipediaSummary, gpt, log) {
-  log.info(`Extracting products for brand: ${brandName}`);
+export async function extractProducts({
+  brandName,
+  brandConfidence = 'medium',
+  registrableDomain = '',
+  wikipediaSummary = null,
+  enableWikiProducts = true,
+}, gpt, log) {
+  log.info(`Extracting products for brand: ${brandName} (confidence=${brandConfidence})`);
 
   const result = {
     products: [],
@@ -492,49 +587,62 @@ export async function extractProducts(brandName, wikipediaSummary, gpt, log) {
     },
   };
 
-  // Step 1: Find brand's Wikidata ID
-  const wikidataId = await findWikidataId(brandName, log);
-
-  if (wikidataId) {
-    result.metadata.brand_wikidata_id = wikidataId;
-    log.info(`Found Wikidata ID for ${brandName}: ${wikidataId}`);
-
-    // Step 2: Query Wikidata for products
-    const wikidataProducts = await queryWikidataProducts(wikidataId, log);
-
-    if (wikidataProducts.length > 0) {
-      result.products = wikidataProducts;
-      result.metadata.source = 'wikidata';
-      result.metadata.count = wikidataProducts.length;
-      log.info(`Found ${wikidataProducts.length} products from Wikidata`);
-    }
+  // Kill-switch: entire Wikipedia/Wikidata product path disabled.
+  if (!enableWikiProducts) {
+    log.info('brand-profile: Wikipedia/Wikidata product extraction disabled by flag');
+    result.metadata.source = 'disabled';
+    return normalizeResults(result);
   }
 
-  // Step 3: Fallback/augment with Wikipedia if insufficient
-  if (result.products.length < MIN_PRODUCTS_THRESHOLD) {
-    log.info(`Wikidata returned ${result.products.length} products (threshold: ${MIN_PRODUCTS_THRESHOLD}), trying Wikipedia fallback`);
+  // Step 1: Resolve+validate the entity. A bare low-confidence acronym only validates
+  // via a strong P856 host match; otherwise findValidatedWikidataEntity returns null.
+  const entity = await findValidatedWikidataEntity({
+    brandName, brandConfidence, registrableDomain,
+  }, log);
 
-    // Fetch Wikipedia text if not provided
+  if (!entity) {
+    log.info(`No validated Wikidata entity for ${brandName}; producing no products`);
+    result.metadata.source = brandConfidence === 'low'
+      ? 'skipped_low_confidence'
+      : 'none_no_validated_entity';
+    result.metadata.rejected = true;
+    return normalizeResults(result);
+  }
+
+  result.metadata.brand_wikidata_id = entity.id;
+  result.metadata.source_entity_label = entity.label;
+  result.metadata.validation = entity.validation;
+
+  // Step 2: Query Wikidata SPARQL for products (inherently entity-bound, safe).
+  const wikidataProducts = await queryWikidataProducts(entity.id, log);
+  if (wikidataProducts.length > 0) {
+    result.products = wikidataProducts;
+    result.metadata.source = 'wikidata';
+    result.metadata.count = wikidataProducts.length;
+    log.info(`Found ${wikidataProducts.length} products from Wikidata`);
+  }
+
+  // Step 3: Fallback/augment with the validated entity's OWN enwiki article only.
+  if (result.products.length < MIN_PRODUCTS_THRESHOLD) {
+    log.info(`Wikidata returned ${result.products.length} products (threshold: ${MIN_PRODUCTS_THRESHOLD}), trying entity-bound Wikipedia fallback`);
+
     let wikiText = wikipediaSummary;
-    if (!wikiText) {
-      wikiText = await fetchWikipediaFullText(`${brandName} company`, 12000, log);
+    if (!wikiText && entity.enwikiTitle) {
+      wikiText = await fetchWikipediaExtractByTitle(entity.enwikiTitle, 12000, log);
+      result.metadata.source_wikipedia_title = entity.enwikiTitle;
     }
 
     const wikiResult = await extractFromWikipedia(brandName, wikiText, gpt, log);
-
     if (wikiResult) {
       const merged = mergeResults(result, wikiResult);
       Object.assign(result, merged);
-
-      if (result.metadata.source === 'wikidata') {
-        result.metadata.source = 'hybrid';
-      } else {
-        result.metadata.source = 'wikipedia_llm';
-      }
+      result.metadata.source = result.metadata.source === 'wikidata' ? 'hybrid' : 'wikipedia_llm';
     }
   }
 
-  return normalizeResults(result);
+  // Step 4: Content-safety backstop, gated by entity provenance.
+  const gated = applyContentSafetyGate(result, { entityValidated: entity.validation }, log);
+  return normalizeResults(gated);
 }
 
 /**
@@ -591,9 +699,7 @@ export function createProductExtractorService(env, log) {
     extractFromSitemap: (sitemapUrl, brandName) => (
       extractFromSitemap(sitemapUrl, brandName, gpt, log)
     ),
-    extractProducts: (brandName, wikipediaSummary) => (
-      extractProducts(brandName, wikipediaSummary, gpt, log)
-    ),
+    extractProducts: (options) => extractProducts(options, gpt, log),
     formatProductsForPrompt,
   };
 }

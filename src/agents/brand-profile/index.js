@@ -26,6 +26,7 @@ import { createCompetitorInferenceService } from './services/competitor-inferenc
 import { createPersonaInferenceService } from './services/persona-inference.js';
 import { createProductExtractorService } from './services/product-extractor.js';
 import { createWikipediaService } from './services/wikipedia.js';
+import { resolveBrandName } from './services/brand-resolver.js';
 
 /**
  * Call the model with system and user prompts.
@@ -47,40 +48,6 @@ async function callModel({
     log.error('brand-profile: failed to parse model JSON response', { error: e.message, contentPreview: String(content).slice(0, 500) });
     throw new Error('brand-profile: invalid JSON returned by model');
   }
-}
-
-/**
- * Extract brand name from base profile or URL.
- * @param {object} baseProfile - Base profile from initial LLM call
- * @param {string} baseURL - Site base URL
- * @returns {string} Brand name
- */
-function extractBrandName(baseProfile, baseURL) {
-  // Try to get brand name from profile
-  if (baseProfile?.main_profile?.brand_name) {
-    return baseProfile.main_profile.brand_name;
-  }
-
-  // Try competitive_context
-  if (baseProfile?.competitive_context?.brand_name) {
-    return baseProfile.competitive_context.brand_name;
-  }
-
-  // Fall back to domain extraction
-  try {
-    const url = new URL(baseURL);
-    const parts = url.hostname.split('.');
-    // Remove www and TLD
-    const domainParts = parts.filter((p) => p !== 'www' && p.length > 2);
-    if (domainParts.length > 0) {
-      return domainParts[0].charAt(0).toUpperCase() + domainParts[0].slice(1);
-    }
-  /* c8 ignore next 3 */
-  } catch {
-    // Ignore URL parse errors
-  }
-
-  return 'Unknown Brand';
 }
 
 /**
@@ -152,11 +119,19 @@ async function run(context, env, log) {
   }
 
   // Extract key fields from base profile for enhanced inference
-  const brandName = extractBrandName(baseProfile, baseURL);
+  const {
+    name: brandName,
+    confidence: brandConfidence,
+    registrableDomain,
+  } = await resolveBrandName(baseProfile, baseURL, log);
   const industry = extractIndustry(baseProfile);
   const targetAudience = extractTargetAudience(baseProfile);
 
-  log.info(`brand-profile: enhancing profile for "${brandName}" in "${industry}"`);
+  // LLMO-6580 kill-switch: the entire Wikipedia/Wikidata product + competitor-summary
+  // path stays OFF unless explicitly enabled, until the P2 backfill is validated.
+  const enableWikiProducts = env.BRAND_PROFILE_ENABLE_WIKI_PRODUCTS === 'true';
+
+  log.info(`brand-profile: enhancing profile for "${brandName}" (confidence=${brandConfidence}) in "${industry}"`);
 
   // Initialize services
   const regionalService = createRegionalContextService(env, log);
@@ -200,9 +175,17 @@ async function run(context, env, log) {
     competitorsSource = 'llmo';
   } else {
     log.info('brand-profile: inferring competitors');
-    // Optionally fetch Wikipedia summary for better competitor inference
-    const wikiResult = await wikipediaService.fetchSummary(`${brandName} company`);
-    const wikiSummary = wikiResult?.summary || '';
+    // Optionally fetch a VALIDATED Wikipedia summary (entity bound to the site) for
+    // better competitor inference. Gated by the kill-switch; null degrades gracefully.
+    let wikiSummary = '';
+    if (enableWikiProducts) {
+      const wikiResult = await wikipediaService.fetchValidatedSummary({
+        brandName,
+        brandConfidence,
+        registrableDomain,
+      });
+      wikiSummary = wikiResult?.summary || '';
+    }
 
     const competitorResult = await competitorService.inferCompetitors({
       brandName,
@@ -232,9 +215,14 @@ async function run(context, env, log) {
     log.info(`brand-profile: using sitemap for product extraction: ${sitemapUrl}`);
     productsResult = await productService.extractFromSitemap(sitemapUrl, brandName);
   } else {
-    // Use Wikipedia/Wikidata extraction
-    const wikiText = await wikipediaService.fetchFullText(`${brandName} company`, 12000);
-    productsResult = await productService.extractProducts(brandName, wikiText);
+    // Entity-bound Wikipedia/Wikidata extraction. The fetch now happens inside
+    // extractProducts, bound to an entity validated against the site.
+    productsResult = await productService.extractProducts({
+      brandName,
+      brandConfidence,
+      registrableDomain,
+      enableWikiProducts,
+    });
   }
 
   // Assemble the enhanced profile
@@ -311,7 +299,18 @@ async function persist(message, context, result) {
   const baseURL = site.getBaseURL();
   const before = cfg.getBrandProfile?.() || {};
   const beforeHash = before?.contentHash || null;
-  cfg.updateBrandProfile(result);
+
+  // LLMO-6580: never overwrite a hand-curated product catalogue. Phase-1 wrote ~20
+  // `products_metadata.source == "manual-curated"` blocks in prod; the fixed pipeline
+  // and the P2 backfill MUST preserve them. Everything else still updates.
+  const curated = before?.products_metadata?.source === 'manual-curated';
+  const toPersist = curated
+    ? { ...result, products: before.products, products_metadata: before.products_metadata }
+    : result;
+  if (curated) {
+    log.info('brand-profile persist: preserving manual-curated products', { siteId });
+  }
+  cfg.updateBrandProfile(toPersist);
   const after = cfg.getBrandProfile?.() || {};
   const afterHash = after?.contentHash || null;
   const changed = beforeHash !== afterHash;
