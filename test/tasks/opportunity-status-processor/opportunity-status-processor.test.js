@@ -1979,6 +1979,52 @@ describe('Opportunity Status Processor', () => {
     });
   });
 
+  describe('Audit Processing Errors rendering', () => {
+    it('marks a completed audit that produced no opportunity with an info icon', async () => {
+      const mockSlackClient = {
+        postMessage: sinon.stub().resolves(),
+      };
+      const SlackClientModule = await import('@adobe/spacecat-shared-slack-client');
+      const slackStub = sinon.stub(SlackClientModule.BaseSlackClient, 'createFrom').returns(mockSlackClient);
+
+      // Make RUM available so cwv's only trackable dependency is met.
+      const RUMAPIClientModule = await import('@adobe/spacecat-shared-rum-api-client');
+      const originalRumCreateFrom = RUMAPIClientModule.default.createFrom;
+      RUMAPIClientModule.default.createFrom = sinon.stub().returns({
+        retrieveDomainkey: sinon.stub().resolves('test-key'),
+      });
+
+      message.siteUrl = 'https://example.com';
+      message.taskContext.auditTypes = ['cwv'];
+      const onboardStartTime = Date.now() - 3600000;
+      message.taskContext.onboardStartTime = onboardStartTime;
+      message.taskContext.slackContext = { channelId: 'test-channel', threadTs: 'test-thread' };
+      context.env.AWS_REGION = 'us-east-1';
+
+      // cwv completed (fresh record) but produced no opportunity.
+      context.dataAccess.Audit = {
+        allLatestForSite: sinon.stub().resolves([
+          { getAuditType: () => 'cwv', getAuditedAt: () => new Date(onboardStartTime + 1000).toISOString() },
+        ]),
+      };
+      mockSite.getOpportunities.resolves([]);
+
+      try {
+        await runOpportunityStatusProcessor(message, context);
+
+        const allMessages = mockSlackClient.postMessage.getCalls()
+          .map((c) => c.args[0]?.text)
+          .join('\n');
+
+        expect(allMessages).to.contain('found no issues to report');
+        expect(allMessages).to.contain(':information_source:');
+      } finally {
+        slackStub.restore();
+        RUMAPIClientModule.default.createFrom = originalRumCreateFrom;
+      }
+    });
+  });
+
   describe('Additional coverage for uncovered lines', () => {
     it('should use info icon for opportunities with no suggestions (line 621)', async () => {
       // Mock Slack client
