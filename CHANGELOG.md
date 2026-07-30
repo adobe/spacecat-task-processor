@@ -1,3 +1,17 @@
+## [1.16.2](https://github.com/adobe/spacecat-task-processor/compare/v1.16.1...v1.16.2) (2026-07-27)
+
+
+### Bug Fixes
+
+* **deps:** update external fixes ([#336](https://github.com/adobe/spacecat-task-processor/issues/336)) ([25658ed](https://github.com/adobe/spacecat-task-processor/commit/25658ed96b0235eca68e621d0e202854f6505c02))
+
+## [1.16.1](https://github.com/adobe/spacecat-task-processor/compare/v1.16.0...v1.16.1) (2026-07-24)
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adobe/spacecat-shared-rum-api-client to v2.44.1 ([#335](https://github.com/adobe/spacecat-task-processor/issues/335)) ([6225e02](https://github.com/adobe/spacecat-task-processor/commit/6225e02d2ecc33dd2b179a211fb4ccdc7370f8fa))
+
 # [1.16.0](https://github.com/adobe/spacecat-task-processor/compare/v1.15.58...v1.16.0) (2026-07-23)
 
 
