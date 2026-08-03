@@ -239,6 +239,10 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     const completedCount = allUrlResults.filter((result) => result.status === 'COMPLETE').length;
     const failedCount = allUrlResults.filter((result) => result.status === 'FAILED').length;
     // Non-terminal URLs (scrape still running) — used to distinguish in-progress from failed.
+    // The scrape_url_status enum is exactly { PENDING, RUNNING, REDIRECT, COMPLETE, FAILED,
+    // STOPPED } (@mysticat/data-service-types); PENDING/RUNNING are the only non-terminal
+    // states, so this predicate is complete. REDIRECT/FAILED/STOPPED are terminal
+    // non-successes and correctly fall through to "failed" when nothing has completed.
     const pendingCount = allUrlResults.filter(
       (result) => result.status === 'PENDING' || result.status === 'RUNNING',
     ).length;
