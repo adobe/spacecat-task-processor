@@ -1,3 +1,10 @@
+## [1.16.4](https://github.com/adobe/spacecat-task-processor/compare/v1.16.3...v1.16.4) (2026-08-03)
+
+
+### Bug Fixes
+
+* **onboard-status:** report audit/scrape state truthfully during onboarding ([#340](https://github.com/adobe/spacecat-task-processor/issues/340)) ([1d839a9](https://github.com/adobe/spacecat-task-processor/commit/1d839a9584b9cf763e35bd230b9c7e2dab8921c1))
+
 ## [1.16.3](https://github.com/adobe/spacecat-task-processor/compare/v1.16.2...v1.16.3) (2026-08-01)
 
 
