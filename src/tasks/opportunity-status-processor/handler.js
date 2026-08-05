@@ -606,11 +606,16 @@ export async function runOpportunityStatusProcessor(message, context) {
     const seoImportStatus = seoImportAvailable ? ':white_check_mark:' : ':x:';
     const gscStatus = gscConfigured ? ':white_check_mark:' : ':x:';
     // Tri-state scraping: hourglass while URLs are still being scraped, so an
-    // in-progress snapshot is not mislabelled as a failure.
+    // in-progress snapshot is not mislabelled as a failure. 'unknown' (no scrape data
+    // yet) shows a neutral info icon — not ❌ (which would falsely read as failed) and
+    // not ⏳ (which would overclaim active progress). Only a genuinely terminal-failed
+    // scrape (0 completed, 0 pending, >0 failed) shows ❌.
     const scrapingStatusKey = deriveScrapingStatus(scrapingStats);
     const scrapingEmoji = {
       available: ':white_check_mark:',
       in_progress: ':hourglass_flowing_sand:',
+      unknown: ':information_source:',
+      failed: ':x:',
     }[scrapingStatusKey] || ':x:';
     const scrapingStatus = scrapingEmoji;
 
