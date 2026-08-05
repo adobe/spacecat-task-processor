@@ -1,3 +1,10 @@
+## [1.16.6](https://github.com/adobe/spacecat-task-processor/compare/v1.16.5...v1.16.6) (2026-08-05)
+
+
+### Bug Fixes
+
+* **onboard-status:** show no-scrape-data scraping state as neutral, not failed ([#343](https://github.com/adobe/spacecat-task-processor/issues/343)) ([5fe2b94](https://github.com/adobe/spacecat-task-processor/commit/5fe2b942bda292feebe29b13a4d67268b5f96627)), closes [#340](https://github.com/adobe/spacecat-task-processor/issues/340) [#340](https://github.com/adobe/spacecat-task-processor/issues/340)
+
 ## [1.16.5](https://github.com/adobe/spacecat-task-processor/compare/v1.16.4...v1.16.5) (2026-08-04)
 
 
