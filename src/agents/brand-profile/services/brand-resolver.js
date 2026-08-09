@@ -14,8 +14,9 @@
  * Brand-name resolution for the brand-profile agent (LLMO-6580).
  *
  * Turns a base profile + site URL into a best-effort display name, a coarse
- * confidence signal (retained for logging/observability), and the site's
- * registrable domain. Downstream Wikipedia/Wikidata entity validation is
+ * confidence signal (retained for callers/tests; not consumed by the P856
+ * validation path), and the site's registrable domain. Downstream
+ * Wikipedia/Wikidata entity validation is
  * P856-only and keyed on the registrable domain — not on the confidence signal:
  * a candidate entity is accepted only when its official-website host (claim
  * P856) shares the site's registrable domain, so a bare acronym (e.g. `dnp`,

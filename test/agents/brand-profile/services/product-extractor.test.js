@@ -555,7 +555,7 @@ describe('services/product-extractor', () => {
           { name: 'Service1' },
           { name: '' },
         ],
-        sub_brands: ['SubBrand1', 'SubBrand1'],
+        sub_brands: ['SubBrand1'],
         discontinued: [
           { name: 'OldProduct' },
           { name: '' },

@@ -158,6 +158,19 @@ describe('services/wikipedia', () => {
       expect(result.reason).to.equal('no_match');
     });
 
+    it('accepts a match found after a non-matching P856 host (multi-host loop)', async () => {
+      const mod = await importMod();
+      const result = mod.validateEntityAgainstSite({
+        entity: {
+          label: 'DHL',
+          officialWebsiteHosts: ['other.example', 'www.dhl.com'],
+        },
+        registrableDomain: 'dhl.com',
+      });
+      expect(result.ok).to.equal(true);
+      expect(result.method).to.equal('p856');
+    });
+
     it('rejects an entity with no P856 host (no by-name / label fallback)', async () => {
       const mod = await importMod();
       const result = mod.validateEntityAgainstSite({
@@ -251,6 +264,35 @@ describe('services/wikipedia', () => {
 
       expect(entity.id).to.equal('Q2');
       expect(entity.validation).to.equal('p856');
+    });
+
+    it('stops scanning once a candidate validates (does not fetch later candidates)', async () => {
+      fetchStub.onCall(0).resolves({
+        ok: true,
+        json: () => Promise.resolve({ search: [{ id: 'Q1' }, { id: 'Q2' }] }),
+      });
+      // Q1 validates via P856 -> Q2 must never be fetched.
+      fetchStub.onCall(1).resolves({
+        ok: true,
+        json: () => Promise.resolve({
+          entities: {
+            Q1: {
+              labels: { en: { value: 'DHL' } },
+              sitelinks: { enwiki: { title: 'DHL' } },
+              claims: { P856: [{ mainsnak: { datavalue: { value: 'https://www.dhl.com' } } }] },
+            },
+          },
+        }),
+      });
+
+      const mod = await importMod();
+      const entity = await mod.findValidatedWikidataEntity({
+        brandName: 'DHL', registrableDomain: 'dhl.com',
+      }, log);
+
+      expect(entity.id).to.equal('Q1');
+      // Exactly two round trips: 1 search + 1 entity fetch. Q2 was never requested.
+      expect(fetchStub.callCount).to.equal(2);
     });
 
     it('REGRESSION: same-initials article with no P856 match returns null', async () => {
