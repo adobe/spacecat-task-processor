@@ -75,6 +75,35 @@ describe('services/brand-resolver', () => {
       });
     });
 
+    it('generalizes unlisted <generic>.<ccTLD> suffixes so they never collapse to the bare suffix (LLMO-6580)', () => {
+      // None of these ccTLD second-levels are in MULTI_PART_TLDS; the generic-second-level
+      // rule must still keep a registrable label in front of the suffix.
+      expect(splitHost('maybank.com.my')).to.deep.equal({
+        subdomainLabels: [],
+        apexLabel: 'maybank',
+        registrableDomain: 'maybank.com.my',
+      });
+      expect(splitHost('www.pttep.co.th')).to.deep.equal({
+        subdomainLabels: ['www'],
+        apexLabel: 'pttep',
+        registrableDomain: 'pttep.co.th',
+      });
+      expect(splitHost('nic.gov.in')).to.deep.equal({
+        subdomainLabels: [],
+        apexLabel: 'nic',
+        registrableDomain: 'nic.gov.in',
+      });
+    });
+
+    it('does not treat a non-generic second-level before a ccTLD as multi-part (ab.co)', () => {
+      // 'ab' is not a generic second-level, so 'ab.co' stays the registrable domain.
+      expect(splitHost('sub.ab.co')).to.deep.equal({
+        subdomainLabels: ['sub'],
+        apexLabel: 'ab',
+        registrableDomain: 'ab.co',
+      });
+    });
+
     it('strips a section subdomain (store)', () => {
       const { apexLabel } = splitHost('store.example.com');
       expect(apexLabel).to.equal('example');

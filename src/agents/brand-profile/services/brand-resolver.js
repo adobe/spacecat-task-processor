@@ -48,6 +48,17 @@ export const MULTI_PART_TLDS = new Set([
 ]);
 
 /**
+ * Generic second-level labels that form a two-label public suffix when paired with a
+ * 2-character ccTLD (e.g. `com.my`, `co.th`, `gov.in`, `or.kr`). Generalising the
+ * `<generic>.<cc>` shape means an unlisted ccTLD cannot collapse the registrable domain
+ * down to the bare public suffix, which was the residual LLMO-6580 false-positive vector:
+ * a bare-suffix registrable domain P856-matches any foreign entity on the same suffix.
+ */
+export const GENERIC_SECOND_LEVELS = new Set([
+  'com', 'co', 'org', 'net', 'gov', 'edu', 'ac', 'mil', 'ne', 'or', 'go', 'gob', 'gouv',
+]);
+
+/**
  * Split a hostname into its subdomain labels, apex label, and registrable domain,
  * honouring the minimal multi-part TLD table.
  * @param {string} hostname - Hostname (e.g. "dev.amrize.com", "dnp.co.jp")
@@ -63,7 +74,15 @@ export function splitHost(hostname) {
 
   let registrableLabelCount = 2;
   const lastTwo = labels.slice(-2).join('.');
-  if (MULTI_PART_TLDS.has(lastTwo) && labels.length >= 3) {
+  const tld = labels.at(-1);
+  const secondLevel = labels.at(-2);
+  // Explicit multi-part TLD, OR the general `<generic-second-level>.<2-char-ccTLD>` shape
+  // (co.uk, com.my, co.th, gov.in, or.kr, ...). Both are two-label public suffixes, so the
+  // registrable domain keeps a real label in front of them instead of collapsing to the
+  // bare suffix (LLMO-6580: a bare-suffix registrable domain yields false P856 matches).
+  if (labels.length >= 3
+    && (MULTI_PART_TLDS.has(lastTwo)
+      || (tld.length === 2 && GENERIC_SECOND_LEVELS.has(secondLevel)))) {
     registrableLabelCount = 3;
   }
 

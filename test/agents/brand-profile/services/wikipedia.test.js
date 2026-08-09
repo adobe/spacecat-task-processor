@@ -645,6 +645,30 @@ describe('services/wikipedia', () => {
       expect(result.method).to.equal('label');
     });
 
+    it('rejects a sibling entity that only shares one token (Swiss Life vs Swiss Re)', async () => {
+      const mod = await importMod();
+      const result = mod.validateEntityAgainstSite({
+        entity: { label: 'Swiss Re', aliases: [], officialWebsiteHosts: ['www.swissre.com'] },
+        brandName: 'Swiss Life',
+        brandConfidence: 'high',
+        registrableDomain: 'swisslife.ch',
+      });
+      expect(result.ok).to.equal(false);
+      expect(result.reason).to.equal('no_match');
+    });
+
+    it('rejects a P856 match when the site registrable domain is a bare public suffix', async () => {
+      const mod = await importMod();
+      const result = mod.validateEntityAgainstSite({
+        entity: { label: 'Some Foreign Org', aliases: [], officialWebsiteHosts: ['co.uk'] },
+        brandName: 'Whatever',
+        brandConfidence: 'high',
+        registrableDomain: 'co.uk',
+      });
+      expect(result.ok).to.equal(false);
+      expect(result.method).to.be.null;
+    });
+
     it('rejects a label match for a low-confidence name (acronym safety rule)', async () => {
       const mod = await importMod();
       const result = mod.validateEntityAgainstSite({

@@ -28,6 +28,24 @@ import { findValidatedWikidataEntity, fetchWikipediaExtractByTitle } from './wik
 const USER_AGENT = 'SpaceCat/1.0 (https://github.com/adobe/spacecat; spacecat@adobe.com)';
 const WIKIDATA_SPARQL = 'https://query.wikidata.org/sparql';
 const MIN_PRODUCTS_THRESHOLD = 3;
+// Upper bound on any single sitemap/SPARQL round trip so a hung upstream cannot stall the task.
+const EXTERNAL_FETCH_TIMEOUT_MS = 10000;
+
+/**
+ * fetch() with an AbortController timeout so a hung upstream cannot stall the task.
+ * @param {string} url - Request URL
+ * @param {object} [options] - fetch options (headers, etc.)
+ * @returns {Promise<Response>}
+ */
+async function timedFetch(url, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), EXTERNAL_FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // Harm denylist (LLMO-6580 / AI-ethics Tier-2). Word-boundary matched against product/
 // service/sub-brand names and categories. Deliberate stems (terror, smuggl, insurgen)
@@ -38,7 +56,7 @@ const HARM_PATTERNS = [
   // weapons / military
   /\bweapon/i, /\bfirearm/i, /\bammunition/i, /\bmissile/i, /\bwarhead/i, /\bexplosive/i,
   // adult / sexual
-  /\bpornograph/i, /\bescort\b/i,
+  /\bpornograph/i, /\bescorts?\b/i,
   // drugs
   /\bnarcotic/i, /\bheroin\b/i, /\bcocaine\b/i, /\bmethamphetamine\b/i,
   // hate / extremism
@@ -155,7 +173,7 @@ function filterProductUrls(urls) {
 async function fetchSitemapUrls(sitemapUrl, log) {
   log.info(`Fetching sitemap: ${sitemapUrl}`);
 
-  const resp = await fetch(sitemapUrl, {
+  const resp = await timedFetch(sitemapUrl, {
     headers: { 'User-Agent': USER_AGENT },
   });
 
@@ -179,11 +197,18 @@ async function fetchSitemapUrls(sitemapUrl, log) {
 async function queryWikidataProducts(wikidataId, log) {
   log.info(`Querying Wikidata products for: ${wikidataId}`);
 
+  // Guard: only substitute a well-formed Wikidata entity id into the SPARQL template
+  // (defense-in-depth against SPARQL injection, even though ids originate from Wikidata).
+  if (!/^Q\d+$/.test(String(wikidataId || ''))) {
+    log.warn(`Refusing SPARQL query for malformed Wikidata id: ${wikidataId}`);
+    return [];
+  }
+
   const query = PRODUCTS_SPARQL.replace(/{wikidata_id}/g, wikidataId);
   const url = `${WIKIDATA_SPARQL}?query=${encodeURIComponent(query)}`;
 
   try {
-    const resp = await fetch(url, {
+    const resp = await timedFetch(url, {
       headers: {
         'User-Agent': USER_AGENT,
         Accept: 'application/sparql-results+json',

@@ -14,14 +14,47 @@
  * Wikipedia/Wikidata client for fetching brand information.
  */
 
-import { splitHost } from './brand-resolver.js';
+import { splitHost, MULTI_PART_TLDS } from './brand-resolver.js';
 
 const WIKIPEDIA_API_BASE = 'https://en.wikipedia.org/w/api.php';
 const WIKIDATA_API = 'https://www.wikidata.org/w/api.php';
 const USER_AGENT = 'SpaceCat/1.0 (https://github.com/adobe/spacecat; spacecat@adobe.com)';
 
+// Upper bound on any single Wikipedia/Wikidata/SPARQL round trip. findValidatedWikidataEntity
+// issues several serial calls, so an unbounded hang on any one would stall the whole task.
+const EXTERNAL_FETCH_TIMEOUT_MS = 10000;
+
 // Corporate suffixes stripped before comparing an entity label to a brand name.
 const CORP_SUFFIXES = /\b(inc|corp|corporation|co|ltd|limited|llc|gmbh|ag|sa|plc|nv|kk|group|holdings?|company)\b/gi;
+
+/**
+ * fetch() with an AbortController timeout so a hung upstream cannot stall the task.
+ * Mirrors the pattern in brand-resolver.fetchSiteName.
+ * @param {string} url - Request URL
+ * @param {object} [options] - fetch options (headers, etc.)
+ * @returns {Promise<Response>}
+ */
+async function timedFetch(url, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), EXTERNAL_FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Is this registrable domain actually a bare public suffix (no registrable label in front)?
+ * Such a domain must never produce a P856 "strong" match, or any foreign entity on the same
+ * suffix would validate against the site (LLMO-6580).
+ * @param {string} domain - Registrable domain
+ * @returns {boolean}
+ */
+function isBareSuffix(domain) {
+  const labels = String(domain || '').toLowerCase().split('.').filter(Boolean);
+  return labels.length < 2 || MULTI_PART_TLDS.has(labels.join('.'));
+}
 
 /**
  * Fetch Wikipedia summary for a brand.
@@ -43,7 +76,7 @@ export async function fetchWikipediaSummary(searchQuery, log) {
     });
 
     const searchUrl = `${WIKIPEDIA_API_BASE}?${searchParams}`;
-    const searchResp = await fetch(searchUrl, {
+    const searchResp = await timedFetch(searchUrl, {
       headers: { 'User-Agent': USER_AGENT },
     });
 
@@ -74,7 +107,7 @@ export async function fetchWikipediaSummary(searchQuery, log) {
     });
 
     const summaryUrl = `${WIKIPEDIA_API_BASE}?${summaryParams}`;
-    const summaryResp = await fetch(summaryUrl, {
+    const summaryResp = await timedFetch(summaryUrl, {
       headers: { 'User-Agent': USER_AGENT },
     });
 
@@ -133,7 +166,7 @@ export async function fetchWikipediaFullText(searchQuery, maxChars, log) {
     });
 
     const searchUrl = `${WIKIPEDIA_API_BASE}?${searchParams}`;
-    const searchResp = await fetch(searchUrl, {
+    const searchResp = await timedFetch(searchUrl, {
       headers: { 'User-Agent': USER_AGENT },
     });
 
@@ -161,7 +194,7 @@ export async function fetchWikipediaFullText(searchQuery, maxChars, log) {
     });
 
     const contentUrl = `${WIKIPEDIA_API_BASE}?${contentParams}`;
-    const contentResp = await fetch(contentUrl, {
+    const contentResp = await timedFetch(contentUrl, {
       headers: { 'User-Agent': USER_AGENT },
     });
 
@@ -210,7 +243,7 @@ export async function findWikidataId(brandName, log) {
     });
 
     const url = `${WIKIDATA_API}?${params}`;
-    const resp = await fetch(url, {
+    const resp = await timedFetch(url, {
       headers: { 'User-Agent': USER_AGENT },
     });
 
@@ -272,7 +305,7 @@ export async function getWikidataEntity(entityId, log) {
     });
 
     const url = `${WIKIDATA_API}?${params}`;
-    const resp = await fetch(url, {
+    const resp = await timedFetch(url, {
       headers: { 'User-Agent': USER_AGENT },
     });
 
@@ -351,11 +384,15 @@ export function validateEntityAgainstSite({
   }
 
   // Strong P856 match: entity's own official website registrable domain == site's.
+  // Never accept when the site's registrable domain is a bare public suffix (e.g. `co.uk`),
+  // or any foreign entity on the same suffix would falsely validate (LLMO-6580).
   const hosts = entity.officialWebsiteHosts || [];
-  for (const host of hosts) {
-    const { registrableDomain: entityRegDomain } = splitHost(host);
-    if (entityRegDomain && registrableDomain && entityRegDomain === registrableDomain) {
-      return { ok: true, method: 'p856', reason: `P856 host ${host} matches site ${registrableDomain}` };
+  if (!isBareSuffix(registrableDomain)) {
+    for (const host of hosts) {
+      const { registrableDomain: entityRegDomain } = splitHost(host);
+      if (entityRegDomain && registrableDomain && entityRegDomain === registrableDomain) {
+        return { ok: true, method: 'p856', reason: `P856 host ${host} matches site ${registrableDomain}` };
+      }
     }
   }
 
@@ -364,16 +401,21 @@ export function validateEntityAgainstSite({
     return { ok: false, method: null, reason: 'low_confidence_requires_p856' };
   }
 
-  // Weak label/alias token-overlap match.
+  // Weak label/alias containment match. Require one token set to FULLY contain the other
+  // (after corp-suffix stripping) so a qualifier variant ("Amrize" / "Amrize Holdings",
+  // "The Home Depot" / "Home Depot") matches, but two distinct names that merely share a
+  // token ("Swiss Life" / "Swiss Re", "Bank of America" / "Bank of Scotland") do NOT — a
+  // shared single token was the residual sibling-entity contamination vector (LLMO-6580).
   const brandTokens = new Set(normalizeName(brandName).split(' ').filter(Boolean));
   if (brandTokens.size > 0) {
     const candidates = [entity.label, ...(entity.aliases || [])].filter(Boolean);
     for (const candidate of candidates) {
-      const candTokens = normalizeName(candidate).split(' ').filter(Boolean);
-      if (candTokens.length > 0) {
-        const overlap = candTokens.filter((t) => brandTokens.has(t)).length;
-        const ratio = overlap / Math.max(brandTokens.size, candTokens.length);
-        if (ratio >= 0.5) {
+      const candTokens = new Set(normalizeName(candidate).split(' ').filter(Boolean));
+      if (candTokens.size > 0) {
+        const [smaller, larger] = brandTokens.size <= candTokens.size
+          ? [brandTokens, candTokens] : [candTokens, brandTokens];
+        const contained = [...smaller].every((t) => larger.has(t));
+        if (contained) {
           return { ok: true, method: 'label', reason: `label match "${candidate}"` };
         }
       }
@@ -400,7 +442,7 @@ async function searchWikidataCandidates(brandName, log) {
     });
 
     const url = `${WIKIDATA_API}?${params}`;
-    const resp = await fetch(url, {
+    const resp = await timedFetch(url, {
       headers: { 'User-Agent': USER_AGENT },
     });
 
@@ -448,8 +490,11 @@ export async function findValidatedWikidataEntity({
       log.info(`Validated Wikidata entity ${id} for "${brandName}" via P856`);
       return { ...entity, validation: 'p856' };
     }
-    if (validation.ok && validation.method === 'label' && !labelMatch) {
-      labelMatch = { ...entity, validation: 'label' };
+    if (validation.ok && validation.method === 'label') {
+      // Keep the FIRST label match as a fallback; a later P856 match still wins.
+      if (!labelMatch) {
+        labelMatch = { ...entity, validation: 'label' };
+      }
     } else {
       log.info(`Rejected Wikidata candidate ${id} for "${brandName}": ${validation.reason}`);
     }
@@ -486,7 +531,7 @@ export async function fetchWikipediaExtractByTitle(title, maxChars, log) {
     });
 
     const url = `${WIKIPEDIA_API_BASE}?${params}`;
-    const resp = await fetch(url, {
+    const resp = await timedFetch(url, {
       headers: { 'User-Agent': USER_AGENT },
     });
 
@@ -540,7 +585,7 @@ export async function fetchValidatedSummary({
     });
 
     const url = `${WIKIPEDIA_API_BASE}?${params}`;
-    const resp = await fetch(url, {
+    const resp = await timedFetch(url, {
       headers: { 'User-Agent': USER_AGENT },
     });
 

@@ -5,37 +5,47 @@
 SpaceCat Task Processor is a Node.js service that processes messages from the AWS SQS queue `SPACECAT-TASK-PROCESSOR-JOBS`. Based on the `type` field in each message, it dispatches the message to the appropriate handler for processing various site-related tasks.
 
 ## Features
+
 - Receives and processes messages from SQS
 - Supports multiple task types via modular handlers
 - Built-in handlers for audit status, demo URL preparation, generic agent execution, and Slack notifications
 - Extensible and easy to add new handlers
 
 ## Handlers
+
 - **opportunity-status-processor**: Checks and reports status audits for a site
 - **demo-url-processor**: Prepares and shares a demo URL for a site
 - **agent-executor**: Runs registered AI/LLM agents (e.g., the brand-profile agent) asynchronously after onboarding flows
 - **slack-notify**: Sends Slack notifications (text or block messages) from workflows
 
 ## Setup
+
 1. Clone the repository
 2. Install dependencies:
+
    ```sh
    npm install
    ```
+
 3. Configure AWS credentials and environment variables as needed
 
 ## Usage
+
 - The service is designed to run as a serverless function or background worker.
 - It can be invoked in two ways:
   - **SQS mode:** listens to the `SPACECAT-TASK-PROCESSOR-JOBS` queue and processes messages automatically (default path for existing workflows).
   - **Direct mode:** the Lambda entrypoint auto-detects single-message payloads (e.g., from AWS Step Functions) and executes the corresponding handler synchronously. This is used by the new agent workflows to obtain immediate results before triggering follow-up actions.
 
 ## Development
+
 - To run tests:
+
   ```sh
   npm test
   ```
+
 - To run the optional brand-profile integration test (requires Azure OpenAI env variables):
+
   ```sh
   npm run test:brand-profile-it
   ```
@@ -57,8 +67,8 @@ When invoking the integration test, you can also set `BRAND_PROFILE_TEST_BASE_UR
 
 The brand-profile product and competitor-summary paths bind every Wikipedia/Wikidata lookup to an entity that is validated against the customer's site, so a foreign entity's catalogue can never be attached to a customer.
 
-- **Brand-name resolution** (`services/brand-resolver.js`) never emits a bare 2-3 letter acronym or a `dev`/`www`/`store`/`support` subdomain label as a high-confidence brand name. It returns a `confidence` signal (`high`/`medium`/`low`); low-confidence acronyms may only proceed if an entity validates by a strong P856 (official-website host) match against the site's registrable domain.
-- **Entity binding** (`services/wikipedia.js`): `findValidatedWikidataEntity` keeps a Wikidata candidate only if its official-website host (claim P856) shares the site's registrable domain, or — for non-low-confidence names — its label/aliases overlap the brand name. Fallback article text is fetched by the validated entity's **exact** English Wikipedia sitelink title (`fetchWikipediaExtractByTitle`), never by a decoupled `opensearch "<name> company"` query. If nothing validates, the pipeline produces **no** products.
+- **Brand-name resolution** (`services/brand-resolver.js`) never *derives* a high-confidence brand name from a bare 2-3 letter acronym or a `dev`/`www`/`store`/`support` subdomain label: domain- and page-title-derived names that are bare acronyms or stop-labels are demoted to `low` confidence (an explicit `brand_name` supplied by the base profile is trusted as given). It returns a `confidence` signal (`high`/`medium`/`low`); low-confidence names may only proceed if an entity validates by a strong P856 (official-website host) match against the site's registrable domain.
+- **Entity binding** (`services/wikipedia.js`): `findValidatedWikidataEntity` keeps a Wikidata candidate only if its official-website host (claim P856) shares the site's registrable domain, or — for non-low-confidence names — its label/aliases fully contain (or are contained by) the brand name — a single shared token is not enough. Fallback article text is fetched by the validated entity's **exact** English Wikipedia sitelink title (`fetchWikipediaExtractByTitle`), never by a decoupled `opensearch "<name> company"` query. If nothing validates, the pipeline produces **no** products.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -69,12 +79,15 @@ The brand-profile product and competitor-summary paths bind every Wikipedia/Wiki
 **Persist guard:** `persist()` never overwrites a stored brand profile whose `products_metadata.source == "manual-curated"` — the curated `products`/`products_metadata` are preserved while all other fields update. This protects the hand-curated blocks during the P2 regeneration sweep.
 
 - To lint code:
+
   ```sh
   npm run lint
   ```
 
 ## Extending
+
 To add a new handler:
+
 1. Create a new folder in `src/` for your handler.
 2. Export your handler function.
 3. Add it to the handler mapping in `src/index.js`.
@@ -83,6 +96,7 @@ To add a new handler:
 For more details, see the documentation in `src/README.md`.
 
 ## Status
+
 [![codecov](https://img.shields.io/codecov/c/github/adobe-rnd/spacecat-task-processor.svg)](https://codecov.io/gh/adobe-rnd/spacecat-task-processor)
 [![CircleCI](https://img.shields.io/circleci/project/github/adobe-rnd/spacecat-audit-worker.svg)](https://circleci.com/gh/adobe-rnd/spacecat-task-processor)
 [![GitHub license](https://img.shields.io/github/license/adobe-rnd/spacecat-task-processor.svg)](https://github.com/adobe-rnd/spacecat-task-processor/blob/master/LICENSE.txt)
@@ -93,7 +107,7 @@ For more details, see the documentation in `src/README.md`.
 ## Installation
 
 ```bash
-$ npm install @adobe/spacecat-task-processor
+npm install @adobe/spacecat-task-processor
 ```
 
 ## Usage
@@ -105,19 +119,19 @@ See the [API documentation](docs/API.md).
 ### Build
 
 ```bash
-$ npm install
+npm install
 ```
 
 ### Test
 
 ```bash
-$ npm test
+npm test
 ```
 
 ### Lint
 
 ```bash
-$ npm run lint
+npm run lint
 ```
 
 ## Message Body Formats
@@ -157,6 +171,7 @@ When the AWS Step Functions Agent Workflow invokes the Lambda directly, it sends
 ```
 
 Field descriptions:
+
 - `agentId` *(required)* – must match a registered agent (e.g., `brand-profile`).
 - `siteId` *(required)* – kept at the envelope level for logging/metrics. Agents can still read it from the message passed into `agent.persist`.
 - `context` *(required)* – forwarded to `agent.run`. At minimum it must include `baseURL`; additional agent-specific params live here.

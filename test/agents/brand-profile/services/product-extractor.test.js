@@ -577,6 +577,63 @@ describe('services/product-extractor', () => {
       expect(result.sub_brands).to.deep.equal([]);
     });
 
+    it('keeps benign names that merely contain a denylist substring, and catches plural forms', async () => {
+      // Weak (label) provenance => harmful items are hard-dropped. Benign names whose
+      // substrings look like a stem must survive (the denylist claims to avoid false hits);
+      // the plural 'Escorts' must be caught by the word-boundary pattern.
+      fetchStub.onCall(0).resolves(searchResp(['Q1']));
+      fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'Acme', enwikiTitle: 'Acme', hosts: [] }));
+      fetchStub.onCall(2).resolves(sparqlResp([]));
+      fetchStub.onCall(3).resolves(extractResp('Acme is a company.'));
+
+      gpt.fetchChatCompletion.resolves(llmResp({
+        products: [
+          { name: 'Armature Motor', category: 'Component' },
+          { name: 'Churchill Series', category: 'Model' },
+          { name: 'Escorts', category: 'Service' },
+        ],
+        services: [],
+        sub_brands: [],
+        discontinued: [],
+      }));
+
+      const result = await extractProducts(
+        { brandName: 'Acme', brandConfidence: 'high', registrableDomain: 'somethingelse.com' },
+        gpt,
+        log,
+      );
+
+      expect(result.metadata.validation).to.equal('label');
+      expect(result.metadata.safety_filtered).to.equal(true);
+      // Benign near-misses kept; only the true (plural) hit dropped.
+      expect(result.products.map((p) => p.name)).to.deep.equal(['Armature Motor', 'Churchill Series']);
+    });
+
+    it('refuses a SPARQL query when the resolved entity id is malformed (injection guard)', async () => {
+      // Entity validates via P856 but carries a non-Q id; the SPARQL template substitution
+      // must be refused rather than issued.
+      fetchStub.onCall(0).resolves(searchResp(['QABC']));
+      fetchStub.onCall(1).resolves(entityResp('QABC', { label: 'Acme', enwikiTitle: 'Acme', hosts: ['acme.com'] }));
+      fetchStub.onCall(2).resolves(extractResp('Acme is a company.'));
+
+      gpt.fetchChatCompletion.resolves(llmResp({
+        products: [], services: [], sub_brands: [], discontinued: [],
+      }));
+
+      const result = await extractProducts(
+        { brandName: 'Acme', brandConfidence: 'low', registrableDomain: 'acme.com' },
+        gpt,
+        log,
+      );
+
+      expect(result.metadata.brand_wikidata_id).to.equal('QABC');
+      expect(result.products).to.have.length(0);
+      expect(log.warn).to.have.been.calledWithMatch('Refusing SPARQL query for malformed Wikidata id');
+      // No SPARQL request was issued (search + entity + wiki-extract only).
+      const sparqlIssued = fetchStub.getCalls().some((c) => String(c.args[0]).includes('sparql'));
+      expect(sparqlIssued).to.equal(false);
+    });
+
     it('keeps but flags harmful content from a strongly (P856) validated entity', async () => {
       fetchStub.onCall(0).resolves(searchResp(['Q1']));
       fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'Beretta', enwikiTitle: 'Beretta', hosts: ['www.beretta.com'] }));
