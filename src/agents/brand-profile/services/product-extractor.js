@@ -47,22 +47,6 @@ async function timedFetch(url, options = {}) {
   }
 }
 
-// Harm denylist (LLMO-6580 / AI-ethics Tier-2). Word-boundary matched against product/
-// service/sub-brand names and categories. Deliberate stems (terror, smuggl, insurgen)
-// avoid false hits on words like "armature" or "Churchill".
-const HARM_PATTERNS = [
-  // crime / terror
-  /\bterror/i, /\bsmuggl/i, /\binsurgen/i, /\bcartel/i, /\bmafia/i, /\bcriminal/i, /\bnarco/i,
-  // weapons / military
-  /\bweapon/i, /\bfirearm/i, /\bammunition/i, /\bmissile/i, /\bwarhead/i, /\bexplosive/i,
-  // adult / sexual
-  /\bpornograph/i, /\bescorts?\b/i,
-  // drugs
-  /\bnarcotic/i, /\bheroin\b/i, /\bcocaine\b/i, /\bmethamphetamine\b/i,
-  // hate / extremism
-  /\bextremis/i, /\bneo-?nazi/i, /\bjihad/i,
-];
-
 // Generic SPARQL query - works for any industry
 const PRODUCTS_SPARQL = `
 SELECT DISTINCT ?item ?itemLabel ?typeLabel ?inception ?discontinued WHERE {
@@ -368,78 +352,6 @@ function mergeResults(primary, secondary) {
 }
 
 /**
- * Does a string trip the harm denylist?
- * @param {string} text - Text to scan
- * @returns {boolean}
- */
-function hitsHarm(text) {
-  const t = String(text || '');
-  return HARM_PATTERNS.some((re) => re.test(t));
-}
-
-/**
- * Does a normalized product/service item ({ name, category }) trip the harm denylist?
- * @param {object} item - Item to scan
- * @returns {boolean}
- */
-function itemHitsHarm(item) {
-  return hitsHarm(item.name) || hitsHarm(item.category);
-}
-
-/**
- * Content-safety / plausibility backstop (LLMO-6580 ask 4, defence in depth).
- *
- * Provenance rule:
- * - When the content came from a strongly (P856) validated entity — or the
- *   customer's own sitemap (`own_site`) — a real defense/pharma/gaming customer
- *   may legitimately list sensitive products: KEEP the content and set
- *   `metadata.sensitive_category` for human review.
- * - When the source is unvalidated or only weakly (label) matched, HARD-DROP any
- *   harmful item/service/sub-brand and set `metadata.safety_filtered`.
- *
- * @param {object} result - Extraction result (mutated defensively via copy)
- * @param {object} opts - { entityValidated: 'p856'|'label'|'own_site'|null }
- * @param {object} log - Logger instance
- * @returns {object} Possibly-filtered result
- */
-function applyContentSafetyGate(result, { entityValidated }, log) {
-  // Strong provenance = a P856-validated Wikidata entity or the customer's own sitemap.
-  const strongProvenance = entityValidated === 'p856' || entityValidated === 'own_site';
-
-  // `result` always carries the four arrays (initialized by every caller).
-  const dropped = [
-    ...result.products.filter(itemHitsHarm).map((p) => p.name),
-    ...result.services.filter(itemHitsHarm).map((s) => s.name),
-    ...result.sub_brands.filter(hitsHarm),
-    ...result.discontinued.filter(itemHitsHarm).map((d) => d.name),
-  ];
-
-  if (dropped.length === 0) {
-    return result;
-  }
-
-  if (strongProvenance) {
-    // Keep legitimate sensitive content (defense/pharma/gaming), flag for review.
-    log.warn(`Sensitive categories from validated source kept for review: ${dropped.join(', ')}`);
-    return {
-      ...result,
-      metadata: { ...result.metadata, sensitive_category: true },
-    };
-  }
-
-  // Weak/no provenance: hard-drop harmful content.
-  log.warn(`Dropping harmful content from unvalidated source: ${dropped.join(', ')}`);
-  return {
-    ...result,
-    products: result.products.filter((it) => !itemHitsHarm(it)),
-    services: result.services.filter((it) => !itemHitsHarm(it)),
-    sub_brands: result.sub_brands.filter((s) => !hitsHarm(s)),
-    discontinued: result.discontinued.filter((it) => !itemHitsHarm(it)),
-    metadata: { ...result.metadata, safety_filtered: true },
-  };
-}
-
-/**
  * Extract current products from sitemap URLs using LLM.
  * @param {string} sitemapUrl - URL of the brand's sitemap.xml
  * @param {string} brandName - Brand name for context
@@ -520,10 +432,7 @@ export async function extractFromSitemap(sitemapUrl, brandName, gpt, log) {
     return result;
   }
 
-  // Content-safety backstop. The sitemap is the customer's OWN site, so treat it as
-  // strong (`own_site`) provenance: keep legitimate sensitive content but flag it.
-  const gated = applyContentSafetyGate(result, { entityValidated: 'own_site' }, log);
-  return normalizeResults(gated);
+  return normalizeResults(result);
 }
 
 /**
@@ -577,12 +486,11 @@ async function extractFromWikipedia(brandName, wikipediaText, gpt, log) {
  * Extract products bound to a VALIDATED Wikidata entity (LLMO-6580).
  *
  * Every Wikipedia/Wikidata fetch is bound to an entity that validates against the
- * customer's site (P856 host match, or a weak label match for non-low-confidence
- * names). If nothing validates, we produce NO products rather than guessing.
+ * customer's site by a strong P856 (official-website host) match. If nothing
+ * validates, we produce NO products rather than guessing.
  *
  * @param {object} options - Options
  * @param {string} options.brandName - Brand/company name
- * @param {string} [options.brandConfidence='medium'] - 'high' | 'medium' | 'low'
  * @param {string} [options.registrableDomain=''] - Site registrable domain
  * @param {string} [options.wikipediaSummary=null] - Optional pre-fetched fallback text
  * @param {boolean} [options.enableWikiProducts=true] - Kill-switch for the entire path
@@ -592,12 +500,11 @@ async function extractFromWikipedia(brandName, wikipediaText, gpt, log) {
  */
 export async function extractProducts({
   brandName,
-  brandConfidence = 'medium',
   registrableDomain = '',
   wikipediaSummary = null,
   enableWikiProducts = true,
 }, gpt, log) {
-  log.info(`Extracting products for brand: ${brandName} (confidence=${brandConfidence})`);
+  log.info(`Extracting products for brand: ${brandName}`);
 
   const result = {
     products: [],
@@ -619,17 +526,15 @@ export async function extractProducts({
     return normalizeResults(result);
   }
 
-  // Step 1: Resolve+validate the entity. A bare low-confidence acronym only validates
-  // via a strong P856 host match; otherwise findValidatedWikidataEntity returns null.
+  // Step 1: Resolve+validate the entity. A candidate is only accepted via a strong P856
+  // host match against the site; otherwise findValidatedWikidataEntity returns null.
   const entity = await findValidatedWikidataEntity({
-    brandName, brandConfidence, registrableDomain,
+    brandName, registrableDomain,
   }, log);
 
   if (!entity) {
     log.info(`No validated Wikidata entity for ${brandName}; producing no products`);
-    result.metadata.source = brandConfidence === 'low'
-      ? 'skipped_low_confidence'
-      : 'none_no_validated_entity';
+    result.metadata.source = 'none_no_validated_entity';
     result.metadata.rejected = true;
     return normalizeResults(result);
   }
@@ -665,9 +570,7 @@ export async function extractProducts({
     }
   }
 
-  // Step 4: Content-safety backstop, gated by entity provenance.
-  const gated = applyContentSafetyGate(result, { entityValidated: entity.validation }, log);
-  return normalizeResults(gated);
+  return normalizeResults(result);
 }
 
 /**

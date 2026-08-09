@@ -32,15 +32,12 @@ const searchResp = (ids) => ({
   json: () => Promise.resolve({ search: ids.map((id) => ({ id })) }),
 });
 
-const entityResp = (id, {
-  label, enwikiTitle, hosts = [], aliases = [],
-}) => ({
+const entityResp = (id, { label, enwikiTitle, hosts = [] }) => ({
   ok: true,
   json: () => Promise.resolve({
     entities: {
       [id]: {
         labels: label ? { en: { value: label } } : {},
-        aliases: { en: aliases.map((value) => ({ value })) },
         sitelinks: enwikiTitle ? { enwiki: { title: enwikiTitle } } : {},
         claims: hosts.length
           ? { P856: hosts.map((h) => ({ mainsnak: { datavalue: { value: `https://${h}` } } })) }
@@ -321,42 +318,9 @@ describe('services/product-extractor', () => {
       expect(result.metadata.confidence).to.equal('unknown');
       expect(result.metadata.notes).to.equal('');
     });
-
-    it('keeps and flags sensitive own-site content (harm gate backstop)', async () => {
-      fetchStub.resolves({
-        ok: true,
-        text: () => Promise.resolve(`
-          <urlset>
-            <url><loc>https://beretta.com/products/pistols</loc></url>
-          </urlset>
-        `),
-      });
-
-      gpt.fetchChatCompletion.resolves(llmResp({
-        products: [
-          { name: '92FS', category: 'Firearm' },
-          { name: 'Accessories', category: 'Gear' },
-        ],
-        services: [],
-        sub_brands: [],
-        discontinued: [],
-      }));
-
-      const result = await extractFromSitemap(
-        'https://beretta.com/sitemap.xml',
-        'Beretta',
-        gpt,
-        log,
-      );
-
-      // Own-site provenance: legitimate sensitive content is kept, not dropped.
-      expect(result.products).to.have.length(2);
-      expect(result.metadata.sensitive_category).to.equal(true);
-      expect(result.metadata.safety_filtered).to.be.undefined;
-    });
   });
 
-  describe('extractProducts (entity-bound)', () => {
+  describe('extractProducts (entity-bound, P856-only)', () => {
     it('returns validated Wikidata products (happy path, P856 match)', async () => {
       fetchStub.onCall(0).resolves(searchResp(['Q1']));
       fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'DHL', enwikiTitle: 'DHL', hosts: ['www.dhl.com'] }));
@@ -367,7 +331,7 @@ describe('services/product-extractor', () => {
       ]));
 
       const result = await extractProducts(
-        { brandName: 'DHL', brandConfidence: 'low', registrableDomain: 'dhl.com' },
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
         gpt,
         log,
       );
@@ -387,13 +351,13 @@ describe('services/product-extractor', () => {
       }));
 
       const result = await extractProducts(
-        { brandName: 'Dnp', brandConfidence: 'low', registrableDomain: 'dnp.co.jp' },
+        { brandName: 'Dnp', registrableDomain: 'dnp.co.jp' },
         gpt,
         log,
       );
 
       expect(result.products).to.have.length(0);
-      expect(result.metadata.source).to.equal('skipped_low_confidence');
+      expect(result.metadata.source).to.equal('none_no_validated_entity');
       expect(result.metadata.rejected).to.equal(true);
       // The decoupled `opensearch "Dnp company"` fetch must never be issued.
       expect(noOpenSearchIssued(fetchStub)).to.equal(true);
@@ -407,22 +371,22 @@ describe('services/product-extractor', () => {
       }));
 
       const result = await extractProducts(
-        { brandName: 'Edb', brandConfidence: 'low', registrableDomain: 'edb.gov.sg' },
+        { brandName: 'Edb', registrableDomain: 'edb.gov.sg' },
         gpt,
         log,
       );
 
       expect(result.products).to.have.length(0);
-      expect(result.metadata.source).to.equal('skipped_low_confidence');
+      expect(result.metadata.source).to.equal('none_no_validated_entity');
       expect(noOpenSearchIssued(fetchStub)).to.equal(true);
     });
 
-    it('returns none_no_validated_entity for a non-low-confidence name with no match', async () => {
+    it('returns none_no_validated_entity when a candidate has a non-matching P856 host', async () => {
       fetchStub.onCall(0).resolves(searchResp(['Q9']));
       fetchStub.onCall(1).resolves(entityResp('Q9', { label: 'Totally Different', hosts: ['other.example'] }));
 
       const result = await extractProducts(
-        { brandName: 'Amrize', brandConfidence: 'medium', registrableDomain: 'amrize.com' },
+        { brandName: 'Amrize', registrableDomain: 'amrize.com' },
         gpt,
         log,
       );
@@ -449,7 +413,7 @@ describe('services/product-extractor', () => {
       }));
 
       const result = await extractProducts(
-        { brandName: 'DHL', brandConfidence: 'low', registrableDomain: 'dhl.com' },
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
         gpt,
         log,
       );
@@ -463,9 +427,9 @@ describe('services/product-extractor', () => {
       expect(result.products.length).to.be.greaterThan(1);
     });
 
-    it('produces a wikipedia_llm result when SPARQL is empty but the entity validates (label)', async () => {
+    it('produces a wikipedia_llm result when SPARQL is empty but the entity validates (P856)', async () => {
       fetchStub.onCall(0).resolves(searchResp(['Q1']));
-      fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'Amrize', enwikiTitle: 'Amrize', hosts: [] }));
+      fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'Amrize', enwikiTitle: 'Amrize', hosts: ['amrize.com'] }));
       fetchStub.onCall(2).resolves(sparqlResp([]));
       fetchStub.onCall(3).resolves(extractResp('Amrize makes Cement and Aggregates.'));
 
@@ -477,13 +441,13 @@ describe('services/product-extractor', () => {
       }));
 
       const result = await extractProducts(
-        { brandName: 'Amrize', brandConfidence: 'high', registrableDomain: 'somethingelse.com' },
+        { brandName: 'Amrize', registrableDomain: 'amrize.com' },
         gpt,
         log,
       );
 
       expect(result.metadata.source).to.equal('wikipedia_llm');
-      expect(result.metadata.validation).to.equal('label');
+      expect(result.metadata.validation).to.equal('p856');
       expect(result.products).to.have.length(2);
     });
 
@@ -495,7 +459,7 @@ describe('services/product-extractor', () => {
       ]));
 
       const result = await extractProducts(
-        { brandName: 'DHL', brandConfidence: 'low', registrableDomain: 'dhl.com' },
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
         gpt,
         log,
       );
@@ -509,7 +473,7 @@ describe('services/product-extractor', () => {
     it('is a hard no-op when the wiki-products kill-switch is off', async () => {
       const result = await extractProducts(
         {
-          brandName: 'DHL', brandConfidence: 'low', registrableDomain: 'dhl.com', enableWikiProducts: false,
+          brandName: 'DHL', registrableDomain: 'dhl.com', enableWikiProducts: false,
         },
         gpt,
         log,
@@ -535,7 +499,6 @@ describe('services/product-extractor', () => {
       const result = await extractProducts(
         {
           brandName: 'Amrize',
-          brandConfidence: 'low',
           registrableDomain: 'amrize.com',
           wikipediaSummary: 'Amrize makes ProvidedProduct.',
         },
@@ -547,66 +510,6 @@ describe('services/product-extractor', () => {
       expect(result.products).to.have.length(1);
       // Only search + entity + SPARQL fetches; NO extract-by-title fetch.
       expect(fetchStub.callCount).to.equal(3);
-    });
-
-    it('hard-drops harmful content from a weakly (label) validated entity', async () => {
-      fetchStub.onCall(0).resolves(searchResp(['Q1']));
-      fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'Acme', enwikiTitle: 'Acme', hosts: [] }));
-      fetchStub.onCall(2).resolves(sparqlResp([]));
-      fetchStub.onCall(3).resolves(extractResp('Acme is a company.'));
-
-      gpt.fetchChatCompletion.resolves(llmResp({
-        products: [
-          { name: 'Assault Rifle', category: 'Weapon' },
-          { name: 'Notebook', category: 'Stationery' },
-        ],
-        services: [],
-        sub_brands: ['Terror Cell'],
-        discontinued: [],
-      }));
-
-      const result = await extractProducts(
-        { brandName: 'Acme', brandConfidence: 'high', registrableDomain: 'somethingelse.com' },
-        gpt,
-        log,
-      );
-
-      expect(result.metadata.validation).to.equal('label');
-      expect(result.metadata.safety_filtered).to.equal(true);
-      expect(result.products.map((p) => p.name)).to.deep.equal(['Notebook']);
-      expect(result.sub_brands).to.deep.equal([]);
-    });
-
-    it('keeps benign names that merely contain a denylist substring, and catches plural forms', async () => {
-      // Weak (label) provenance => harmful items are hard-dropped. Benign names whose
-      // substrings look like a stem must survive (the denylist claims to avoid false hits);
-      // the plural 'Escorts' must be caught by the word-boundary pattern.
-      fetchStub.onCall(0).resolves(searchResp(['Q1']));
-      fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'Acme', enwikiTitle: 'Acme', hosts: [] }));
-      fetchStub.onCall(2).resolves(sparqlResp([]));
-      fetchStub.onCall(3).resolves(extractResp('Acme is a company.'));
-
-      gpt.fetchChatCompletion.resolves(llmResp({
-        products: [
-          { name: 'Armature Motor', category: 'Component' },
-          { name: 'Churchill Series', category: 'Model' },
-          { name: 'Escorts', category: 'Service' },
-        ],
-        services: [],
-        sub_brands: [],
-        discontinued: [],
-      }));
-
-      const result = await extractProducts(
-        { brandName: 'Acme', brandConfidence: 'high', registrableDomain: 'somethingelse.com' },
-        gpt,
-        log,
-      );
-
-      expect(result.metadata.validation).to.equal('label');
-      expect(result.metadata.safety_filtered).to.equal(true);
-      // Benign near-misses kept; only the true (plural) hit dropped.
-      expect(result.products.map((p) => p.name)).to.deep.equal(['Armature Motor', 'Churchill Series']);
     });
 
     it('refuses a SPARQL query when the resolved entity id is malformed (injection guard)', async () => {
@@ -621,7 +524,7 @@ describe('services/product-extractor', () => {
       }));
 
       const result = await extractProducts(
-        { brandName: 'Acme', brandConfidence: 'low', registrableDomain: 'acme.com' },
+        { brandName: 'Acme', registrableDomain: 'acme.com' },
         gpt,
         log,
       );
@@ -632,28 +535,6 @@ describe('services/product-extractor', () => {
       // No SPARQL request was issued (search + entity + wiki-extract only).
       const sparqlIssued = fetchStub.getCalls().some((c) => String(c.args[0]).includes('sparql'));
       expect(sparqlIssued).to.equal(false);
-    });
-
-    it('keeps but flags harmful content from a strongly (P856) validated entity', async () => {
-      fetchStub.onCall(0).resolves(searchResp(['Q1']));
-      fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'Beretta', enwikiTitle: 'Beretta', hosts: ['www.beretta.com'] }));
-      fetchStub.onCall(2).resolves(sparqlResp([
-        { itemLabel: { value: '92FS' }, item: { value: 'http://wikidata.org/Q11' }, typeLabel: { value: 'firearm' } },
-        { itemLabel: { value: 'M9' }, item: { value: 'http://wikidata.org/Q12' }, typeLabel: { value: 'weapon' } },
-        { itemLabel: { value: 'Holster' }, item: { value: 'http://wikidata.org/Q13' }, typeLabel: { value: 'accessory' } },
-      ]));
-
-      const result = await extractProducts(
-        { brandName: 'Beretta', brandConfidence: 'low', registrableDomain: 'beretta.com' },
-        gpt,
-        log,
-      );
-
-      expect(result.metadata.validation).to.equal('p856');
-      expect(result.metadata.sensitive_category).to.equal(true);
-      expect(result.metadata.safety_filtered).to.be.undefined;
-      // Legit defense customer's products are preserved.
-      expect(result.products).to.have.length(3);
     });
 
     it('merges hybrid results and de-duplicates overlaps', async () => {
@@ -682,7 +563,7 @@ describe('services/product-extractor', () => {
       }));
 
       const result = await extractProducts(
-        { brandName: 'DHL', brandConfidence: 'low', registrableDomain: 'dhl.com' },
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
         gpt,
         log,
       );
@@ -706,7 +587,7 @@ describe('services/product-extractor', () => {
       }));
 
       const result = await extractProducts(
-        { brandName: 'DHL', brandConfidence: 'low', registrableDomain: 'dhl.com' },
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
         gpt,
         log,
       );
@@ -724,7 +605,7 @@ describe('services/product-extractor', () => {
       gpt.fetchChatCompletion.rejects(new Error('LLM failed'));
 
       const result = await extractProducts(
-        { brandName: 'DHL', brandConfidence: 'low', registrableDomain: 'dhl.com' },
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
         gpt,
         log,
       );
@@ -746,12 +627,17 @@ describe('services/product-extractor', () => {
       }));
 
       const result = await extractProducts(
-        { brandName: 'DHL', brandConfidence: 'low', registrableDomain: 'dhl.com' },
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
         gpt,
         log,
       );
 
-      expect(gpt.fetchChatCompletion).to.have.been.called;
+      // The 9000-char extract must be truncated to 8000 chars + ellipsis before the LLM
+      // sees it. Assert on the rendered prompt so removing the truncation fails the test.
+      const prompt = gpt.fetchChatCompletion.firstCall.args[0];
+      expect(prompt).to.include('...');
+      expect(prompt).to.include('A'.repeat(8000));
+      expect(prompt).to.not.include('A'.repeat(9000));
       expect(result.products).to.have.length(1);
     });
 
@@ -764,7 +650,7 @@ describe('services/product-extractor', () => {
       gpt.fetchChatCompletion.resolves({ choices: [] });
 
       const result = await extractProducts(
-        { brandName: 'DHL', brandConfidence: 'low', registrableDomain: 'dhl.com' },
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
         gpt,
         log,
       );
@@ -784,7 +670,7 @@ describe('services/product-extractor', () => {
       ]));
 
       const result = await extractProducts(
-        { brandName: 'DHL', brandConfidence: 'low', registrableDomain: 'dhl.com' },
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
         gpt,
         log,
       );
@@ -815,7 +701,7 @@ describe('services/product-extractor', () => {
       ]));
 
       const result = await extractProducts(
-        { brandName: 'DHL', brandConfidence: 'low', registrableDomain: 'dhl.com' },
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
         gpt,
         log,
       );
@@ -837,7 +723,7 @@ describe('services/product-extractor', () => {
       ]));
 
       const result = await extractProducts(
-        { brandName: 'DHL', brandConfidence: 'low', registrableDomain: 'dhl.com' },
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
         gpt,
         log,
       );
@@ -979,7 +865,11 @@ describe('services/product-extractor', () => {
         log,
       );
 
-      expect(gpt.fetchChatCompletion).to.have.been.called;
+      // A product-name-pattern URL is kept while an excluded section is dropped: assert on
+      // the rendered prompt so a broken filterProductUrls would fail the test.
+      const prompt = gpt.fetchChatCompletion.firstCall.args[0];
+      expect(prompt).to.include('example.com/widget-pro');
+      expect(prompt).to.not.include('example.com/about');
     });
   });
 

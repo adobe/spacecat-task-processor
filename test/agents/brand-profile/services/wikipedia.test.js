@@ -19,6 +19,8 @@ import esmock from 'esmock';
 use(sinonChai);
 use(chaiAsPromised);
 
+const importMod = () => esmock('../../../../src/agents/brand-profile/services/wikipedia.js', {});
+
 describe('services/wikipedia', () => {
   let sandbox;
   let log;
@@ -39,487 +41,14 @@ describe('services/wikipedia', () => {
     sandbox.restore();
   });
 
-  describe('fetchWikipediaSummary', () => {
-    it('fetches and returns Wikipedia summary', async () => {
-      // Mock search response
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve([
-          'Swiss Life',
-          ['Swiss Life'],
-          [''],
-          ['https://en.wikipedia.org/wiki/Swiss_Life'],
-        ]),
-      });
-
-      // Mock summary response
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            pages: {
-              12345: {
-                title: 'Swiss Life',
-                extract: 'Swiss Life is a Swiss insurance company...',
-                pageprops: { wikibase_item: 'Q680290' },
-              },
-            },
-          },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaSummary('Swiss Life company', log);
-
-      expect(result.title).to.equal('Swiss Life');
-      expect(result.summary).to.include('Swiss insurance company');
-      expect(result.wikidataId).to.equal('Q680290');
-    });
-
-    it('returns null when no search results', async () => {
-      fetchStub.resolves({
-        ok: true,
-        json: () => Promise.resolve(['Swiss Life', [], [], []]),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaSummary('Unknown Company', log);
-
-      expect(result).to.be.null;
-    });
-
-    it('returns null on fetch error', async () => {
-      fetchStub.rejects(new Error('Network error'));
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaSummary('Test', log);
-
-      expect(result).to.be.null;
-      expect(log.error).to.have.been.called;
-    });
-
-    it('throws when search response is not ok', async () => {
-      fetchStub.resolves({
-        ok: false,
-        status: 500,
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaSummary('Test', log);
-
-      expect(result).to.be.null;
-      expect(log.error).to.have.been.calledWithMatch('Wikipedia search failed');
-    });
-
-    it('throws when summary response is not ok', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test Title'], [], []]),
-      });
-
-      fetchStub.onSecondCall().resolves({
-        ok: false,
-        status: 503,
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaSummary('Test', log);
-
-      expect(result).to.be.null;
-      expect(log.error).to.have.been.calledWithMatch('Wikipedia summary fetch failed');
-    });
-
-    it('returns null when page not found (pageId is -1)', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test Title'], [], []]),
-      });
-
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            pages: {
-              '-1': { missing: true },
-            },
-          },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaSummary('Test', log);
-
-      expect(result).to.be.null;
-    });
-  });
-
-  describe('fetchWikipediaFullText', () => {
-    it('fetches full Wikipedia article text', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Swiss Life', ['Swiss Life'], [], []]),
-      });
-
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            pages: {
-              12345: {
-                extract: 'Full article content...',
-              },
-            },
-          },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Swiss Life company', 12000, log);
-
-      expect(result).to.equal('Full article content...');
-    });
-
-    it('truncates content to maxChars', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test'], [], []]),
-      });
-
-      const longText = 'A'.repeat(20000);
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            pages: {
-              12345: {
-                extract: longText,
-              },
-            },
-          },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Test', 1000, log);
-
-      expect(result.length).to.equal(1000);
-    });
-
-    it('returns null when no search results', async () => {
-      fetchStub.resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', [], [], []]),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Unknown', 12000, log);
-
-      expect(result).to.be.null;
-    });
-
-    it('returns null when search response not ok', async () => {
-      fetchStub.resolves({
-        ok: false,
-        status: 500,
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Test', 12000, log);
-
-      expect(result).to.be.null;
-      expect(log.error).to.have.been.calledWithMatch('Wikipedia search failed');
-    });
-
-    it('returns null when content response not ok', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test'], [], []]),
-      });
-
-      fetchStub.onSecondCall().resolves({
-        ok: false,
-        status: 503,
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Test', 12000, log);
-
-      expect(result).to.be.null;
-      expect(log.error).to.have.been.calledWithMatch('Wikipedia content fetch failed');
-    });
-
-    it('returns null when page not found (pageId is -1)', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test'], [], []]),
-      });
-
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            pages: {
-              '-1': { missing: true },
-            },
-          },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Test', 12000, log);
-
-      expect(result).to.be.null;
-    });
-
-    it('returns null on fetch error', async () => {
-      fetchStub.rejects(new Error('Network error'));
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Test', 12000, log);
-
-      expect(result).to.be.null;
-      expect(log.error).to.have.been.called;
-    });
-
-    it('uses default maxChars when not provided', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test'], [], []]),
-      });
-
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            pages: {
-              12345: {
-                extract: 'Short content',
-              },
-            },
-          },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Test', null, log);
-
-      expect(result).to.equal('Short content');
-    });
-  });
-
-  describe('findWikidataId', () => {
-    it('finds Wikidata ID for a brand', async () => {
-      fetchStub.resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          search: [
-            { id: 'Q12345', description: 'American technology company' },
-            { id: 'Q67890', description: 'unrelated' },
-          ],
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.findWikidataId('Adobe', log);
-
-      expect(result).to.equal('Q12345');
-    });
-
-    it('returns first result if no company match', async () => {
-      fetchStub.resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          search: [
-            { id: 'Q99999', description: 'Something else' },
-          ],
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.findWikidataId('Unknown', log);
-
-      expect(result).to.equal('Q99999');
-    });
-
-    it('returns null when no results', async () => {
-      fetchStub.resolves({
-        ok: true,
-        json: () => Promise.resolve({ search: [] }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.findWikidataId('NonexistentBrand', log);
-
-      expect(result).to.be.null;
-    });
-
-    it('returns null when response not ok', async () => {
-      fetchStub.resolves({
-        ok: false,
-        status: 500,
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.findWikidataId('Test', log);
-
-      expect(result).to.be.null;
-      expect(log.error).to.have.been.calledWithMatch('Wikidata search failed');
-    });
-
-    it('returns null on fetch error', async () => {
-      fetchStub.rejects(new Error('Network error'));
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.findWikidataId('Test', log);
-
-      expect(result).to.be.null;
-      expect(log.error).to.have.been.called;
-    });
-
-    it('handles entity with no description', async () => {
-      fetchStub.resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          search: [
-            { id: 'Q11111' },
-          ],
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.findWikidataId('Test', log);
-
-      expect(result).to.equal('Q11111');
-    });
-  });
-
-  describe('createWikipediaService', () => {
-    it('creates service with bound methods', async () => {
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const service = mod.createWikipediaService(log);
-
-      expect(service).to.have.property('fetchSummary');
-      expect(service).to.have.property('fetchFullText');
-      expect(service).to.have.property('findWikidataId');
-      expect(service).to.have.property('getWikidataEntity');
-      expect(service).to.have.property('findValidatedWikidataEntity');
-      expect(service).to.have.property('fetchExtractByTitle');
-      expect(service).to.have.property('fetchValidatedSummary');
-    });
-
-    it('service methods can be called', async () => {
-      fetchStub.resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', [], [], []]),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const service = mod.createWikipediaService(log);
-      const result = await service.fetchSummary('Test');
-
-      expect(result).to.be.null;
-    });
-  });
-
   describe('getWikidataEntity', () => {
-    const importMod = () => esmock('../../../../src/agents/brand-profile/services/wikipedia.js', {});
-
-    it('parses label, aliases, enwiki title and P856 hosts', async () => {
+    it('parses label, enwiki title and P856 hosts', async () => {
       fetchStub.resolves({
         ok: true,
         json: () => Promise.resolve({
           entities: {
             Q489815: {
               labels: { en: { value: 'DHL' } },
-              aliases: { en: [{ value: 'DHL Express' }] },
               sitelinks: { enwiki: { title: 'DHL' } },
               claims: {
                 P856: [
@@ -536,9 +65,10 @@ describe('services/wikipedia', () => {
 
       expect(entity.id).to.equal('Q489815');
       expect(entity.label).to.equal('DHL');
-      expect(entity.aliases).to.deep.equal(['DHL Express']);
       expect(entity.enwikiTitle).to.equal('DHL');
       expect(entity.officialWebsiteHosts).to.deep.equal(['www.dhl.com']);
+      // Aliases are no longer parsed (P856-only design).
+      expect(entity).to.not.have.property('aliases');
     });
 
     it('handles missing claims and missing sitelink and invalid P856 URLs', async () => {
@@ -561,8 +91,8 @@ describe('services/wikipedia', () => {
       const mod = await importMod();
       const entity = await mod.getWikidataEntity('Q1', log);
 
+      expect(entity.label).to.equal('NoWiki');
       expect(entity.enwikiTitle).to.be.null;
-      expect(entity.aliases).to.deep.equal([]);
       expect(entity.officialWebsiteHosts).to.deep.equal([]);
     });
 
@@ -586,8 +116,8 @@ describe('services/wikipedia', () => {
       const mod = await importMod();
       const entity = await mod.getWikidataEntity('Q1', log);
       expect(entity.label).to.be.null;
-      expect(entity.aliases).to.deep.equal([]);
       expect(entity.enwikiTitle).to.be.null;
+      expect(entity.officialWebsiteHosts).to.deep.equal([]);
     });
 
     it('returns null when response is not ok', async () => {
@@ -606,15 +136,11 @@ describe('services/wikipedia', () => {
     });
   });
 
-  describe('validateEntityAgainstSite', () => {
-    const importMod = () => esmock('../../../../src/agents/brand-profile/services/wikipedia.js', {});
-
+  describe('validateEntityAgainstSite (P856-only)', () => {
     it('accepts a P856 host whose registrable domain matches the site (co.jp)', async () => {
       const mod = await importMod();
       const result = mod.validateEntityAgainstSite({
-        entity: { label: 'Dai Nippon Printing', aliases: [], officialWebsiteHosts: ['www.dnp.co.jp'] },
-        brandName: 'Dnp',
-        brandConfidence: 'low',
+        entity: { label: 'Dai Nippon Printing', officialWebsiteHosts: ['www.dnp.co.jp'] },
         registrableDomain: 'dnp.co.jp',
       });
       expect(result.ok).to.equal(true);
@@ -624,34 +150,19 @@ describe('services/wikipedia', () => {
     it('rejects a P856 host on a different registrable domain (dnb.de vs dnb.com)', async () => {
       const mod = await importMod();
       const result = mod.validateEntityAgainstSite({
-        entity: { label: 'German National Library', aliases: [], officialWebsiteHosts: ['www.dnb.de'] },
-        brandName: 'Dnb',
-        brandConfidence: 'low',
+        entity: { label: 'German National Library', officialWebsiteHosts: ['www.dnb.de'] },
         registrableDomain: 'dnb.com',
       });
       expect(result.ok).to.equal(false);
-      expect(result.reason).to.equal('low_confidence_requires_p856');
+      expect(result.method).to.be.null;
+      expect(result.reason).to.equal('no_match');
     });
 
-    it('accepts a label token-overlap match for a high-confidence name', async () => {
+    it('rejects an entity with no P856 host (no by-name / label fallback)', async () => {
       const mod = await importMod();
       const result = mod.validateEntityAgainstSite({
-        entity: { label: 'Dun & Bradstreet Inc', aliases: [], officialWebsiteHosts: [] },
-        brandName: 'Dun & Bradstreet',
-        brandConfidence: 'high',
+        entity: { label: 'Dun & Bradstreet Inc', officialWebsiteHosts: [] },
         registrableDomain: 'dnb.com',
-      });
-      expect(result.ok).to.equal(true);
-      expect(result.method).to.equal('label');
-    });
-
-    it('rejects a sibling entity that only shares one token (Swiss Life vs Swiss Re)', async () => {
-      const mod = await importMod();
-      const result = mod.validateEntityAgainstSite({
-        entity: { label: 'Swiss Re', aliases: [], officialWebsiteHosts: ['www.swissre.com'] },
-        brandName: 'Swiss Life',
-        brandConfidence: 'high',
-        registrableDomain: 'swisslife.ch',
       });
       expect(result.ok).to.equal(false);
       expect(result.reason).to.equal('no_match');
@@ -660,22 +171,28 @@ describe('services/wikipedia', () => {
     it('rejects a P856 match when the site registrable domain is a bare public suffix', async () => {
       const mod = await importMod();
       const result = mod.validateEntityAgainstSite({
-        entity: { label: 'Some Foreign Org', aliases: [], officialWebsiteHosts: ['co.uk'] },
-        brandName: 'Whatever',
-        brandConfidence: 'high',
+        entity: { label: 'Some Foreign Org', officialWebsiteHosts: ['co.uk'] },
         registrableDomain: 'co.uk',
       });
       expect(result.ok).to.equal(false);
       expect(result.method).to.be.null;
     });
 
-    it('rejects a label match for a low-confidence name (acronym safety rule)', async () => {
+    it('rejects a generalized <generic>.<ccTLD> bare public suffix (com.my)', async () => {
       const mod = await importMod();
       const result = mod.validateEntityAgainstSite({
-        entity: { label: 'D-Company', aliases: [], officialWebsiteHosts: [] },
-        brandName: 'Dnp',
-        brandConfidence: 'low',
-        registrableDomain: 'dnp.co.jp',
+        entity: { label: 'Some Foreign Org', officialWebsiteHosts: ['com.my'] },
+        registrableDomain: 'com.my',
+      });
+      expect(result.ok).to.equal(false);
+      expect(result.method).to.be.null;
+    });
+
+    it('rejects a single-label / empty registrable domain (bare suffix guard)', async () => {
+      const mod = await importMod();
+      const result = mod.validateEntityAgainstSite({
+        entity: { label: 'X', officialWebsiteHosts: ['x.com'] },
+        registrableDomain: 'localhost',
       });
       expect(result.ok).to.equal(false);
     });
@@ -683,64 +200,37 @@ describe('services/wikipedia', () => {
     it('returns false for a null entity', async () => {
       const mod = await importMod();
       const result = mod.validateEntityAgainstSite({
-        entity: null, brandName: 'X', brandConfidence: 'high', registrableDomain: 'x.com',
+        entity: null, registrableDomain: 'x.com',
       });
       expect(result).to.deep.equal({ ok: false, method: null, reason: 'no_entity' });
     });
 
-    it('returns no_match when nothing overlaps for a high-confidence name', async () => {
+    it('tolerates an entity with no officialWebsiteHosts key', async () => {
       const mod = await importMod();
       const result = mod.validateEntityAgainstSite({
-        entity: { label: 'Totally Different Org', aliases: [], officialWebsiteHosts: ['other.example'] },
-        brandName: 'Amrize',
-        brandConfidence: 'medium',
+        entity: { label: 'Amrize' },
         registrableDomain: 'amrize.com',
       });
       expect(result.ok).to.equal(false);
       expect(result.reason).to.equal('no_match');
     });
-
-    it('tolerates an entity with no hosts/aliases keys (label match)', async () => {
-      const mod = await importMod();
-      const result = mod.validateEntityAgainstSite({
-        entity: { label: 'Amrize' },
-        brandName: 'Amrize',
-        brandConfidence: 'high',
-        registrableDomain: 'somethingelse.com',
-      });
-      expect(result.ok).to.equal(true);
-      expect(result.method).to.equal('label');
-    });
-
-    it('tolerates an empty brand name (no tokens to match)', async () => {
-      const mod = await importMod();
-      const result = mod.validateEntityAgainstSite({
-        entity: { label: 'Amrize' },
-        brandName: '',
-        brandConfidence: 'high',
-        registrableDomain: 'somethingelse.com',
-      });
-      expect(result.ok).to.equal(false);
-    });
   });
 
   describe('findValidatedWikidataEntity', () => {
-    const importMod = () => esmock('../../../../src/agents/brand-profile/services/wikipedia.js', {});
-
-    it('returns the first P856-validated candidate', async () => {
+    it('scans candidates and returns the first P856-validated one', async () => {
       // wbsearchentities candidates
       fetchStub.onCall(0).resolves({
         ok: true,
         json: () => Promise.resolve({ search: [{ id: 'Q1' }, { id: 'Q2' }] }),
       });
-      // getWikidataEntity Q1 -> no p856 match, label mismatch
+      // getWikidataEntity Q1 -> no P856 match
       fetchStub.onCall(1).resolves({
         ok: true,
         json: () => Promise.resolve({
           entities: { Q1: { labels: { en: { value: 'Other' } }, claims: {} } },
         }),
       });
-      // getWikidataEntity Q2 -> p856 match
+      // getWikidataEntity Q2 -> P856 match
       fetchStub.onCall(2).resolves({
         ok: true,
         json: () => Promise.resolve({
@@ -756,14 +246,14 @@ describe('services/wikipedia', () => {
 
       const mod = await importMod();
       const entity = await mod.findValidatedWikidataEntity({
-        brandName: 'DHL', brandConfidence: 'low', registrableDomain: 'dhl.com',
+        brandName: 'DHL', registrableDomain: 'dhl.com',
       }, log);
 
       expect(entity.id).to.equal('Q2');
       expect(entity.validation).to.equal('p856');
     });
 
-    it('REGRESSION: low-confidence acronym with no P856 match returns null', async () => {
+    it('REGRESSION: same-initials article with no P856 match returns null', async () => {
       fetchStub.onCall(0).resolves({
         ok: true,
         json: () => Promise.resolve({ search: [{ id: 'Q111' }] }),
@@ -784,25 +274,23 @@ describe('services/wikipedia', () => {
 
       const mod = await importMod();
       const entity = await mod.findValidatedWikidataEntity({
-        brandName: 'Dnp', brandConfidence: 'low', registrableDomain: 'dnp.co.jp',
+        brandName: 'Dnp', registrableDomain: 'dnp.co.jp',
       }, log);
 
       expect(entity).to.be.null;
     });
 
-    it('falls back to the first label match for a non-low-confidence name', async () => {
+    it('returns null when no candidate has a matching P856 host', async () => {
       fetchStub.onCall(0).resolves({
         ok: true,
         json: () => Promise.resolve({ search: [{ id: 'Q1' }, { id: 'Q2' }] }),
       });
-      // Q1 label match
       fetchStub.onCall(1).resolves({
         ok: true,
         json: () => Promise.resolve({
-          entities: { Q1: { labels: { en: { value: 'Amrize' } }, sitelinks: { enwiki: { title: 'Amrize' } }, claims: {} } },
+          entities: { Q1: { labels: { en: { value: 'Amrize' } }, claims: {} } },
         }),
       });
-      // Q2 also label match (second one -> rejected path)
       fetchStub.onCall(2).resolves({
         ok: true,
         json: () => Promise.resolve({
@@ -812,18 +300,17 @@ describe('services/wikipedia', () => {
 
       const mod = await importMod();
       const entity = await mod.findValidatedWikidataEntity({
-        brandName: 'Amrize', brandConfidence: 'medium', registrableDomain: 'somethingelse.com',
+        brandName: 'Amrize', registrableDomain: 'somethingelse.com',
       }, log);
 
-      expect(entity.id).to.equal('Q1');
-      expect(entity.validation).to.equal('label');
+      expect(entity).to.be.null;
     });
 
     it('returns null when there are no candidates', async () => {
       fetchStub.resolves({ ok: true, json: () => Promise.resolve({ search: [] }) });
       const mod = await importMod();
       const entity = await mod.findValidatedWikidataEntity({
-        brandName: 'Nope', brandConfidence: 'high', registrableDomain: 'nope.com',
+        brandName: 'Nope', registrableDomain: 'nope.com',
       }, log);
       expect(entity).to.be.null;
     });
@@ -837,16 +324,16 @@ describe('services/wikipedia', () => {
 
       const mod = await importMod();
       const entity = await mod.findValidatedWikidataEntity({
-        brandName: 'X', brandConfidence: 'high', registrableDomain: 'x.com',
+        brandName: 'X', registrableDomain: 'x.com',
       }, log);
       expect(entity).to.be.null;
     });
 
-    it('returns [] candidates when the search request is not ok', async () => {
+    it('returns null when the candidate search request is not ok', async () => {
       fetchStub.resolves({ ok: false, status: 503 });
       const mod = await importMod();
       const entity = await mod.findValidatedWikidataEntity({
-        brandName: 'X', brandConfidence: 'high', registrableDomain: 'x.com',
+        brandName: 'X', registrableDomain: 'x.com',
       }, log);
       expect(entity).to.be.null;
       expect(log.error).to.have.been.calledWithMatch('Error searching Wikidata candidates');
@@ -856,15 +343,13 @@ describe('services/wikipedia', () => {
       fetchStub.resolves({ ok: true, json: () => Promise.resolve({}) });
       const mod = await importMod();
       const entity = await mod.findValidatedWikidataEntity({
-        brandName: 'X', brandConfidence: 'high', registrableDomain: 'x.com',
+        brandName: 'X', registrableDomain: 'x.com',
       }, log);
       expect(entity).to.be.null;
     });
   });
 
   describe('fetchWikipediaExtractByTitle', () => {
-    const importMod = () => esmock('../../../../src/agents/brand-profile/services/wikipedia.js', {});
-
     it('issues exactly one query with the exact title and NO opensearch', async () => {
       fetchStub.resolves({
         ok: true,
@@ -948,15 +433,13 @@ describe('services/wikipedia', () => {
   });
 
   describe('fetchValidatedSummary', () => {
-    const importMod = () => esmock('../../../../src/agents/brand-profile/services/wikipedia.js', {});
-
     it('returns the intro summary of the validated entity enwiki title', async () => {
       // search
       fetchStub.onCall(0).resolves({
         ok: true,
         json: () => Promise.resolve({ search: [{ id: 'Q2' }] }),
       });
-      // getWikidataEntity Q2 -> p856
+      // getWikidataEntity Q2 -> P856
       fetchStub.onCall(1).resolves({
         ok: true,
         json: () => Promise.resolve({
@@ -977,7 +460,7 @@ describe('services/wikipedia', () => {
 
       const mod = await importMod();
       const result = await mod.fetchValidatedSummary({
-        brandName: 'DHL', brandConfidence: 'low', registrableDomain: 'dhl.com',
+        brandName: 'DHL', registrableDomain: 'dhl.com',
       }, log);
 
       expect(result).to.deep.equal({ title: 'DHL', summary: 'DHL intro.', entityId: 'Q2' });
@@ -990,7 +473,7 @@ describe('services/wikipedia', () => {
       fetchStub.resolves({ ok: true, json: () => Promise.resolve({ search: [] }) });
       const mod = await importMod();
       const result = await mod.fetchValidatedSummary({
-        brandName: 'X', brandConfidence: 'high', registrableDomain: 'x.com',
+        brandName: 'X', registrableDomain: 'x.com',
       }, log);
       expect(result).to.be.null;
     });
@@ -1013,7 +496,7 @@ describe('services/wikipedia', () => {
       });
       const mod = await importMod();
       const result = await mod.fetchValidatedSummary({
-        brandName: 'X', brandConfidence: 'low', registrableDomain: 'x.com',
+        brandName: 'X', registrableDomain: 'x.com',
       }, log);
       expect(result).to.be.null;
     });
@@ -1036,7 +519,7 @@ describe('services/wikipedia', () => {
 
       const mod = await importMod();
       const result = await mod.fetchValidatedSummary({
-        brandName: 'DHL', brandConfidence: 'low', registrableDomain: 'dhl.com',
+        brandName: 'DHL', registrableDomain: 'dhl.com',
       }, log);
       expect(result).to.be.null;
       expect(log.error).to.have.been.calledWithMatch('Error fetching validated summary');
@@ -1063,7 +546,7 @@ describe('services/wikipedia', () => {
 
       const mod = await importMod();
       const result = await mod.fetchValidatedSummary({
-        brandName: 'DHL', brandConfidence: 'low', registrableDomain: 'dhl.com',
+        brandName: 'DHL', registrableDomain: 'dhl.com',
       }, log);
       expect(result).to.be.null;
     });
@@ -1086,7 +569,7 @@ describe('services/wikipedia', () => {
 
       const mod = await importMod();
       const result = await mod.fetchValidatedSummary({
-        brandName: 'DHL', brandConfidence: 'low', registrableDomain: 'dhl.com',
+        brandName: 'DHL', registrableDomain: 'dhl.com',
       }, log);
       expect(result).to.be.null;
     });
@@ -1112,227 +595,71 @@ describe('services/wikipedia', () => {
 
       const mod = await importMod();
       const result = await mod.fetchValidatedSummary({
-        brandName: 'DHL', brandConfidence: 'low', registrableDomain: 'dhl.com',
+        brandName: 'DHL', registrableDomain: 'dhl.com',
       }, log);
       expect(result).to.deep.equal({ title: 'DHL', summary: '', entityId: 'Q2' });
     });
   });
 
-  describe('edge cases', () => {
-    it('fetchWikipediaSummary handles page without wikibase_item', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test Title'], [], []]),
-      });
+  describe('createWikipediaService', () => {
+    it('exposes only entity-bound methods (no by-name lookups)', async () => {
+      const mod = await importMod();
+      const service = mod.createWikipediaService(log);
 
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            pages: {
-              12345: {
-                title: 'Test Title',
-                extract: 'Summary text',
-                pageprops: {},
-              },
-            },
-          },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaSummary('Test', log);
-
-      expect(result.title).to.equal('Test Title');
-      expect(result.wikidataId).to.be.null;
+      expect(service).to.have.property('getWikidataEntity');
+      expect(service).to.have.property('findValidatedWikidataEntity');
+      expect(service).to.have.property('fetchExtractByTitle');
+      expect(service).to.have.property('fetchValidatedSummary');
+      // Deprecated by-name methods must not be exposed.
+      expect(service).to.not.have.property('fetchSummary');
+      expect(service).to.not.have.property('fetchFullText');
+      expect(service).to.not.have.property('findWikidataId');
     });
 
-    it('fetchWikipediaFullText handles page with empty extract', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test'], [], []]),
+    it('binds the logger to service methods', async () => {
+      fetchStub.resolves({ ok: true, json: () => Promise.resolve({ search: [] }) });
+
+      const mod = await importMod();
+      const service = mod.createWikipediaService(log);
+      const result = await service.findValidatedWikidataEntity({
+        brandName: 'Test', registrableDomain: 'test.com',
       });
 
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            pages: {
-              12345: { extract: '' },
-            },
-          },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Test', 12000, log);
-
-      expect(result).to.equal('');
+      expect(result).to.be.null;
     });
 
-    it('fetchWikipediaSummary handles page without extract', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test Title'], [], []]),
-      });
-
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            pages: {
-              12345: {
-                title: 'Test Title',
-                // No extract field at all
-                pageprops: { wikibase_item: 'Q12345' },
-              },
-            },
-          },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaSummary('Test', log);
-
-      expect(result.title).to.equal('Test Title');
-      expect(result.summary).to.equal('');
-    });
-
-    it('fetchWikipediaFullText handles missing searchData[1] (titles)', async () => {
+    it('fetchExtractByTitle service method forwards title and maxChars', async () => {
       fetchStub.resolves({
         ok: true,
-        json: () => Promise.resolve(['Test']), // Missing titles array at index 1
+        json: () => Promise.resolve({ query: { pages: { 42: { extract: 'bound' } } } }),
       });
 
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Test', 12000, log);
-
-      expect(result).to.be.null;
+      const mod = await importMod();
+      const service = mod.createWikipediaService(log);
+      const text = await service.fetchExtractByTitle('DHL', 100);
+      expect(text).to.equal('bound');
     });
 
-    it('fetchWikipediaFullText handles missing query.pages', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test Title'], [], []]),
-      });
-
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            // No pages field
-          },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Test', 12000, log);
-
-      // Should return null because pageId would be undefined
-      expect(result).to.be.null;
-    });
-
-    it('findWikidataId handles missing search array in response', async () => {
+    it('getWikidataEntity service method forwards the id', async () => {
       fetchStub.resolves({
         ok: true,
-        json: () => Promise.resolve({
-          // No search field
-        }),
+        json: () => Promise.resolve({ entities: { Q7: { labels: { en: { value: 'Bound' } }, claims: {} } } }),
       });
 
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.findWikidataId('Test', log);
-
-      expect(result).to.be.null;
+      const mod = await importMod();
+      const service = mod.createWikipediaService(log);
+      const entity = await service.getWikidataEntity('Q7');
+      expect(entity.id).to.equal('Q7');
     });
 
-    it('fetchWikipediaSummary handles missing searchData[1] (titles)', async () => {
-      fetchStub.resolves({
-        ok: true,
-        json: () => Promise.resolve(['Search']), // Missing titles array at index 1
+    it('fetchValidatedSummary service method forwards params', async () => {
+      fetchStub.resolves({ ok: true, json: () => Promise.resolve({ search: [] }) });
+
+      const mod = await importMod();
+      const service = mod.createWikipediaService(log);
+      const result = await service.fetchValidatedSummary({
+        brandName: 'Test', registrableDomain: 'test.com',
       });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaSummary('Test', log);
-
-      expect(result).to.be.null;
-    });
-
-    it('fetchWikipediaSummary handles missing query.pages in summary response', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test Title'], [], []]),
-      });
-
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            // No pages field - should use fallback {}
-          },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaSummary('Test', log);
-
-      // Should return null because pageId would be undefined
-      expect(result).to.be.null;
-    });
-
-    it('fetchWikipediaSummary handles missing query entirely in response', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test Title'], [], []]),
-      });
-
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          // No query field at all
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaSummary('Test', log);
-
-      // Should return null because pages would be {}
       expect(result).to.be.null;
     });
   });

@@ -84,8 +84,6 @@ describe('agents/brand-profile', () => {
     },
     '../../../src/agents/brand-profile/services/wikipedia.js': {
       createWikipediaService: () => ({
-        fetchSummary: sb.stub().resolves(null),
-        fetchFullText: sb.stub().resolves(null),
         fetchValidatedSummary: sb.stub().resolves(null),
       }),
     },
@@ -275,14 +273,16 @@ describe('agents/brand-profile', () => {
     // Competitor path used the VALIDATED summary (entity-bound), not a by-name lookup.
     expect(mockWikipediaService.fetchValidatedSummary).to.have.been.calledWithExactly({
       brandName: 'Swisslife',
-      brandConfidence: 'high',
       registrableDomain: 'swisslife.ch',
     });
+    // ...and forwarded that summary text into competitor inference.
+    expect(mockCompetitorService.inferCompetitors).to.have.been.calledWithExactly(
+      sinon.match({ wikipediaSummary: 'Company summary' }),
+    );
 
     // Product path forwarded the options object with the resolved identity + flag.
     expect(mockProductService.extractProducts).to.have.been.calledWithExactly({
       brandName: 'Swisslife',
-      brandConfidence: 'high',
       registrableDomain: 'swisslife.ch',
       enableWikiProducts: true,
     });

@@ -121,7 +121,6 @@ async function run(context, env, log) {
   // Extract key fields from base profile for enhanced inference
   const {
     name: brandName,
-    confidence: brandConfidence,
     registrableDomain,
   } = await resolveBrandName(baseProfile, baseURL, log);
   const industry = extractIndustry(baseProfile);
@@ -131,7 +130,7 @@ async function run(context, env, log) {
   // path stays OFF unless explicitly enabled, until the P2 backfill is validated.
   const enableWikiProducts = env.BRAND_PROFILE_ENABLE_WIKI_PRODUCTS === 'true';
 
-  log.info(`brand-profile: enhancing profile for "${brandName}" (confidence=${brandConfidence}) in "${industry}"`);
+  log.info(`brand-profile: enhancing profile for "${brandName}" in "${industry}"`);
 
   // Initialize services
   const regionalService = createRegionalContextService(env, log);
@@ -181,7 +180,6 @@ async function run(context, env, log) {
     if (enableWikiProducts) {
       const wikiResult = await wikipediaService.fetchValidatedSummary({
         brandName,
-        brandConfidence,
         registrableDomain,
       });
       wikiSummary = wikiResult?.summary || '';
@@ -219,7 +217,6 @@ async function run(context, env, log) {
     // extractProducts, bound to an entity validated against the site.
     productsResult = await productService.extractProducts({
       brandName,
-      brandConfidence,
       registrableDomain,
       enableWikiProducts,
     });
