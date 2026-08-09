@@ -22,11 +22,61 @@ import {
   getOpportunitiesForAudit,
   computeAuditCompletion,
 } from '@adobe/spacecat-shared-utils';
-import { getAuditStatus } from '../../utils/cloudwatch-utils.js';
 import { checkAndAlertBotProtection } from '../../utils/bot-detection.js';
 import { say } from '../../utils/slack-utils.js';
 
 const TASK_TYPE = 'opportunity-status-processor';
+
+/**
+ * Derives a tri-state scraping status from aggregated scrape-URL counts so the report
+ * distinguishes "still running" from "failed". A snapshot taken mid-onboarding (many
+ * URLs still PENDING/RUNNING, none COMPLETE yet) must read as in-progress, not failed.
+ *
+ * @param {{completed: number, failed: number, pending: number, total: number}} [stats]
+ * @returns {'available'|'in_progress'|'failed'|'unknown'}
+ */
+export function deriveScrapingStatus(stats) {
+  if (!stats || stats.total === 0) {
+    return 'unknown';
+  }
+  if (stats.completed > 0) {
+    return 'available';
+  }
+  if (stats.pending > 0) {
+    return 'in_progress';
+  }
+  return 'failed';
+}
+
+/**
+ * Opportunity types whose audit only runs for specific site delivery types.
+ * An opportunity absent from this map is applicable to every delivery type.
+ * Keeping this list conservative avoids hiding opportunities that could legitimately
+ * be produced — only encode audits with a hard delivery-type gate in the audit worker.
+ *
+ * - security-vulnerabilities: the audit skips unless delivery type is AEM_CS
+ *   (spacecat-audit-worker src/vulnerabilities/handler.js), so on aem_edge/aem_ams/etc.
+ *   it can never produce an opportunity and must not be reported as missing/failed.
+ */
+const OPPORTUNITY_DELIVERY_TYPE_RESTRICTIONS = {
+  'security-vulnerabilities': ['aem_cs'],
+};
+
+/**
+ * Whether an opportunity type can be produced for a site of the given delivery type.
+ * Unrestricted opportunities (and unknown delivery types) are treated as applicable.
+ *
+ * @param {string} opportunityType
+ * @param {string} [deliveryType] - Site delivery type (e.g. 'aem_edge', 'aem_cs')
+ * @returns {boolean}
+ */
+export function isOpportunityApplicableForDeliveryType(opportunityType, deliveryType) {
+  const allowedDeliveryTypes = OPPORTUNITY_DELIVERY_TYPE_RESTRICTIONS[opportunityType];
+  if (!allowedDeliveryTypes || !deliveryType) {
+    return true;
+  }
+  return allowedDeliveryTypes.includes(deliveryType);
+}
 
 /**
  * Checks if RUM is available for a domain by attempting to get a domainkey
@@ -188,6 +238,14 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
     // Count successful and failed scrapes across all jobs
     const completedCount = allUrlResults.filter((result) => result.status === 'COMPLETE').length;
     const failedCount = allUrlResults.filter((result) => result.status === 'FAILED').length;
+    // Non-terminal URLs (scrape still running) — used to distinguish in-progress from failed.
+    // The scrape_url_status enum is exactly { PENDING, RUNNING, REDIRECT, COMPLETE, FAILED,
+    // STOPPED } (@mysticat/data-service-types); PENDING/RUNNING are the only non-terminal
+    // states, so this predicate is complete. REDIRECT/FAILED/STOPPED are terminal
+    // non-successes and correctly fall through to "failed" when nothing has completed.
+    const pendingCount = allUrlResults.filter(
+      (result) => result.status === 'PENDING' || result.status === 'RUNNING',
+    ).length;
     const totalCount = allUrlResults.length;
 
     // Check if at least one URL was successfully scraped (status === 'COMPLETE')
@@ -209,6 +267,7 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
       stats: {
         completed: completedCount,
         failed: failedCount,
+        pending: pendingCount,
         total: totalCount,
       },
     };
@@ -219,32 +278,35 @@ async function isScrapingAvailable(baseUrl, context, onboardStartTime) {
 }
 
 /**
- * Analyzes missing opportunities and determines the root cause
- * @param {Array<string>} missingOpportunities - Array of missing opportunity types
- * @param {Array<string>} auditTypes - Array of audit types from profile
- * @param {string} siteId - The site ID
- * @param {number} onboardStartTime - The onboarding start timestamp
- * @param {object} serviceStatus - Object containing status of all services
- * @param {object} context - The context object
- * @returns {Promise<Array<{opportunity: string, reason: string, audit: string}>>} Analysis results
+ * Analyzes missing opportunities and determines the root cause.
+ *
+ * Pure function — derives audit execution state from the DB audit records
+ * (via `completedAuditTypes`, computed with `computeAuditCompletion`) instead of
+ * grepping CloudWatch logs. This removes the false "audit has not been executed"
+ * verdict that fired whenever a log line simply hadn't landed within the onboard
+ * wait window: an audit that has not completed yet is reported as *in progress*,
+ * not as a failure.
+ *
+ * @param {Array<string>} missingOpportunities - Expected-but-missing opportunity types
+ * @param {Array<string>} auditTypes - Audit types from the profile
+ * @param {Array<string>} completedAuditTypes - Audit types with a fresh DB audit record
+ * @param {object} serviceStatus - Availability of each data source (rum/seoImport/scraping)
+ * @returns {Array<{opportunity: string, audit: string, reason: string, inProgress?: boolean}>}
  */
-async function analyzeMissingOpportunities(
+export function analyzeMissingOpportunities(
   missingOpportunities,
   auditTypes,
-  siteId,
-  onboardStartTime,
+  completedAuditTypes,
   serviceStatus,
-  context,
 ) {
   const results = [];
+  const completed = new Set(completedAuditTypes || []);
 
-  /* eslint-disable no-await-in-loop */
   for (const opportunityType of missingOpportunities) {
     // Find which audit(s) should generate this opportunity
-    const relatedAudits = auditTypes.filter((auditType) => {
-      const opportunities = getOpportunitiesForAudit(auditType);
-      return opportunities.includes(opportunityType);
-    });
+    const relatedAudits = auditTypes.filter(
+      (auditType) => getOpportunitiesForAudit(auditType).includes(opportunityType),
+    );
 
     if (relatedAudits.length === 0) {
       // eslint-disable-next-line no-continue
@@ -252,19 +314,13 @@ async function analyzeMissingOpportunities(
     }
 
     for (const auditType of relatedAudits) {
-      // Get audit execution status and failure reason in a single call
-      const { executed, failureReason } = await getAuditStatus(
-        auditType,
-        siteId,
-        onboardStartTime,
-        context,
-      );
-
-      if (!executed) {
+      // Not completed yet → still running, not a failure.
+      if (!completed.has(auditType)) {
         results.push({
           opportunity: opportunityType,
           audit: auditType,
-          reason: `${auditType} audit has not been executed`,
+          reason: `${auditType} audit is still in progress`,
+          inProgress: true,
         });
         // eslint-disable-next-line no-continue
         continue;
@@ -293,23 +349,14 @@ async function analyzeMissingOpportunities(
         continue;
       }
 
-      // All dependencies met, check for audit failure
-      if (failureReason) {
-        results.push({
-          opportunity: opportunityType,
-          audit: auditType,
-          reason: `Audit failed: ${failureReason}`,
-        });
-      } else {
-        results.push({
-          opportunity: opportunityType,
-          audit: auditType,
-          reason: 'Audit executed successfully, found no issues to report (no opportunities created)',
-        });
-      }
+      // Audit completed with all trackable dependencies met, but produced no opportunity.
+      results.push({
+        opportunity: opportunityType,
+        audit: auditType,
+        reason: 'Audit executed successfully, found no issues to report (no opportunities created)',
+      });
     }
   }
-  /* eslint-enable no-await-in-loop */
 
   return results;
 }
@@ -351,6 +398,7 @@ export async function runOpportunityStatusProcessor(message, context) {
     let seoImportAvailable = false;
     let gscConfigured = false;
     let scrapingAvailable = false;
+    let scrapingStats = null;
 
     const opportunities = await site.getOpportunities();
 
@@ -367,6 +415,13 @@ export async function runOpportunityStatusProcessor(message, context) {
       });
       // Remove duplicates
       expectedOpportunityTypes = [...new Set(expectedOpportunityTypes)];
+      // Drop opportunities whose audit cannot run for this site's delivery type
+      // (e.g. security-vulnerabilities on aem_edge), so they are not reported as
+      // missing/failed when they were never going to be produced.
+      const deliveryType = site.getDeliveryType();
+      expectedOpportunityTypes = expectedOpportunityTypes.filter(
+        (oppType) => isOpportunityApplicableForDeliveryType(oppType, deliveryType),
+      );
     }
 
     // Calculate which dependencies are needed based on expected opportunities
@@ -420,6 +475,7 @@ export async function runOpportunityStatusProcessor(message, context) {
         if (needsScraping) {
           const scrapingCheck = await isScrapingAvailable(siteUrl, context, onboardStartTime);
           scrapingAvailable = scrapingCheck.available;
+          scrapingStats = scrapingCheck.stats || null;
 
           // Check for bot protection using all jobIds from scraping check
           // Multiple audit types create separate jobIds during onboarding
@@ -444,11 +500,17 @@ export async function runOpportunityStatusProcessor(message, context) {
           // Scraping might still be running, so we show stats every time
           if (slackContext) {
             if (scrapingCheck.stats) {
-              const { completed, failed, total } = scrapingCheck.stats;
+              const {
+                completed, failed, pending = 0, total,
+              } = scrapingCheck.stats;
+              // Show in-progress count so a still-running scrape isn't misread as a
+              // failure (e.g. total 988 with only 159 failed + 829 still pending).
+              const pendingLine = pending > 0 ? `⏳ In progress: ${pending}\n` : '';
               const statsMessage = `:mag: *Scraping Statistics for ${siteUrl}*\n`
                 + `✅ Completed: ${completed}\n`
-                + `❌ Failed: ${failed}\n`
-                + `📊 Total: ${total}`;
+                + `❌ Failed: ${failed}\n${
+                  pendingLine
+                }📊 Total: ${total}`;
 
               if (failed > 0) {
                 await say(
@@ -489,6 +551,29 @@ export async function runOpportunityStatusProcessor(message, context) {
       scraping: scrapingAvailable,
     };
 
+    // Determine which audits have completed vs are still pending, straight from the
+    // DB audit records (not CloudWatch logs). This single source drives both the
+    // in-progress (⏳) opportunity statuses and the missing-opportunity analysis, so a
+    // not-yet-completed audit is reported as in progress rather than "not executed".
+    // Only meaningful when we have an onboardStartTime anchor to compare against.
+    let pendingAuditTypes = [];
+    let completedAuditTypes = [];
+    if (auditTypes && auditTypes.length > 0 && onboardStartTime) {
+      try {
+        const { Audit } = dataAccess;
+        const latestAudits = await Audit.allLatestForSite(siteId);
+        const completion = computeAuditCompletion(auditTypes, onboardStartTime, latestAudits);
+        pendingAuditTypes = completion.pendingAuditTypes;
+        completedAuditTypes = completion.completedAuditTypes;
+      } catch (auditErr) {
+        log.warn(`Could not check audit completion from DB for site ${siteId}: ${auditErr.message}`);
+        // Conservative fallback: mark all as pending so nothing is misreported as
+        // failed/executed and the "may still be in progress" disclaimer is shown.
+        pendingAuditTypes = [...auditTypes];
+        completedAuditTypes = [];
+      }
+    }
+
     // Get actual opportunity types from site
     const actualOpportunityTypes = opportunities.map((opp) => opp.getType());
     const uniqueActualOpportunityTypes = [...new Set(actualOpportunityTypes)];
@@ -505,13 +590,11 @@ export async function runOpportunityStatusProcessor(message, context) {
 
       // Analyze missing opportunities to determine root cause
       if (onboardStartTime) {
-        missingOpportunitiesAnalysis = await analyzeMissingOpportunities(
+        missingOpportunitiesAnalysis = analyzeMissingOpportunities(
           missingOpportunities,
           auditTypes,
-          siteId,
-          onboardStartTime,
+          completedAuditTypes,
           serviceStatus,
-          context,
         );
       }
     }
@@ -522,29 +605,24 @@ export async function runOpportunityStatusProcessor(message, context) {
     const rumStatus = rumAvailable ? ':white_check_mark:' : ':x:';
     const seoImportStatus = seoImportAvailable ? ':white_check_mark:' : ':x:';
     const gscStatus = gscConfigured ? ':white_check_mark:' : ':x:';
-    const scrapingStatus = scrapingAvailable ? ':white_check_mark:' : ':x:';
+    // Tri-state scraping: hourglass while URLs are still being scraped, so an
+    // in-progress snapshot is not mislabelled as a failure. 'unknown' (no scrape data
+    // yet) shows a neutral info icon — not ❌ (which would falsely read as failed) and
+    // not ⏳ (which would overclaim active progress). Only a genuinely terminal-failed
+    // scrape (0 completed, 0 pending, >0 failed) shows ❌.
+    const scrapingStatusKey = deriveScrapingStatus(scrapingStats);
+    const scrapingEmoji = {
+      available: ':white_check_mark:',
+      in_progress: ':hourglass_flowing_sand:',
+      unknown: ':information_source:',
+      failed: ':x:',
+    }[scrapingStatusKey] || ':x:';
+    const scrapingStatus = scrapingEmoji;
 
     statusMessages.push(`RUM ${rumStatus}`);
     statusMessages.push(`SEO Import ${seoImportStatus}`);
     statusMessages.push(`GSC ${gscStatus}`);
     statusMessages.push(`Scraping ${scrapingStatus}`);
-
-    // Determine which audits are still pending so opportunity statuses can reflect
-    // in-progress state (⏳) rather than showing stale data as ✅/❌.
-    // Only meaningful when we have an onboardStartTime anchor to compare against.
-    let pendingAuditTypes = [];
-    if (auditTypes && auditTypes.length > 0 && onboardStartTime) {
-      try {
-        const { Audit } = dataAccess;
-        const latestAudits = await Audit.allLatestForSite(siteId);
-        const completion = computeAuditCompletion(auditTypes, onboardStartTime, latestAudits);
-        pendingAuditTypes = completion.pendingAuditTypes;
-      } catch (auditErr) {
-        log.warn(`Could not check audit completion from DB for site ${siteId}: ${auditErr.message}`);
-        // Conservative fallback: mark all as pending so disclaimer is always shown on error
-        pendingAuditTypes = [...auditTypes];
-      }
-    }
 
     // Process opportunities by type to avoid duplicates
     // Only process opportunities that are expected based on the profile's audit types
@@ -613,7 +691,7 @@ export async function runOpportunityStatusProcessor(message, context) {
         dataSourceMessages.push(`GSC ${gscConfigured ? ':white_check_mark:' : ':x:'}`);
       }
       if (needsScraping) {
-        dataSourceMessages.push(`Scraping ${scrapingAvailable ? ':white_check_mark:' : ':x:'}`);
+        dataSourceMessages.push(`Scraping ${scrapingEmoji}`);
       }
 
       await say(env, log, slackContext, `*Data Sources for site ${siteUrl}*`);
@@ -661,8 +739,14 @@ export async function runOpportunityStatusProcessor(message, context) {
       // Add missing opportunities analysis
       if (missingOpportunitiesAnalysis.length > 0) {
         for (const analysis of missingOpportunitiesAnalysis) {
-          // Use info icon for successful audits, error icon for actual failures
-          const emoji = analysis.reason.includes('found no issues to report') ? ':information_source:' : ':x:';
+          // Hourglass for audits still running, info icon for audits that ran and
+          // found nothing, error icon only for actual failures (missing dependencies).
+          let emoji = ':x:';
+          if (analysis.inProgress) {
+            emoji = ':hourglass_flowing_sand:';
+          } else if (analysis.reason.includes('found no issues to report')) {
+            emoji = ':information_source:';
+          }
           auditErrors.push(`*${analysis.opportunity}*: ${analysis.reason} ${emoji}`);
         }
       }

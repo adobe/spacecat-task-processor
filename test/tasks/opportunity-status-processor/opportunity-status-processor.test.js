@@ -43,6 +43,7 @@ describe('Opportunity Status Processor', () => {
     mockSite = {
       getOpportunities: sandbox.stub().resolves([]),
       getSuggestions: sandbox.stub().resolves([]),
+      getDeliveryType: sandbox.stub().returns('aem_edge'),
     };
 
     // Mock fetch for robots.txt and HEAD requests
@@ -417,9 +418,6 @@ describe('Opportunity Status Processor', () => {
         '../../../src/utils/bot-detection.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
         },
-        '../../../src/utils/cloudwatch-utils.js': {
-          getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
-        },
       });
 
       await Promise.all(testCases.map(async (testCase) => {
@@ -439,6 +437,7 @@ describe('Opportunity Status Processor', () => {
             Site: {
               findById: sinon.stub().resolves({
                 getOpportunities: sinon.stub().resolves([]),
+                getDeliveryType: sinon.stub().returns('aem_edge'),
               }),
             },
             SiteTopPage: {
@@ -477,6 +476,7 @@ describe('Opportunity Status Processor', () => {
           Site: {
             findById: sinon.stub().resolves({
               getOpportunities: sinon.stub().resolves([]),
+              getDeliveryType: sinon.stub().returns('aem_edge'),
             }),
           },
           SiteTopPage: {
@@ -506,9 +506,6 @@ describe('Opportunity Status Processor', () => {
         },
         '../../../src/utils/bot-detection.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
-        },
-        '../../../src/utils/cloudwatch-utils.js': {
-          getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
         },
       });
 
@@ -550,6 +547,7 @@ describe('Opportunity Status Processor', () => {
           Site: {
             findById: sinon.stub().resolves({
               getOpportunities: sinon.stub().resolves([]),
+              getDeliveryType: sinon.stub().returns('aem_edge'),
             }),
           },
           SiteTopPage: {
@@ -571,9 +569,6 @@ describe('Opportunity Status Processor', () => {
         },
         '../../../src/utils/bot-detection.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
-        },
-        '../../../src/utils/cloudwatch-utils.js': {
-          getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
         },
       });
 
@@ -640,6 +635,7 @@ describe('Opportunity Status Processor', () => {
 
         const testSiteMock = {
           getOpportunities: sinon.stub().resolves(testCase.opportunities),
+          getDeliveryType: sinon.stub().returns('aem_edge'),
         };
 
         const testContext = {
@@ -723,6 +719,7 @@ describe('Opportunity Status Processor', () => {
             Site: {
               findById: sinon.stub().resolves({
                 getOpportunities: sinon.stub().resolves([]),
+                getDeliveryType: sinon.stub().returns('aem_edge'),
               }),
             },
             SiteTopPage: {
@@ -773,6 +770,7 @@ describe('Opportunity Status Processor', () => {
           Site: {
             findById: sinon.stub().resolves({
               getOpportunities: sinon.stub().resolves([]),
+              getDeliveryType: sinon.stub().returns('aem_edge'),
             }),
           },
           SiteTopPage: {
@@ -916,10 +914,6 @@ describe('Opportunity Status Processor', () => {
         '@adobe/spacecat-shared-scrape-client': { ScrapeClient: mockScrapeClientClass },
         '../../../src/utils/bot-detection.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
-        },
-        '../../../src/utils/cloudwatch-utils.js': {
-          // Audit not executed (unmet dependencies)
-          getAuditStatus: sinon.stub().resolves({ executed: false, failureReason: null }),
         },
       });
 
@@ -1361,192 +1355,6 @@ describe('Opportunity Status Processor', () => {
     });
   });
 
-  describe('CloudWatch Log Analysis - Deep Testing', () => {
-    let CloudWatchLogsClient;
-    let mockSendStub;
-
-    beforeEach(async () => {
-      // Dynamically import CloudWatch Client
-      const CloudWatchModule = await import('@aws-sdk/client-cloudwatch-logs');
-      CloudWatchLogsClient = CloudWatchModule.CloudWatchLogsClient;
-
-      // Create a mock for CloudWatchLogsClient.prototype.send
-      mockSendStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
-
-      // Default: return empty events
-      mockSendStub.resolves({ events: [] });
-
-      context.mockCloudWatchSend = mockSendStub;
-    });
-
-    afterEach(() => {
-      if (mockSendStub && mockSendStub.restore) {
-        mockSendStub.restore();
-      }
-    });
-
-    it('should detect audit execution in CloudWatch logs', async () => {
-      message.taskContext.auditTypes = ['cwv'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-      mockSite.getOpportunities.resolves([]);
-
-      // Mock CloudWatch to return audit execution event
-      context.mockCloudWatchSend.resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `Received cwv audit request for: ${message.siteId}`,
-        }],
-      });
-
-      await runOpportunityStatusProcessor(message, context);
-
-      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
-    });
-
-    it('should extract failure reason with "Reason:" and "at" pattern', async () => {
-      message.taskContext.auditTypes = ['cwv'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-      mockSite.getOpportunities.resolves([]);
-
-      // Mock CloudWatch to return failure event
-      context.mockCloudWatchSend.resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `cwv audit for ${message.siteId} failed. Reason: RUM data not available at line 123`,
-        }],
-      });
-
-      await runOpportunityStatusProcessor(message, context);
-
-      expect(mockSite.getOpportunities.called).to.be.true;
-    });
-
-    it('should analyze missing opportunities with all dependencies met', async () => {
-      message.taskContext.auditTypes = ['cwv'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-      mockSite.getOpportunities.resolves([]);
-
-      // Mock all services as available
-      context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.resolves([
-        { url: 'https://example.com/page1' },
-      ]);
-
-      // Mock audit was executed
-      context.mockCloudWatchSend.onFirstCall().resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `Received cwv audit request for: ${message.siteId}`,
-        }],
-      });
-
-      // Mock no failure found - should report as "unknown reason"
-      context.mockCloudWatchSend.onSecondCall().resolves({ events: [] });
-
-      await runOpportunityStatusProcessor(message, context);
-
-      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
-    });
-
-    it('should handle broken-internal-links with unmet RUM dependency', async () => {
-      message.taskContext.auditTypes = ['broken-internal-links'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-      mockSite.getOpportunities.resolves([]);
-
-      // RUM not available, top-pages available
-      context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.resolves([
-        { url: 'https://example.com/page1' },
-      ]);
-
-      // Mock audit was executed
-      context.mockCloudWatchSend.resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `Received broken-internal-links audit request for: ${message.siteId}`,
-        }],
-      });
-
-      await runOpportunityStatusProcessor(message, context);
-
-      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
-    });
-
-    it('should handle broken-internal-links with unmet top-pages dependency', async () => {
-      message.taskContext.auditTypes = ['broken-internal-links'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-      mockSite.getOpportunities.resolves([]);
-
-      // No top pages
-      context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.resolves([]);
-
-      // Mock audit was executed
-      context.mockCloudWatchSend.resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `Received broken-internal-links audit request for: ${message.siteId}`,
-        }],
-      });
-
-      await runOpportunityStatusProcessor(message, context);
-
-      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
-    });
-
-    it('should check scraping success rate with successful scrapes', async () => {
-      message.siteUrl = 'https://example.com';
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-
-      // Mock successful scrapes
-      context.mockCloudWatchSend.onCall(0).resolves({
-        events: [
-          { message: 'successfully scraped' },
-          { message: 'successfully scraped' },
-          { message: 'successfully scraped' },
-        ],
-      });
-
-      // Mock failed scrapes
-      context.mockCloudWatchSend.onCall(1).resolves({
-        events: [
-          { message: 'failed to scrape' },
-        ],
-      });
-
-      await runOpportunityStatusProcessor(message, context);
-
-      // Should calculate success rate: 3/4 = 75% (above threshold)
-      expect(mockSite.getOpportunities.called).to.be.true;
-    });
-
-    it('should flag site as unavailable with low scraping success rate', async () => {
-      message.siteUrl = 'https://example.com';
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-
-      // Mock 2 successful scrapes
-      context.mockCloudWatchSend.onCall(0).resolves({
-        events: [
-          { message: 'successfully scraped' },
-          { message: 'successfully scraped' },
-        ],
-      });
-
-      // Mock 5 failed scrapes (2/7 = 28% success rate < 50% threshold)
-      context.mockCloudWatchSend.onCall(1).resolves({
-        events: [
-          { message: 'failed to scrape' },
-          { message: 'failed to scrape' },
-          { message: 'failed to scrape' },
-          { message: 'failed to scrape' },
-          { message: 'failed to scrape' },
-        ],
-      });
-
-      await runOpportunityStatusProcessor(message, context);
-
-      // Should flag as unavailable due to low success rate
-      expect(mockSite.getOpportunities.called).to.be.true;
-    });
-  });
-
   describe('Complete Slack Output Flow', () => {
     it('should send all three sections with complete data', async () => {
       message.siteUrl = 'https://example.com';
@@ -1697,335 +1505,7 @@ describe('Opportunity Status Processor', () => {
     });
   });
 
-  describe('Missing Opportunity Analysis with Real Audits', () => {
-    let CloudWatchLogsClient;
-    let mockSendStub;
-
-    beforeEach(async () => {
-      const CloudWatchModule = await import('@aws-sdk/client-cloudwatch-logs');
-      CloudWatchLogsClient = CloudWatchModule.CloudWatchLogsClient;
-      mockSendStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
-      mockSendStub.resolves({ events: [] });
-      context.mockCloudWatchSend = mockSendStub;
-    });
-
-    afterEach(() => {
-      if (mockSendStub && mockSendStub.restore) {
-        mockSendStub.restore();
-      }
-    });
-
-    it('should analyze meta-tags audit with missing top-pages', async () => {
-      message.taskContext.auditTypes = ['meta-tags'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-      mockSite.getOpportunities.resolves([]);
-
-      // No top pages
-      context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo.resolves([]);
-
-      // Mock audit was executed
-      context.mockCloudWatchSend.resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `Received meta-tags audit request for: ${message.siteId}`,
-        }],
-      });
-
-      await runOpportunityStatusProcessor(message, context);
-
-      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
-    });
-
-    it('should analyze forms-opportunities audit', async () => {
-      message.taskContext.auditTypes = ['forms-opportunities'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-      mockSite.getOpportunities.resolves([]);
-
-      // Mock audit was executed
-      context.mockCloudWatchSend.resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `Received forms-opportunities audit request for: ${message.siteId}`,
-        }],
-      });
-
-      await runOpportunityStatusProcessor(message, context);
-
-      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
-    });
-
-    it('should analyze experimentation-opportunities audit', async () => {
-      message.taskContext.auditTypes = ['experimentation-opportunities'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-      mockSite.getOpportunities.resolves([]);
-
-      // Mock audit was executed
-      context.mockCloudWatchSend.resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `Received experimentation-opportunities audit request for: ${message.siteId}`,
-        }],
-      });
-
-      await runOpportunityStatusProcessor(message, context);
-
-      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
-    });
-
-    it('should analyze accessibility audit', async () => {
-      message.taskContext.auditTypes = ['accessibility'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-      mockSite.getOpportunities.resolves([]);
-
-      // Mock audit was executed
-      context.mockCloudWatchSend.resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `Received accessibility audit request for: ${message.siteId}`,
-        }],
-      });
-
-      await runOpportunityStatusProcessor(message, context);
-
-      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
-    });
-
-    it('should analyze audit failure with detailed reason', async () => {
-      message.taskContext.auditTypes = ['cwv'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-      mockSite.getOpportunities.resolves([]);
-
-      // Mock audit was executed
-      context.mockCloudWatchSend.onFirstCall().resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `Received cwv audit request for: ${message.siteId}`,
-        }],
-      });
-
-      // Mock audit failure with reason
-      context.mockCloudWatchSend.onSecondCall().resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `cwv audit for ${message.siteId} failed. Reason: Timeout waiting for RUM data at runtime.js:123`,
-        }],
-      });
-
-      await runOpportunityStatusProcessor(message, context);
-
-      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
-    });
-
-    it('should handle scraping dependency', async () => {
-      message.siteUrl = 'https://example.com';
-      message.taskContext.auditTypes = ['alt-text'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-      mockSite.getOpportunities.resolves([]);
-
-      // Mock scraping not available (site not reachable)
-      global.fetch.onFirstCall().resolves({
-        ok: true,
-        status: 200,
-        text: sinon.stub().resolves('User-agent: *\nAllow: /'),
-      });
-      global.fetch.onSecondCall().resolves({
-        ok: false,
-        status: 500,
-      });
-
-      // Mock audit was executed
-      context.mockCloudWatchSend.resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `Received alt-text audit request for: ${message.siteId}`,
-        }],
-      });
-
-      await runOpportunityStatusProcessor(message, context);
-
-      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
-    });
-
-    it('should trigger audit failure path (lines 616-620)', async () => {
-      // Use meta-tags which only depends on 'top-pages' (import)
-      message.taskContext.auditTypes = ['meta-tags'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-      mockSite.getOpportunities.resolves([]); // meta-tags opportunity is missing
-
-      // Mock import (top-pages) as available so dependency check passes
-      context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
-        .withArgs(message.siteId)
-        .resolves([{ url: 'https://example.com/page1' }]);
-
-      // Reset and configure CloudWatch calls
-      context.mockCloudWatchSend.reset();
-
-      // First call: getAuditStatus - audit WAS executed and has failure reason
-      context.mockCloudWatchSend.onCall(0).resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `Received meta-tags audit request for: ${message.siteId}`,
-        }],
-      });
-
-      // Second call: getAuditStatus - return a failure reason
-      context.mockCloudWatchSend.onCall(1).resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `meta-tags audit for ${message.siteId} failed. Reason: Unable to parse meta tags`,
-        }],
-      });
-
-      await runOpportunityStatusProcessor(message, context);
-
-      // Verify the audit failure path was triggered
-      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
-    });
-
-    it('should test getServicesNeedingLogAnalysis with all services available', async () => {
-      message.siteUrl = undefined; // No siteUrl to skip RUM/GSC/Scraping checks
-      message.taskContext.slackContext = {
-        channelId: 'test-channel',
-        threadTs: 'test-thread',
-      };
-
-      // Mock import and SEOImport as available
-      context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo = sinon.stub();
-      context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
-        .withArgs(message.siteId)
-        .resolves([{ url: 'https://example.com/page1' }]);
-      context.dataAccess.SiteTopPage.allBySiteIdAndSourceAndGeo
-        .withArgs(message.siteId, 'seo', 'global')
-        .resolves([{ url: 'https://example.com/page1', traffic: 1000 }]);
-
-      const mockOpportunities = [
-        {
-          getType: () => 'cwv',
-          getSuggestions: sinon.stub().resolves(['suggestion1']),
-        },
-      ];
-      mockSite.getOpportunities.resolves(mockOpportunities);
-
-      await runOpportunityStatusProcessor(message, context);
-
-      // When no siteUrl, RUM/GSC/Scraping are false, but SEOImport and Import are true
-      // This will trigger "Services requiring log analysis" log,
-      // not "All service preconditions passed"
-      // The test verifies the function executes without errors
-      expect(mockSite.getOpportunities.called).to.be.true;
-    });
-
-    it('should extract failure reason with Reason: pattern (lines 475-476)', async () => {
-      message.taskContext.auditTypes = ['cwv'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-      mockSite.getOpportunities.resolves([]);
-
-      // Mock audit execution
-      context.mockCloudWatchSend.onFirstCall().resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `Received cwv audit request for: ${message.siteId}`,
-        }],
-      });
-
-      // Mock failure with "Reason:" pattern (without "at")
-      context.mockCloudWatchSend.onSecondCall().resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `cwv audit for ${message.siteId} failed. Reason: Invalid RUM data format`,
-        }],
-      });
-
-      await runOpportunityStatusProcessor(message, context);
-
-      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
-    });
-
-    it('should handle CloudWatch error in getAuditStatus (lines 481-483)', async () => {
-      message.taskContext.auditTypes = ['cwv'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-      mockSite.getOpportunities.resolves([]);
-
-      // Mock audit execution
-      context.mockCloudWatchSend.onFirstCall().resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `Received cwv audit request for: ${message.siteId}`,
-        }],
-      });
-
-      // Mock CloudWatch error on second call
-      context.mockCloudWatchSend.onSecondCall().rejects(new Error('CloudWatch service error'));
-
-      await runOpportunityStatusProcessor(message, context);
-
-      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
-    });
-
-    it('should handle opportunity with no related audits (lines 557-560)', async () => {
-      message.taskContext.auditTypes = ['unknown-audit'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-      mockSite.getOpportunities.resolves([]);
-
-      await runOpportunityStatusProcessor(message, context);
-
-      // Should complete without errors even with unknown audit type
-      expect(mockSite.getOpportunities.called).to.be.true;
-    });
-
-    it('should check scraping dependency for missing opportunity (lines 593-594)', async () => {
-      message.siteUrl = 'https://example.com';
-      message.taskContext.auditTypes = ['alt-text'];
-      message.taskContext.onboardStartTime = Date.now() - 3600000;
-      mockSite.getOpportunities.resolves([]);
-
-      // Mock robots.txt blocking scraping
-      global.fetch.resetBehavior();
-      global.fetch.resolves({
-        ok: true,
-        status: 200,
-        text: sinon.stub().resolves('User-agent: *\nDisallow: /'),
-      });
-
-      // Mock audit executed
-      context.mockCloudWatchSend.onFirstCall().resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: `Received alt-text audit request for: ${message.siteId}`,
-        }],
-      });
-
-      await runOpportunityStatusProcessor(message, context);
-
-      expect(context.log.warn.calledWithMatch('Missing opportunities')).to.be.true;
-    });
-  });
-
   describe('GSC and Scraping Dependency Coverage', () => {
-    let CloudWatchLogsClient;
-    let mockSendStub;
-
-    beforeEach(async () => {
-      // Dynamically import CloudWatch Client
-      const CloudWatchModule = await import('@aws-sdk/client-cloudwatch-logs');
-      CloudWatchLogsClient = CloudWatchModule.CloudWatchLogsClient;
-
-      // Create a mock for CloudWatchLogsClient.prototype.send
-      mockSendStub = sinon.stub(CloudWatchLogsClient.prototype, 'send');
-
-      // Default: return empty events
-      mockSendStub.resolves({ events: [] });
-
-      context.mockCloudWatchSend = mockSendStub;
-    });
-
-    afterEach(() => {
-      if (mockSendStub && mockSendStub.restore) {
-        mockSendStub.restore();
-      }
-      delete context.mockCloudWatchSend;
-    });
-
     it('should cover scraping dependency when checked (lines 330-331, 454-457, 595-596, 628-638)', async () => {
       // Temporarily modify OPPORTUNITY_DEPENDENCY_MAP to include a scraping dependency
       const dependencyMapModule = await import('@adobe/spacecat-shared-utils');
@@ -2041,15 +1521,6 @@ describe('Opportunity Status Processor', () => {
       };
 
       mockSite.getOpportunities.resolves([]);
-
-      // Reset CloudWatch to say audit was executed
-      context.mockCloudWatchSend.reset();
-      context.mockCloudWatchSend.resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: 'Received broken-backlinks audit request for: test-site-id',
-        }],
-      });
 
       await runOpportunityStatusProcessor(message, context);
 
@@ -2075,15 +1546,6 @@ describe('Opportunity Status Processor', () => {
       };
 
       mockSite.getOpportunities.resolves([]);
-
-      // Reset CloudWatch to say audit was executed
-      context.mockCloudWatchSend.reset();
-      context.mockCloudWatchSend.resolves({
-        events: [{
-          timestamp: Date.now(),
-          message: 'Received cwv audit request for: test-site-id',
-        }],
-      });
 
       await runOpportunityStatusProcessor(message, context);
 
@@ -2155,9 +1617,6 @@ describe('Opportunity Status Processor', () => {
           '@adobe/spacecat-shared-scrape-client': { ScrapeClient: mockScrapeClientClass },
           '../../../src/utils/bot-detection.js': {
             checkAndAlertBotProtection: sinon.stub().resolves(null),
-          },
-          '../../../src/utils/cloudwatch-utils.js': {
-            getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
           },
         });
 
@@ -2472,6 +1931,96 @@ describe('Opportunity Status Processor', () => {
         scrapeClientStub.restore();
       } finally {
         dependencyMapModule.OPPORTUNITY_DEPENDENCY_MAP['broken-backlinks'] = originalBrokenBacklinks;
+      }
+    });
+  });
+
+  describe('Delivery-type-aware expectations (Issue B)', () => {
+    it('does not flag security-vulnerabilities as missing on an aem_edge site', async () => {
+      const mockSlackClient = {
+        postMessage: sinon.stub().resolves(),
+      };
+      const SlackClientModule = await import('@adobe/spacecat-shared-slack-client');
+      const slackStub = sinon.stub(SlackClientModule.BaseSlackClient, 'createFrom').returns(mockSlackClient);
+
+      message.siteUrl = 'https://example.com';
+      message.taskContext.auditTypes = ['security-vulnerabilities', 'meta-tags'];
+      const onboardStartTime = Date.now() - 3600000;
+      message.taskContext.onboardStartTime = onboardStartTime;
+      message.taskContext.slackContext = { channelId: 'test-channel', threadTs: 'test-thread' };
+      context.env.AWS_REGION = 'us-east-1';
+
+      // aem_edge site: security-vulnerabilities audit can never run here.
+      mockSite.getDeliveryType.returns('aem_edge');
+
+      // Both audits have completed (fresh records), and no opportunities were produced.
+      context.dataAccess.Audit = {
+        allLatestForSite: sinon.stub().resolves([
+          { getAuditType: () => 'security-vulnerabilities', getAuditedAt: () => new Date(onboardStartTime + 1000).toISOString() },
+          { getAuditType: () => 'meta-tags', getAuditedAt: () => new Date(onboardStartTime + 1000).toISOString() },
+        ]),
+      };
+      mockSite.getOpportunities.resolves([]);
+
+      try {
+        await runOpportunityStatusProcessor(message, context);
+
+        const allMessages = mockSlackClient.postMessage.getCalls()
+          .map((c) => c.args[0]?.text)
+          .join('\n');
+
+        // security-vulnerabilities is filtered out for aem_edge — never reported as missing.
+        expect(allMessages).to.not.contain('security-vulnerabilities');
+        // A non-restricted audit is still evaluated and surfaced.
+        expect(allMessages).to.contain('meta-tags');
+      } finally {
+        slackStub.restore();
+      }
+    });
+  });
+
+  describe('Audit Processing Errors rendering', () => {
+    it('marks a completed audit that produced no opportunity with an info icon', async () => {
+      const mockSlackClient = {
+        postMessage: sinon.stub().resolves(),
+      };
+      const SlackClientModule = await import('@adobe/spacecat-shared-slack-client');
+      const slackStub = sinon.stub(SlackClientModule.BaseSlackClient, 'createFrom').returns(mockSlackClient);
+
+      // Make RUM available so cwv's only trackable dependency is met.
+      const RUMAPIClientModule = await import('@adobe/spacecat-shared-rum-api-client');
+      const originalRumCreateFrom = RUMAPIClientModule.default.createFrom;
+      RUMAPIClientModule.default.createFrom = sinon.stub().returns({
+        retrieveDomainkey: sinon.stub().resolves('test-key'),
+      });
+
+      message.siteUrl = 'https://example.com';
+      message.taskContext.auditTypes = ['cwv'];
+      const onboardStartTime = Date.now() - 3600000;
+      message.taskContext.onboardStartTime = onboardStartTime;
+      message.taskContext.slackContext = { channelId: 'test-channel', threadTs: 'test-thread' };
+      context.env.AWS_REGION = 'us-east-1';
+
+      // cwv completed (fresh record) but produced no opportunity.
+      context.dataAccess.Audit = {
+        allLatestForSite: sinon.stub().resolves([
+          { getAuditType: () => 'cwv', getAuditedAt: () => new Date(onboardStartTime + 1000).toISOString() },
+        ]),
+      };
+      mockSite.getOpportunities.resolves([]);
+
+      try {
+        await runOpportunityStatusProcessor(message, context);
+
+        const allMessages = mockSlackClient.postMessage.getCalls()
+          .map((c) => c.args[0]?.text)
+          .join('\n');
+
+        expect(allMessages).to.contain('found no issues to report');
+        expect(allMessages).to.contain(':information_source:');
+      } finally {
+        slackStub.restore();
+        RUMAPIClientModule.default.createFrom = originalRumCreateFrom;
       }
     });
   });
@@ -3853,9 +3402,6 @@ describe('Opportunity Status Processor', () => {
         '../../../src/utils/bot-detection.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
         },
-        '../../../src/utils/cloudwatch-utils.js': {
-          getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
-        },
       });
 
       // Temporarily add scraping dependency
@@ -3882,6 +3428,7 @@ describe('Opportunity Status Processor', () => {
             Site: {
               findById: sinon.stub().resolves({
                 getOpportunities: sinon.stub().resolves([]),
+                getDeliveryType: sinon.stub().returns('aem_edge'),
               }),
             },
             SiteTopPage: {
@@ -3908,9 +3455,6 @@ describe('Opportunity Status Processor', () => {
         '../../../src/utils/bot-detection.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
         },
-        '../../../src/utils/cloudwatch-utils.js': {
-          getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
-        },
       });
 
       const testMessage = {
@@ -3930,6 +3474,7 @@ describe('Opportunity Status Processor', () => {
           Site: {
             findById: sinon.stub().resolves({
               getOpportunities: sinon.stub().resolves([]),
+              getDeliveryType: sinon.stub().returns('aem_edge'),
             }),
           },
           SiteTopPage: {
@@ -3951,9 +3496,6 @@ describe('Opportunity Status Processor', () => {
       const handler = await esmock('../../../src/tasks/opportunity-status-processor/handler.js', {
         '../../../src/utils/bot-detection.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
-        },
-        '../../../src/utils/cloudwatch-utils.js': {
-          getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
         },
       });
 
@@ -3979,6 +3521,7 @@ describe('Opportunity Status Processor', () => {
               // But the filter in analyzeMissingOpportunities will check if 'alt-text' is in
               // the opportunities that can be generated by 'alt-text' audit
               getOpportunities: sinon.stub().resolves([]),
+              getDeliveryType: sinon.stub().returns('aem_edge'),
             }),
           },
           SiteTopPage: {
@@ -4013,9 +3556,6 @@ describe('Opportunity Status Processor', () => {
         '../../../src/utils/bot-detection.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
         },
-        '../../../src/utils/cloudwatch-utils.js': {
-          getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
-        },
       });
 
       // Create a scenario where an opportunity type exists but no audits in auditTypes
@@ -4045,6 +3585,7 @@ describe('Opportunity Status Processor', () => {
             findById: sinon.stub().resolves({
               // Site has cwv opportunity
               getOpportunities: sinon.stub().resolves([mockOpportunity]),
+              getDeliveryType: sinon.stub().returns('aem_edge'),
               getBaseURL: sinon.stub().returns('https://example.com'),
             }),
           },
@@ -4106,6 +3647,7 @@ describe('Opportunity Status Processor', () => {
           Site: {
             findById: sinon.stub().resolves({
               getOpportunities: sinon.stub().resolves([]),
+              getDeliveryType: sinon.stub().returns('aem_edge'),
               getBaseURL: sinon.stub().returns('https://example.com'),
             }),
           },
@@ -4151,9 +3693,6 @@ describe('Opportunity Status Processor', () => {
             createFrom: sinon.stub().returns({ getScrapeJobsByBaseURL: sinon.stub().resolves([]) }),
           },
         },
-        '../../../src/utils/cloudwatch-utils.js': {
-          getAuditStatus: sinon.stub().resolves({ executed: true, failureReason: null }),
-        },
         '../../../src/utils/bot-detection.js': {
           checkAndAlertBotProtection: sinon.stub().resolves(null),
         },
@@ -4181,6 +3720,7 @@ describe('Opportunity Status Processor', () => {
           Site: {
             findById: sinon.stub().resolves({
               getOpportunities: sinon.stub().resolves([]),
+              getDeliveryType: sinon.stub().returns('aem_edge'),
               getBaseURL: sinon.stub().returns('https://example.com'),
             }),
           },
@@ -4294,6 +3834,7 @@ describe('Opportunity Status Processor', () => {
           Site: {
             findById: sinon.stub().resolves({
               getOpportunities: sinon.stub().resolves([cwvOpp]),
+              getDeliveryType: sinon.stub().returns('aem_edge'),
               getBaseURL: sinon.stub().returns('https://example.com'),
             }),
           },
@@ -4327,6 +3868,7 @@ describe('Opportunity Status Processor', () => {
           Site: {
             findById: sinon.stub().resolves({
               getOpportunities: sinon.stub().resolves([]),
+              getDeliveryType: sinon.stub().returns('aem_edge'),
               getBaseURL: sinon.stub().returns('https://example.com'),
             }),
           },

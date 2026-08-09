@@ -1,3 +1,45 @@
+## [1.16.8](https://github.com/adobe/spacecat-task-processor/compare/v1.16.7...v1.16.8) (2026-08-08)
+
+
+### Bug Fixes
+
+* **deps:** update external fixes ([#345](https://github.com/adobe/spacecat-task-processor/issues/345)) ([7066c43](https://github.com/adobe/spacecat-task-processor/commit/7066c43206a97072a4bb98755d1ef68f72d2a371))
+
+## [1.16.7](https://github.com/adobe/spacecat-task-processor/compare/v1.16.6...v1.16.7) (2026-08-07)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#344](https://github.com/adobe/spacecat-task-processor/issues/344)) ([97e67b5](https://github.com/adobe/spacecat-task-processor/commit/97e67b5344880039bb978d219d5784f302304193))
+
+## [1.16.6](https://github.com/adobe/spacecat-task-processor/compare/v1.16.5...v1.16.6) (2026-08-05)
+
+
+### Bug Fixes
+
+* **onboard-status:** show no-scrape-data scraping state as neutral, not failed ([#343](https://github.com/adobe/spacecat-task-processor/issues/343)) ([5fe2b94](https://github.com/adobe/spacecat-task-processor/commit/5fe2b942bda292feebe29b13a4d67268b5f96627)), closes [#340](https://github.com/adobe/spacecat-task-processor/issues/340) [#340](https://github.com/adobe/spacecat-task-processor/issues/340)
+
+## [1.16.5](https://github.com/adobe/spacecat-task-processor/compare/v1.16.4...v1.16.5) (2026-08-04)
+
+
+### Bug Fixes
+
+* **deps:** update adobe fixes ([#342](https://github.com/adobe/spacecat-task-processor/issues/342)) ([2ed8d29](https://github.com/adobe/spacecat-task-processor/commit/2ed8d2959b2841450fb989e0a49c9e6adbc75206))
+
+## [1.16.4](https://github.com/adobe/spacecat-task-processor/compare/v1.16.3...v1.16.4) (2026-08-03)
+
+
+### Bug Fixes
+
+* **onboard-status:** report audit/scrape state truthfully during onboarding ([#340](https://github.com/adobe/spacecat-task-processor/issues/340)) ([1d839a9](https://github.com/adobe/spacecat-task-processor/commit/1d839a9584b9cf763e35bd230b9c7e2dab8921c1))
+
+## [1.16.3](https://github.com/adobe/spacecat-task-processor/compare/v1.16.2...v1.16.3) (2026-08-01)
+
+
+### Bug Fixes
+
+* **deps:** update external fixes ([#341](https://github.com/adobe/spacecat-task-processor/issues/341)) ([02380f7](https://github.com/adobe/spacecat-task-processor/commit/02380f767a690a7ec4225ee6e3b63718e8f52374))
+
 ## [1.16.2](https://github.com/adobe/spacecat-task-processor/compare/v1.16.1...v1.16.2) (2026-07-27)
 
 
