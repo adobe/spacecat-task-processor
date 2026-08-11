@@ -28,24 +28,6 @@ import { findValidatedWikidataEntity, fetchWikipediaExtractByTitle } from './wik
 const USER_AGENT = 'SpaceCat/1.0 (https://github.com/adobe/spacecat; spacecat@adobe.com)';
 const WIKIDATA_SPARQL = 'https://query.wikidata.org/sparql';
 const MIN_PRODUCTS_THRESHOLD = 3;
-// Upper bound on any single sitemap/SPARQL round trip so a hung upstream cannot stall the task.
-const EXTERNAL_FETCH_TIMEOUT_MS = 10000;
-
-/**
- * fetch() with an AbortController timeout so a hung upstream cannot stall the task.
- * @param {string} url - Request URL
- * @param {object} [options] - fetch options (headers, etc.)
- * @returns {Promise<Response>}
- */
-async function timedFetch(url, options = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), EXTERNAL_FETCH_TIMEOUT_MS);
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // Generic SPARQL query - works for any industry
 const PRODUCTS_SPARQL = `
@@ -157,7 +139,7 @@ function filterProductUrls(urls) {
 async function fetchSitemapUrls(sitemapUrl, log) {
   log.info(`Fetching sitemap: ${sitemapUrl}`);
 
-  const resp = await timedFetch(sitemapUrl, {
+  const resp = await fetch(sitemapUrl, {
     headers: { 'User-Agent': USER_AGENT },
   });
 
@@ -181,18 +163,11 @@ async function fetchSitemapUrls(sitemapUrl, log) {
 async function queryWikidataProducts(wikidataId, log) {
   log.info(`Querying Wikidata products for: ${wikidataId}`);
 
-  // Guard: only substitute a well-formed Wikidata entity id into the SPARQL template
-  // (defense-in-depth against SPARQL injection, even though ids originate from Wikidata).
-  if (!/^Q\d+$/.test(String(wikidataId || ''))) {
-    log.warn(`Refusing SPARQL query for malformed Wikidata id: ${wikidataId}`);
-    return [];
-  }
-
   const query = PRODUCTS_SPARQL.replace(/{wikidata_id}/g, wikidataId);
   const url = `${WIKIDATA_SPARQL}?query=${encodeURIComponent(query)}`;
 
   try {
-    const resp = await timedFetch(url, {
+    const resp = await fetch(url, {
       headers: {
         'User-Agent': USER_AGENT,
         Accept: 'application/sparql-results+json',
@@ -316,40 +291,51 @@ function normalizeResults(result) {
  * @param {object} secondary - Secondary results (usually Wikipedia)
  * @returns {object} Merged result
  */
+/* c8 ignore start */
 function mergeResults(primary, secondary) {
-  // `primary` is always the well-formed result object (four arrays; Wikidata product
-  // names are non-empty by construction). `secondary` is extractFromWikipedia output
-  // (four arrays, but LLM entries may have empty names).
-  const existingProductNames = new Set(primary.products.map((p) => p.name.toLowerCase()));
-  const existingServiceNames = new Set(primary.services.map((s) => s.name.toLowerCase()));
-  const existingSubBrands = new Set(primary.sub_brands);
-  const existingDiscontinued = new Set(primary.discontinued.map((d) => d.name.toLowerCase()));
+  const existingProductNames = new Set(
+    (primary.products || []).map((p) => (p.name || '').toLowerCase()),
+  );
+  const existingServiceNames = new Set(
+    (primary.services || []).map((s) => (s.name || '').toLowerCase()),
+  );
+  const existingSubBrands = new Set(primary.sub_brands || []);
+  const existingDiscontinued = new Set(
+    (primary.discontinued || []).map((d) => (d.name || '').toLowerCase()),
+  );
 
-  const newProducts = secondary.products.filter((product) => {
+  // Add new products from secondary
+  const newProducts = (secondary.products || []).filter((product) => {
     const nameLower = (product.name || '').toLowerCase();
     return nameLower && !existingProductNames.has(nameLower);
   });
 
-  const newServices = secondary.services.filter((service) => {
+  // Add new services from secondary
+  const newServices = (secondary.services || []).filter((service) => {
     const nameLower = (service.name || '').toLowerCase();
     return nameLower && !existingServiceNames.has(nameLower);
   });
 
-  const newSubBrands = secondary.sub_brands.filter((sub) => !existingSubBrands.has(sub));
+  // Add sub-brands (merge unique)
+  const newSubBrands = (secondary.sub_brands || []).filter(
+    (sub) => !existingSubBrands.has(sub),
+  );
 
-  const newDiscontinued = secondary.discontinued.filter((disc) => {
+  // Add discontinued (merge unique)
+  const newDiscontinued = (secondary.discontinued || []).filter((disc) => {
     const nameLower = (disc.name || '').toLowerCase();
     return nameLower && !existingDiscontinued.has(nameLower);
   });
 
   return {
     ...primary,
-    products: [...primary.products, ...newProducts],
-    services: [...primary.services, ...newServices],
-    sub_brands: [...primary.sub_brands, ...newSubBrands],
-    discontinued: [...primary.discontinued, ...newDiscontinued],
+    products: [...(primary.products || []), ...newProducts],
+    services: [...(primary.services || []), ...newServices],
+    sub_brands: [...(primary.sub_brands || []), ...newSubBrands],
+    discontinued: [...(primary.discontinued || []), ...newDiscontinued],
   };
 }
+/* c8 ignore stop */
 
 /**
  * Extract current products from sitemap URLs using LLM.
@@ -483,17 +469,19 @@ async function extractFromWikipedia(brandName, wikipediaText, gpt, log) {
 }
 
 /**
- * Extract products bound to a VALIDATED Wikidata entity (LLMO-6580).
+ * Extract products bound to a Wikidata entity VALIDATED against the site (LLMO-6580).
  *
- * Every Wikipedia/Wikidata fetch is bound to an entity that validates against the
- * customer's site by a strong P856 (official-website host) match. If nothing
- * validates, we produce NO products rather than guessing.
+ * Resolution is P856-only: {@link findValidatedWikidataEntity} accepts a candidate only
+ * when its official-website host shares the site's registrable domain. When nothing
+ * validates we produce NO products (metadata.source stays `'none'`) rather than falling
+ * back to a fuzzy by-name lookup that could bind the profile to a foreign entity. Every
+ * subsequent fetch is bound to that validated entity: SPARQL by its id, and the Wikipedia
+ * fallback by its exact `enwiki` sitelink title.
  *
  * @param {object} options - Options
  * @param {string} options.brandName - Brand/company name
  * @param {string} [options.registrableDomain=''] - Site registrable domain
  * @param {string} [options.wikipediaSummary=null] - Optional pre-fetched fallback text
- * @param {boolean} [options.enableWikiProducts=true] - Kill-switch for the entire path
  * @param {object} gpt - AzureOpenAIClient instance
  * @param {object} log - Logger instance
  * @returns {Promise<object>} Extraction result
@@ -502,7 +490,6 @@ export async function extractProducts({
   brandName,
   registrableDomain = '',
   wikipediaSummary = null,
-  enableWikiProducts = true,
 }, gpt, log) {
   log.info(`Extracting products for brand: ${brandName}`);
 
@@ -519,32 +506,23 @@ export async function extractProducts({
     },
   };
 
-  // Kill-switch: entire Wikipedia/Wikidata product path disabled.
-  if (!enableWikiProducts) {
-    log.info('brand-profile: Wikipedia/Wikidata product extraction disabled by flag');
-    result.metadata.source = 'disabled';
-    return normalizeResults(result);
-  }
-
-  // Step 1: Resolve+validate the entity. A candidate is only accepted via a strong P856
-  // host match against the site; otherwise findValidatedWikidataEntity returns null.
-  const entity = await findValidatedWikidataEntity({
-    brandName, registrableDomain,
-  }, log);
+  // Step 1: Resolve+validate the entity via a strong P856 (official-website) host match
+  // against the site's registrable domain. Nothing validates => no products; metadata
+  // stays source 'none'. This is the guard that keeps a fuzzy by-name match from pulling
+  // a foreign entity's catalogue into the profile.
+  const entity = await findValidatedWikidataEntity({ brandName, registrableDomain }, log);
 
   if (!entity) {
     log.info(`No validated Wikidata entity for ${brandName}; producing no products`);
-    result.metadata.source = 'none_no_validated_entity';
-    result.metadata.rejected = true;
     return normalizeResults(result);
   }
 
   result.metadata.brand_wikidata_id = entity.id;
-  result.metadata.source_entity_label = entity.label;
   result.metadata.validation = entity.validation;
 
-  // Step 2: Query Wikidata SPARQL for products (inherently entity-bound, safe).
+  // Step 2: Query Wikidata for products (bound to the validated entity id).
   const wikidataProducts = await queryWikidataProducts(entity.id, log);
+
   if (wikidataProducts.length > 0) {
     result.products = wikidataProducts;
     result.metadata.source = 'wikidata';
@@ -556,17 +534,23 @@ export async function extractProducts({
   if (result.products.length < MIN_PRODUCTS_THRESHOLD) {
     log.info(`Wikidata returned ${result.products.length} products (threshold: ${MIN_PRODUCTS_THRESHOLD}), trying entity-bound Wikipedia fallback`);
 
+    // Use pre-fetched text if provided; otherwise read the validated entity's own article.
     let wikiText = wikipediaSummary;
     if (!wikiText && entity.enwikiTitle) {
       wikiText = await fetchWikipediaExtractByTitle(entity.enwikiTitle, 12000, log);
-      result.metadata.source_wikipedia_title = entity.enwikiTitle;
     }
 
     const wikiResult = await extractFromWikipedia(brandName, wikiText, gpt, log);
+
     if (wikiResult) {
       const merged = mergeResults(result, wikiResult);
       Object.assign(result, merged);
-      result.metadata.source = result.metadata.source === 'wikidata' ? 'hybrid' : 'wikipedia_llm';
+
+      if (result.metadata.source === 'wikidata') {
+        result.metadata.source = 'hybrid';
+      } else {
+        result.metadata.source = 'wikipedia_llm';
+      }
     }
   }
 

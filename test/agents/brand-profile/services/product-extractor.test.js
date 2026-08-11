@@ -357,8 +357,7 @@ describe('services/product-extractor', () => {
       );
 
       expect(result.products).to.have.length(0);
-      expect(result.metadata.source).to.equal('none_no_validated_entity');
-      expect(result.metadata.rejected).to.equal(true);
+      expect(result.metadata.source).to.equal('none');
       // The decoupled `opensearch "Dnp company"` fetch must never be issued.
       expect(noOpenSearchIssued(fetchStub)).to.equal(true);
       expect(gpt.fetchChatCompletion).to.not.have.been.called;
@@ -377,11 +376,11 @@ describe('services/product-extractor', () => {
       );
 
       expect(result.products).to.have.length(0);
-      expect(result.metadata.source).to.equal('none_no_validated_entity');
+      expect(result.metadata.source).to.equal('none');
       expect(noOpenSearchIssued(fetchStub)).to.equal(true);
     });
 
-    it('returns none_no_validated_entity when a candidate has a non-matching P856 host', async () => {
+    it('returns source none when a candidate has a non-matching P856 host', async () => {
       fetchStub.onCall(0).resolves(searchResp(['Q9']));
       fetchStub.onCall(1).resolves(entityResp('Q9', { label: 'Totally Different', hosts: ['other.example'] }));
 
@@ -392,8 +391,8 @@ describe('services/product-extractor', () => {
       );
 
       expect(result.products).to.have.length(0);
-      expect(result.metadata.source).to.equal('none_no_validated_entity');
-      expect(result.metadata.rejected).to.equal(true);
+      expect(result.metadata.source).to.equal('none');
+      expect(result.metadata.brand_wikidata_id).to.be.null;
     });
 
     it('uses the validated entity enwiki title (sitelink, not a by-name search) for the fallback', async () => {
@@ -419,7 +418,6 @@ describe('services/product-extractor', () => {
       );
 
       expect(result.metadata.source).to.equal('hybrid');
-      expect(result.metadata.source_wikipedia_title).to.equal('DHL Group');
       // The extract call used the sitelink title, not a by-name search.
       const extractUrl = fetchStub.getCall(3).args[0];
       expect(extractUrl).to.include('titles=DHL+Group');
@@ -470,20 +468,6 @@ describe('services/product-extractor', () => {
       expect(result.metadata.source).to.equal('wikidata');
     });
 
-    it('is a hard no-op when the wiki-products kill-switch is off', async () => {
-      const result = await extractProducts(
-        {
-          brandName: 'DHL', registrableDomain: 'dhl.com', enableWikiProducts: false,
-        },
-        gpt,
-        log,
-      );
-
-      expect(result.metadata.source).to.equal('disabled');
-      expect(result.products).to.have.length(0);
-      expect(fetchStub).to.not.have.been.called;
-    });
-
     it('accepts a provided wikipediaSummary without re-fetching the article', async () => {
       fetchStub.onCall(0).resolves(searchResp(['Q1']));
       fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'Amrize', enwikiTitle: 'Amrize', hosts: ['amrize.com'] }));
@@ -510,31 +494,6 @@ describe('services/product-extractor', () => {
       expect(result.products).to.have.length(1);
       // Only search + entity + SPARQL fetches; NO extract-by-title fetch.
       expect(fetchStub.callCount).to.equal(3);
-    });
-
-    it('refuses a SPARQL query when the resolved entity id is malformed (injection guard)', async () => {
-      // Entity validates via P856 but carries a non-Q id; the SPARQL template substitution
-      // must be refused rather than issued.
-      fetchStub.onCall(0).resolves(searchResp(['QABC']));
-      fetchStub.onCall(1).resolves(entityResp('QABC', { label: 'Acme', enwikiTitle: 'Acme', hosts: ['acme.com'] }));
-      fetchStub.onCall(2).resolves(extractResp('Acme is a company.'));
-
-      gpt.fetchChatCompletion.resolves(llmResp({
-        products: [], services: [], sub_brands: [], discontinued: [],
-      }));
-
-      const result = await extractProducts(
-        { brandName: 'Acme', registrableDomain: 'acme.com' },
-        gpt,
-        log,
-      );
-
-      expect(result.metadata.brand_wikidata_id).to.equal('QABC');
-      expect(result.products).to.have.length(0);
-      expect(log.warn).to.have.been.calledWithMatch('Refusing SPARQL query for malformed Wikidata id');
-      // No SPARQL request was issued (search + entity + wiki-extract only).
-      const sparqlIssued = fetchStub.getCalls().some((c) => String(c.args[0]).includes('sparql'));
-      expect(sparqlIssued).to.equal(false);
     });
 
     it('merges hybrid results and de-duplicates overlaps', async () => {
@@ -810,13 +769,13 @@ describe('services/product-extractor', () => {
     });
 
     it('extractProducts service method forwards the options object', async () => {
-      // No candidates -> none_no_validated_entity
+      // No candidates -> no validated entity -> source none
       fetchStub.resolves({ ok: true, json: () => Promise.resolve({ search: [] }) });
 
       const service = createProductExtractorService(env, log);
       const result = await service.extractProducts({ brandName: 'TestBrand', registrableDomain: 'test.com' });
       expect(result).to.have.property('metadata');
-      expect(result.metadata.source).to.equal('none_no_validated_entity');
+      expect(result.metadata.source).to.equal('none');
     });
   });
 

@@ -25,8 +25,7 @@ import { createRegionalContextService } from './services/regional-context.js';
 import { createCompetitorInferenceService } from './services/competitor-inference.js';
 import { createPersonaInferenceService } from './services/persona-inference.js';
 import { createProductExtractorService } from './services/product-extractor.js';
-import { createWikipediaService } from './services/wikipedia.js';
-import { resolveBrandName } from './services/brand-resolver.js';
+import { createWikipediaService, splitHost } from './services/wikipedia.js';
 
 /**
  * Call the model with system and user prompts.
@@ -48,6 +47,40 @@ async function callModel({
     log.error('brand-profile: failed to parse model JSON response', { error: e.message, contentPreview: String(content).slice(0, 500) });
     throw new Error('brand-profile: invalid JSON returned by model');
   }
+}
+
+/**
+ * Extract brand name from base profile or URL.
+ * @param {object} baseProfile - Base profile from initial LLM call
+ * @param {string} baseURL - Site base URL
+ * @returns {string} Brand name
+ */
+function extractBrandName(baseProfile, baseURL) {
+  // Try to get brand name from profile
+  if (baseProfile?.main_profile?.brand_name) {
+    return baseProfile.main_profile.brand_name;
+  }
+
+  // Try competitive_context
+  if (baseProfile?.competitive_context?.brand_name) {
+    return baseProfile.competitive_context.brand_name;
+  }
+
+  // Fall back to domain extraction
+  try {
+    const url = new URL(baseURL);
+    const parts = url.hostname.split('.');
+    // Remove www and TLD
+    const domainParts = parts.filter((p) => p !== 'www' && p.length > 2);
+    if (domainParts.length > 0) {
+      return domainParts[0].charAt(0).toUpperCase() + domainParts[0].slice(1);
+    }
+  /* c8 ignore next 3 */
+  } catch {
+    // Ignore URL parse errors
+  }
+
+  return 'Unknown Brand';
 }
 
 /**
@@ -119,16 +152,9 @@ async function run(context, env, log) {
   }
 
   // Extract key fields from base profile for enhanced inference
-  const {
-    name: brandName,
-    registrableDomain,
-  } = await resolveBrandName(baseProfile, baseURL, log);
+  const brandName = extractBrandName(baseProfile, baseURL);
   const industry = extractIndustry(baseProfile);
   const targetAudience = extractTargetAudience(baseProfile);
-
-  // LLMO-6580 kill-switch: the entire Wikipedia/Wikidata product + competitor-summary
-  // path stays OFF unless explicitly enabled, until the P2 backfill is validated.
-  const enableWikiProducts = env.BRAND_PROFILE_ENABLE_WIKI_PRODUCTS === 'true';
 
   log.info(`brand-profile: enhancing profile for "${brandName}" in "${industry}"`);
 
@@ -174,16 +200,9 @@ async function run(context, env, log) {
     competitorsSource = 'llmo';
   } else {
     log.info('brand-profile: inferring competitors');
-    // Optionally fetch a VALIDATED Wikipedia summary (entity bound to the site) for
-    // better competitor inference. Gated by the kill-switch; null degrades gracefully.
-    let wikiSummary = '';
-    if (enableWikiProducts) {
-      const wikiResult = await wikipediaService.fetchValidatedSummary({
-        brandName,
-        registrableDomain,
-      });
-      wikiSummary = wikiResult?.summary || '';
-    }
+    // Optionally fetch Wikipedia summary for better competitor inference
+    const wikiResult = await wikipediaService.fetchSummary(`${brandName} company`);
+    const wikiSummary = wikiResult?.summary || '';
 
     const competitorResult = await competitorService.inferCompetitors({
       brandName,
@@ -213,13 +232,11 @@ async function run(context, env, log) {
     log.info(`brand-profile: using sitemap for product extraction: ${sitemapUrl}`);
     productsResult = await productService.extractFromSitemap(sitemapUrl, brandName);
   } else {
-    // Entity-bound Wikipedia/Wikidata extraction. The fetch now happens inside
-    // extractProducts, bound to an entity validated against the site.
-    productsResult = await productService.extractProducts({
-      brandName,
-      registrableDomain,
-      enableWikiProducts,
-    });
+    // Entity-bound Wikipedia/Wikidata extraction (LLMO-6580): products come only from a
+    // Wikidata entity validated against the site via a strong P856 (official-website)
+    // host match. Nothing validates => extractProducts returns source 'none' (no products).
+    const { registrableDomain } = splitHost(new URL(baseURL).hostname);
+    productsResult = await productService.extractProducts({ brandName, registrableDomain });
   }
 
   // Assemble the enhanced profile

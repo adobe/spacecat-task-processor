@@ -19,8 +19,6 @@ import esmock from 'esmock';
 use(sinonChai);
 use(chaiAsPromised);
 
-const RESOLVER_PATH = '../../../src/agents/brand-profile/services/brand-resolver.js';
-
 describe('agents/brand-profile', () => {
   let sandbox;
   let context;
@@ -28,7 +26,7 @@ describe('agents/brand-profile', () => {
   let log;
 
   // Mock service creators - paths relative to src/agents/brand-profile/index.js
-  const createMockServices = (sb, resolverOverride = {}) => ({
+  const createMockServices = (sb) => ({
     '../../../src/agents/brand-profile/services/regional-context.js': {
       createRegionalContextService: () => ({
         inferRegionFromUrl: sb.stub().resolves({
@@ -84,17 +82,8 @@ describe('agents/brand-profile', () => {
     },
     '../../../src/agents/brand-profile/services/wikipedia.js': {
       createWikipediaService: () => ({
-        fetchValidatedSummary: sb.stub().resolves(null),
-      }),
-    },
-    [RESOLVER_PATH]: {
-      resolveBrandName: sb.stub().resolves({
-        name: 'MockBrand',
-        confidence: 'medium',
-        source: 'apex_domain',
-        siteHost: 'example.com',
-        registrableDomain: 'example.com',
-        ...resolverOverride,
+        fetchSummary: sb.stub().resolves(null),
+        fetchFullText: sb.stub().resolves(null),
       }),
     },
   });
@@ -167,8 +156,12 @@ describe('agents/brand-profile', () => {
       choices: [{
         message: {
           content: JSON.stringify({
-            main_profile: { target_audience: 'Consumers' },
-            competitive_context: { industry: 'Technology' },
+            main_profile: {
+              target_audience: 'Consumers',
+            },
+            competitive_context: {
+              industry: 'Technology',
+            },
           }),
         },
       }],
@@ -220,16 +213,9 @@ describe('agents/brand-profile', () => {
     };
 
     const mockWikipediaService = {
-      fetchValidatedSummary: sandbox.stub().resolves({ summary: 'Company summary' }),
+      fetchSummary: sandbox.stub().resolves({ summary: 'Company summary' }),
+      fetchFullText: sandbox.stub().resolves('Full text'),
     };
-
-    const resolveBrandName = sandbox.stub().resolves({
-      name: 'Swisslife',
-      confidence: 'high',
-      source: 'site_title',
-      siteHost: 'swisslife.ch',
-      registrableDomain: 'swisslife.ch',
-    });
 
     const mod = await esmock('../../../src/agents/brand-profile/index.js', {
       '@adobe/spacecat-shared-gpt-client': {
@@ -254,39 +240,22 @@ describe('agents/brand-profile', () => {
       '../../../src/agents/brand-profile/services/wikipedia.js': {
         createWikipediaService: () => mockWikipediaService,
       },
-      [RESOLVER_PATH]: { resolveBrandName },
     });
 
     const result = await mod.default.run(
       { baseURL: 'https://swisslife.ch', params: { enhance: true } },
-      { BRAND_PROFILE_ENABLE_WIKI_PRODUCTS: 'true' },
+      env,
       log,
     );
 
-    expect(resolveBrandName).to.have.been.called;
+    // Verify all services were called
     expect(mockRegionalService.inferRegionFromUrl).to.have.been.called;
     expect(mockRegionalService.inferRegionalContext).to.have.been.called;
     expect(mockCompetitorService.inferCompetitors).to.have.been.called;
     expect(mockPersonaService.inferPersonas).to.have.been.called;
     expect(mockProductService.extractProducts).to.have.been.called;
 
-    // Competitor path used the VALIDATED summary (entity-bound), not a by-name lookup.
-    expect(mockWikipediaService.fetchValidatedSummary).to.have.been.calledWithExactly({
-      brandName: 'Swisslife',
-      registrableDomain: 'swisslife.ch',
-    });
-    // ...and forwarded that summary text into competitor inference.
-    expect(mockCompetitorService.inferCompetitors).to.have.been.calledWithExactly(
-      sinon.match({ wikipediaSummary: 'Company summary' }),
-    );
-
-    // Product path forwarded the options object with the resolved identity + flag.
-    expect(mockProductService.extractProducts).to.have.been.calledWithExactly({
-      brandName: 'Swisslife',
-      registrableDomain: 'swisslife.ch',
-      enableWikiProducts: true,
-    });
-
+    // Verify result includes enhanced data
     expect(result.country_code).to.equal('CH');
     expect(result.languages).to.deep.equal(['de-CH', 'fr-CH']);
     expect(result.currency).to.equal('CHF');
@@ -294,92 +263,6 @@ describe('agents/brand-profile', () => {
     expect(result.competitors).to.have.length(1);
     expect(result.personas).to.have.length(1);
     expect(result.products.items).to.have.length(1);
-  });
-
-  it('run() does NOT fetch a validated summary when the kill-switch is off (default)', async () => {
-    const fetchChatCompletion = sandbox.stub().resolves({
-      choices: [{
-        message: {
-          content: JSON.stringify({
-            main_profile: {},
-            competitive_context: { industry: 'Tech' },
-          }),
-        },
-      }],
-    });
-    const createFrom = sandbox.stub().returns({ fetchChatCompletion });
-
-    const fetchValidatedSummary = sandbox.stub().resolves({ summary: 'should not be used' });
-    const extractProducts = sandbox.stub().resolves({ products: [], metadata: {} });
-
-    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
-      '@adobe/spacecat-shared-gpt-client': {
-        AzureOpenAIClient: { createFrom },
-      },
-      '../../../src/agents/base.js': {
-        readPromptFile: sandbox.stub().returns('PROMPT'),
-        renderTemplate: sandbox.stub().returns('RENDERED'),
-      },
-      ...createMockServices(sandbox),
-      '../../../src/agents/brand-profile/services/product-extractor.js': {
-        createProductExtractorService: () => ({ extractProducts }),
-      },
-      '../../../src/agents/brand-profile/services/wikipedia.js': {
-        createWikipediaService: () => ({ fetchValidatedSummary }),
-      },
-    });
-
-    await mod.default.run(
-      { baseURL: 'https://example.com', params: { enhance: true } },
-      env,
-      log,
-    );
-
-    expect(fetchValidatedSummary).to.not.have.been.called;
-    // extractProducts still runs, but with the flag off.
-    expect(extractProducts).to.have.been.calledWithExactly(
-      sinon.match({ enableWikiProducts: false }),
-    );
-  });
-
-  it('run() tolerates a null validated summary (flag on) and infers with an empty overview', async () => {
-    const fetchChatCompletion = sandbox.stub().resolves({
-      choices: [{
-        message: {
-          content: JSON.stringify({ main_profile: {}, competitive_context: { industry: 'Tech' } }),
-        },
-      }],
-    });
-    const createFrom = sandbox.stub().returns({ fetchChatCompletion });
-
-    const fetchValidatedSummary = sandbox.stub().resolves(null);
-    const inferCompetitors = sandbox.stub().resolves({ competitors: [], source: 'llm_inferred' });
-
-    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
-      '@adobe/spacecat-shared-gpt-client': {
-        AzureOpenAIClient: { createFrom },
-      },
-      '../../../src/agents/base.js': {
-        readPromptFile: sandbox.stub().returns('PROMPT'),
-        renderTemplate: sandbox.stub().returns('RENDERED'),
-      },
-      ...createMockServices(sandbox, { name: 'Amrize', confidence: 'high', registrableDomain: 'amrize.com' }),
-      '../../../src/agents/brand-profile/services/competitor-inference.js': {
-        createCompetitorInferenceService: () => ({ inferCompetitors }),
-      },
-      '../../../src/agents/brand-profile/services/wikipedia.js': {
-        createWikipediaService: () => ({ fetchValidatedSummary }),
-      },
-    });
-
-    await mod.default.run(
-      { baseURL: 'https://amrize.com', params: { enhance: true } },
-      { BRAND_PROFILE_ENABLE_WIKI_PRODUCTS: 'true' },
-      log,
-    );
-
-    expect(fetchValidatedSummary).to.have.been.called;
-    expect(inferCompetitors).to.have.been.calledWithExactly(sinon.match({ wikipediaSummary: '' }));
   });
 
   it('run() uses sitemapUrl when provided for product extraction', async () => {
@@ -403,7 +286,10 @@ describe('agents/brand-profile', () => {
         discontinued: [],
         metadata: { source: 'sitemap', count: 1 },
       }),
-      extractProducts: sandbox.stub().resolves({ products: [], metadata: {} }),
+      extractProducts: sandbox.stub().resolves({
+        products: [],
+        metadata: {},
+      }),
     };
 
     const mod = await esmock('../../../src/agents/brand-profile/index.js', {
@@ -414,9 +300,30 @@ describe('agents/brand-profile', () => {
         readPromptFile: sandbox.stub().returns('PROMPT'),
         renderTemplate: sandbox.stub().returns('RENDERED'),
       },
-      ...createMockServices(sandbox, { name: 'TestBrand', confidence: 'high' }),
+      '../../../src/agents/brand-profile/services/regional-context.js': {
+        createRegionalContextService: () => ({
+          inferRegionFromUrl: sandbox.stub().resolves({ country_code: 'US' }),
+          inferRegionalContext: sandbox.stub().resolves({ languages: ['en-US'] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/competitor-inference.js': {
+        createCompetitorInferenceService: () => ({
+          inferCompetitors: sandbox.stub().resolves({ competitors: [] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/persona-inference.js': {
+        createPersonaInferenceService: () => ({
+          inferPersonas: sandbox.stub().resolves({ personas: [] }),
+        }),
+      },
       '../../../src/agents/brand-profile/services/product-extractor.js': {
         createProductExtractorService: () => mockProductService,
+      },
+      '../../../src/agents/brand-profile/services/wikipedia.js': {
+        createWikipediaService: () => ({
+          fetchSummary: sandbox.stub().resolves(null),
+          fetchFullText: sandbox.stub().resolves(null),
+        }),
       },
     });
 
@@ -432,6 +339,7 @@ describe('agents/brand-profile', () => {
       log,
     );
 
+    // extractFromSitemap should be called instead of extractProducts
     expect(mockProductService.extractFromSitemap).to.have.been.calledWith(
       'https://example.com/sitemap.xml',
       'TestBrand',
@@ -441,11 +349,14 @@ describe('agents/brand-profile', () => {
     expect(result.products.items[0].name).to.equal('SitemapProduct');
   });
 
-  it('run() logs the resolved brand name (domain-derived)', async () => {
+  it('run() extracts brand name from competitive_context when main_profile missing', async () => {
     const fetchChatCompletion = sandbox.stub().resolves({
       choices: [{
         message: {
-          content: JSON.stringify({ main_profile: {}, competitive_context: { industry: 'Tech' } }),
+          content: JSON.stringify({
+            main_profile: {},
+            competitive_context: { brand_name: 'ContextBrand', industry: 'Tech' },
+          }),
         },
       }],
     });
@@ -459,7 +370,93 @@ describe('agents/brand-profile', () => {
         readPromptFile: sandbox.stub().returns('PROMPT'),
         renderTemplate: sandbox.stub().returns('RENDERED'),
       },
-      ...createMockServices(sandbox, { name: 'Testcompany', confidence: 'medium', registrableDomain: 'testcompany.com' }),
+      '../../../src/agents/brand-profile/services/regional-context.js': {
+        createRegionalContextService: () => ({
+          inferRegionFromUrl: sandbox.stub().resolves({ country_code: 'US' }),
+          inferRegionalContext: sandbox.stub().resolves({ languages: ['en-US'] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/competitor-inference.js': {
+        createCompetitorInferenceService: () => ({
+          inferCompetitors: sandbox.stub().resolves({ competitors: [] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/persona-inference.js': {
+        createPersonaInferenceService: () => ({
+          inferPersonas: sandbox.stub().resolves({ personas: [] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/product-extractor.js': {
+        createProductExtractorService: () => ({
+          extractProducts: sandbox.stub().resolves({ products: [], metadata: {} }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/wikipedia.js': {
+        createWikipediaService: () => ({
+          fetchSummary: sandbox.stub().resolves(null),
+          fetchFullText: sandbox.stub().resolves(null),
+        }),
+      },
+    });
+
+    await mod.default.run(
+      { baseURL: 'https://example.com', params: { enhance: true } },
+      env,
+      log,
+    );
+
+    // The log should show "ContextBrand" as the extracted brand name
+    expect(log.info).to.have.been.calledWithMatch('ContextBrand');
+  });
+
+  it('run() falls back to domain name when no brand name in profile', async () => {
+    const fetchChatCompletion = sandbox.stub().resolves({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            main_profile: {},
+            competitive_context: { industry: 'Tech' },
+          }),
+        },
+      }],
+    });
+    const createFrom = sandbox.stub().returns({ fetchChatCompletion });
+
+    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
+      '@adobe/spacecat-shared-gpt-client': {
+        AzureOpenAIClient: { createFrom },
+      },
+      '../../../src/agents/base.js': {
+        readPromptFile: sandbox.stub().returns('PROMPT'),
+        renderTemplate: sandbox.stub().returns('RENDERED'),
+      },
+      '../../../src/agents/brand-profile/services/regional-context.js': {
+        createRegionalContextService: () => ({
+          inferRegionFromUrl: sandbox.stub().resolves({ country_code: 'US' }),
+          inferRegionalContext: sandbox.stub().resolves({ languages: ['en-US'] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/competitor-inference.js': {
+        createCompetitorInferenceService: () => ({
+          inferCompetitors: sandbox.stub().resolves({ competitors: [] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/persona-inference.js': {
+        createPersonaInferenceService: () => ({
+          inferPersonas: sandbox.stub().resolves({ personas: [] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/product-extractor.js': {
+        createProductExtractorService: () => ({
+          extractProducts: sandbox.stub().resolves({ products: [], metadata: {} }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/wikipedia.js': {
+        createWikipediaService: () => ({
+          fetchSummary: sandbox.stub().resolves(null),
+          fetchFullText: sandbox.stub().resolves(null),
+        }),
+      },
     });
 
     await mod.default.run(
@@ -468,14 +465,18 @@ describe('agents/brand-profile', () => {
       log,
     );
 
+    // Should extract "Testcompany" from the domain
     expect(log.info).to.have.been.calledWithMatch('Testcompany');
   });
 
-  it('run() logs the "Unknown Brand" sentinel from the resolver', async () => {
+  it('run() uses "Unknown Brand" when URL has only short domain parts', async () => {
     const fetchChatCompletion = sandbox.stub().resolves({
       choices: [{
         message: {
-          content: JSON.stringify({ main_profile: {}, competitive_context: { industry: 'Tech' } }),
+          content: JSON.stringify({
+            main_profile: {},
+            competitive_context: { industry: 'Tech' },
+          }),
         },
       }],
     });
@@ -489,7 +490,33 @@ describe('agents/brand-profile', () => {
         readPromptFile: sandbox.stub().returns('PROMPT'),
         renderTemplate: sandbox.stub().returns('RENDERED'),
       },
-      ...createMockServices(sandbox, { name: 'Unknown Brand', confidence: 'low', source: 'none' }),
+      '../../../src/agents/brand-profile/services/regional-context.js': {
+        createRegionalContextService: () => ({
+          inferRegionFromUrl: sandbox.stub().resolves({ country_code: 'US' }),
+          inferRegionalContext: sandbox.stub().resolves({ languages: ['en-US'] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/competitor-inference.js': {
+        createCompetitorInferenceService: () => ({
+          inferCompetitors: sandbox.stub().resolves({ competitors: [] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/persona-inference.js': {
+        createPersonaInferenceService: () => ({
+          inferPersonas: sandbox.stub().resolves({ personas: [] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/product-extractor.js': {
+        createProductExtractorService: () => ({
+          extractProducts: sandbox.stub().resolves({ products: [], metadata: {} }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/wikipedia.js': {
+        createWikipediaService: () => ({
+          fetchSummary: sandbox.stub().resolves(null),
+          fetchFullText: sandbox.stub().resolves(null),
+        }),
+      },
     });
 
     await mod.default.run(
@@ -498,6 +525,7 @@ describe('agents/brand-profile', () => {
       log,
     );
 
+    // Should use "Unknown Brand" since all domain parts are short
     expect(log.info).to.have.been.calledWithMatch('Unknown Brand');
   });
 
@@ -526,9 +554,30 @@ describe('agents/brand-profile', () => {
         readPromptFile: sandbox.stub().returns('PROMPT'),
         renderTemplate: sandbox.stub().returns('RENDERED'),
       },
-      ...createMockServices(sandbox),
+      '../../../src/agents/brand-profile/services/regional-context.js': {
+        createRegionalContextService: () => ({
+          inferRegionFromUrl: sandbox.stub().resolves({ country_code: 'US' }),
+          inferRegionalContext: sandbox.stub().resolves({ languages: ['en-US'] }),
+        }),
+      },
       '../../../src/agents/brand-profile/services/competitor-inference.js': {
         createCompetitorInferenceService: () => mockCompetitorService,
+      },
+      '../../../src/agents/brand-profile/services/persona-inference.js': {
+        createPersonaInferenceService: () => ({
+          inferPersonas: sandbox.stub().resolves({ personas: [] }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/product-extractor.js': {
+        createProductExtractorService: () => ({
+          extractProducts: sandbox.stub().resolves({ products: [], metadata: {} }),
+        }),
+      },
+      '../../../src/agents/brand-profile/services/wikipedia.js': {
+        createWikipediaService: () => ({
+          fetchSummary: sandbox.stub().resolves(null),
+          fetchFullText: sandbox.stub().resolves(null),
+        }),
       },
     });
 
@@ -544,6 +593,7 @@ describe('agents/brand-profile', () => {
       log,
     );
 
+    // inferCompetitors should NOT be called when LLMO competitors provided
     expect(mockCompetitorService.inferCompetitors).to.not.have.been.called;
     expect(result.competitors_source).to.equal('llmo');
     expect(result.competitors).to.have.length(2);
@@ -679,11 +729,65 @@ describe('agents/brand-profile', () => {
     expect(log.info).to.have.been.calledWithMatch('brand-profile persist:');
   });
 
+  it('persist() preserves manual-curated products and does not overwrite them', async () => {
+    const curatedProducts = { items: [{ name: 'Hand-curated widget' }] };
+    const curatedMetadata = { source: 'manual-curated', curated_by: 'ops', count: 1 };
+    const beforeProfile = {
+      contentHash: 'old',
+      version: 1,
+      products: curatedProducts,
+      products_metadata: curatedMetadata,
+    };
+    let currentProfile = beforeProfile;
+    let persisted;
+    const cfg = {
+      getBrandProfile: () => currentProfile,
+      updateBrandProfile: (p) => {
+        persisted = p;
+        currentProfile = { ...p, contentHash: 'new', version: 2 };
+      },
+    };
+    const findById = sandbox.stub().resolves({
+      getConfig: () => cfg,
+      setConfig: sinon.stub(),
+      save: sinon.stub().resolves(),
+      getBaseURL: () => 'https://example.com',
+    });
+    context.dataAccess.Site = { findById };
+
+    const toDynamoItem = sandbox.stub().callsFake((c) => c);
+    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
+      '@adobe/spacecat-shared-data-access/src/models/site/config.js': {
+        Config: { toDynamoItem },
+      },
+    });
+
+    await mod.default.persist(
+      { siteId: '123e4567-e89b-12d3-a456-426614174000', baseURL: 'https://example.com' },
+      context,
+      {
+        main_profile: { tone_attributes: {} },
+        products: { items: [{ name: 'Agent-generated widget' }] },
+        products_metadata: { source: 'none', count: 0 },
+      },
+    );
+
+    // Incoming agent products/metadata must be discarded; curated blocks kept verbatim.
+    expect(persisted.products).to.equal(curatedProducts);
+    expect(persisted.products_metadata).to.equal(curatedMetadata);
+    // Non-product fields from the incoming result still flow through.
+    expect(persisted.main_profile).to.deep.equal({ tone_attributes: {} });
+    expect(log.info).to.have.been.calledWith(
+      'brand-profile persist: preserving manual-curated products',
+      sinon.match.object,
+    );
+  });
+
   it('persist() logs unchanged summary when content hash is same', async () => {
     const profile = { contentHash: 'same', version: 5 };
     const cfg = {
       getBrandProfile: () => profile,
-      updateBrandProfile: sinon.stub(),
+      updateBrandProfile: sinon.stub(), // leaves hash unchanged
     };
     const setConfig = sinon.stub();
     const save = sinon.stub().resolves();
@@ -721,6 +825,7 @@ describe('agents/brand-profile', () => {
   it('persist() handles configs without getBrandProfile implementation', async () => {
     const cfg = {
       updateBrandProfile: sinon.stub(),
+      // getBrandProfile intentionally undefined to hit fallback branches
     };
     const setConfig = sinon.stub();
     const save = sinon.stub().resolves();
@@ -754,104 +859,6 @@ describe('agents/brand-profile', () => {
     );
   });
 
-  it('persist() preserves a manual-curated product catalogue (LLMO-6580 guard)', async () => {
-    const before = {
-      contentHash: 'old',
-      version: 3,
-      products: { items: [{ name: 'HandCurated' }] },
-      products_metadata: { source: 'manual-curated', count: 1 },
-    };
-    let received;
-    let currentProfile = before;
-    const cfg = {
-      getBrandProfile: () => currentProfile,
-      updateBrandProfile: (p) => {
-        received = p;
-        currentProfile = { ...p, contentHash: 'new', version: 4 };
-      },
-    };
-    const setConfig = sinon.stub();
-    const save = sinon.stub().resolves();
-    const findById = sandbox.stub().resolves({
-      getConfig: () => cfg,
-      setConfig,
-      save,
-      getBaseURL: () => 'https://curated.com',
-    });
-    context.dataAccess.Site = { findById };
-
-    const toDynamoItem = sandbox.stub().callsFake((c) => c);
-    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
-      '@adobe/spacecat-shared-data-access/src/models/site/config.js': {
-        Config: { toDynamoItem },
-      },
-    });
-
-    await mod.default.persist(
-      { siteId: '123e4567-e89b-12d3-a456-426614174000' },
-      context,
-      {
-        main_profile: { communication_style: 'new voice' },
-        products: { items: [{ name: 'FabricatedProduct' }] },
-        products_metadata: { source: 'wikipedia_llm', count: 1 },
-      },
-    );
-
-    // Non-product fields update, but the curated products/metadata are preserved.
-    expect(received.main_profile.communication_style).to.equal('new voice');
-    expect(received.products).to.deep.equal(before.products);
-    expect(received.products_metadata).to.deep.equal(before.products_metadata);
-    expect(log.info).to.have.been.calledWithMatch('preserving manual-curated products');
-  });
-
-  it('persist() overwrites products when the stored source is NOT manual-curated', async () => {
-    const before = {
-      contentHash: 'old',
-      version: 3,
-      products: { items: [{ name: 'OldFabricated' }] },
-      products_metadata: { source: 'wikipedia_llm', count: 1 },
-    };
-    let received;
-    let currentProfile = before;
-    const cfg = {
-      getBrandProfile: () => currentProfile,
-      updateBrandProfile: (p) => {
-        received = p;
-        currentProfile = { ...p, contentHash: 'new', version: 4 };
-      },
-    };
-    const setConfig = sinon.stub();
-    const save = sinon.stub().resolves();
-    const findById = sandbox.stub().resolves({
-      getConfig: () => cfg,
-      setConfig,
-      save,
-      getBaseURL: () => 'https://example.com',
-    });
-    context.dataAccess.Site = { findById };
-
-    const toDynamoItem = sandbox.stub().callsFake((c) => c);
-    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
-      '@adobe/spacecat-shared-data-access/src/models/site/config.js': {
-        Config: { toDynamoItem },
-      },
-    });
-
-    const result = {
-      products: { items: [] },
-      products_metadata: { source: 'none_no_validated_entity', count: 0 },
-    };
-    await mod.default.persist(
-      { siteId: '123e4567-e89b-12d3-a456-426614174000' },
-      context,
-      result,
-    );
-
-    expect(received.products_metadata.source).to.equal('none_no_validated_entity');
-    expect(received.products).to.deep.equal(result.products);
-    expect(log.info).to.not.have.been.calledWithMatch('preserving manual-curated products');
-  });
-
   it('persist() includes highlight blocks when main profile data is present', async () => {
     let currentProfile = { version: 1, contentHash: 'old' };
     const cfg = {
@@ -875,6 +882,7 @@ describe('agents/brand-profile', () => {
       '@adobe/spacecat-shared-data-access/src/models/site/config.js': {
         Config: { toDynamoItem },
       },
+      ...createMockServices(sandbox),
     });
 
     const result = await mod.default.persist(
@@ -921,6 +929,7 @@ describe('agents/brand-profile', () => {
       '@adobe/spacecat-shared-data-access/src/models/site/config.js': {
         Config: { toDynamoItem },
       },
+      ...createMockServices(sandbox),
     });
 
     const result = await mod.default.persist(

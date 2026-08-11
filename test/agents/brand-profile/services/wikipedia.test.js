@@ -19,7 +19,8 @@ import esmock from 'esmock';
 use(sinonChai);
 use(chaiAsPromised);
 
-const importMod = () => esmock('../../../../src/agents/brand-profile/services/wikipedia.js', {});
+const WIKI_PATH = '../../../../src/agents/brand-profile/services/wikipedia.js';
+const importWiki = () => esmock(WIKI_PATH, {});
 
 describe('services/wikipedia', () => {
   let sandbox;
@@ -41,6 +42,380 @@ describe('services/wikipedia', () => {
     sandbox.restore();
   });
 
+  describe('fetchWikipediaSummary', () => {
+    it('fetches and returns Wikipedia summary', async () => {
+      // Mock search response
+      fetchStub.onFirstCall().resolves({
+        ok: true,
+        json: () => Promise.resolve([
+          'Swiss Life',
+          ['Swiss Life'],
+          [''],
+          ['https://en.wikipedia.org/wiki/Swiss_Life'],
+        ]),
+      });
+
+      // Mock summary response
+      fetchStub.onSecondCall().resolves({
+        ok: true,
+        json: () => Promise.resolve({
+          query: {
+            pages: {
+              12345: {
+                title: 'Swiss Life',
+                extract: 'Swiss Life is a Swiss insurance company...',
+                pageprops: { wikibase_item: 'Q680290' },
+              },
+            },
+          },
+        }),
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaSummary('Swiss Life company', log);
+
+      expect(result.title).to.equal('Swiss Life');
+      expect(result.summary).to.include('Swiss insurance company');
+      expect(result.wikidataId).to.equal('Q680290');
+    });
+
+    it('returns null when no search results', async () => {
+      fetchStub.resolves({
+        ok: true,
+        json: () => Promise.resolve(['Swiss Life', [], [], []]),
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaSummary('Unknown Company', log);
+
+      expect(result).to.be.null;
+    });
+
+    it('returns null on fetch error', async () => {
+      fetchStub.rejects(new Error('Network error'));
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaSummary('Test', log);
+
+      expect(result).to.be.null;
+      expect(log.error).to.have.been.called;
+    });
+
+    it('throws when search response is not ok', async () => {
+      fetchStub.resolves({
+        ok: false,
+        status: 500,
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaSummary('Test', log);
+
+      expect(result).to.be.null;
+      expect(log.error).to.have.been.calledWithMatch('Wikipedia search failed');
+    });
+
+    it('throws when summary response is not ok', async () => {
+      fetchStub.onFirstCall().resolves({
+        ok: true,
+        json: () => Promise.resolve(['Test', ['Test Title'], [], []]),
+      });
+
+      fetchStub.onSecondCall().resolves({
+        ok: false,
+        status: 503,
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaSummary('Test', log);
+
+      expect(result).to.be.null;
+      expect(log.error).to.have.been.calledWithMatch('Wikipedia summary fetch failed');
+    });
+
+    it('returns null when page not found (pageId is -1)', async () => {
+      fetchStub.onFirstCall().resolves({
+        ok: true,
+        json: () => Promise.resolve(['Test', ['Test Title'], [], []]),
+      });
+
+      fetchStub.onSecondCall().resolves({
+        ok: true,
+        json: () => Promise.resolve({
+          query: {
+            pages: {
+              '-1': { missing: true },
+            },
+          },
+        }),
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaSummary('Test', log);
+
+      expect(result).to.be.null;
+    });
+  });
+
+  describe('fetchWikipediaFullText', () => {
+    it('fetches full Wikipedia article text', async () => {
+      fetchStub.onFirstCall().resolves({
+        ok: true,
+        json: () => Promise.resolve(['Swiss Life', ['Swiss Life'], [], []]),
+      });
+
+      fetchStub.onSecondCall().resolves({
+        ok: true,
+        json: () => Promise.resolve({
+          query: {
+            pages: {
+              12345: {
+                extract: 'Full article content...',
+              },
+            },
+          },
+        }),
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaFullText('Swiss Life company', 12000, log);
+
+      expect(result).to.equal('Full article content...');
+    });
+
+    it('truncates content to maxChars', async () => {
+      fetchStub.onFirstCall().resolves({
+        ok: true,
+        json: () => Promise.resolve(['Test', ['Test'], [], []]),
+      });
+
+      const longText = 'A'.repeat(20000);
+      fetchStub.onSecondCall().resolves({
+        ok: true,
+        json: () => Promise.resolve({
+          query: {
+            pages: {
+              12345: {
+                extract: longText,
+              },
+            },
+          },
+        }),
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaFullText('Test', 1000, log);
+
+      expect(result.length).to.equal(1000);
+    });
+
+    it('returns null when no search results', async () => {
+      fetchStub.resolves({
+        ok: true,
+        json: () => Promise.resolve(['Test', [], [], []]),
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaFullText('Unknown', 12000, log);
+
+      expect(result).to.be.null;
+    });
+
+    it('returns null when search response not ok', async () => {
+      fetchStub.resolves({
+        ok: false,
+        status: 500,
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaFullText('Test', 12000, log);
+
+      expect(result).to.be.null;
+      expect(log.error).to.have.been.calledWithMatch('Wikipedia search failed');
+    });
+
+    it('returns null when content response not ok', async () => {
+      fetchStub.onFirstCall().resolves({
+        ok: true,
+        json: () => Promise.resolve(['Test', ['Test'], [], []]),
+      });
+
+      fetchStub.onSecondCall().resolves({
+        ok: false,
+        status: 503,
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaFullText('Test', 12000, log);
+
+      expect(result).to.be.null;
+      expect(log.error).to.have.been.calledWithMatch('Wikipedia content fetch failed');
+    });
+
+    it('returns null when page not found (pageId is -1)', async () => {
+      fetchStub.onFirstCall().resolves({
+        ok: true,
+        json: () => Promise.resolve(['Test', ['Test'], [], []]),
+      });
+
+      fetchStub.onSecondCall().resolves({
+        ok: true,
+        json: () => Promise.resolve({
+          query: {
+            pages: {
+              '-1': { missing: true },
+            },
+          },
+        }),
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaFullText('Test', 12000, log);
+
+      expect(result).to.be.null;
+    });
+
+    it('returns null on fetch error', async () => {
+      fetchStub.rejects(new Error('Network error'));
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaFullText('Test', 12000, log);
+
+      expect(result).to.be.null;
+      expect(log.error).to.have.been.called;
+    });
+
+    it('uses default maxChars when not provided', async () => {
+      fetchStub.onFirstCall().resolves({
+        ok: true,
+        json: () => Promise.resolve(['Test', ['Test'], [], []]),
+      });
+
+      fetchStub.onSecondCall().resolves({
+        ok: true,
+        json: () => Promise.resolve({
+          query: {
+            pages: {
+              12345: {
+                extract: 'Short content',
+              },
+            },
+          },
+        }),
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaFullText('Test', null, log);
+
+      expect(result).to.equal('Short content');
+    });
+  });
+
+  describe('findWikidataId', () => {
+    it('finds Wikidata ID for a brand', async () => {
+      fetchStub.resolves({
+        ok: true,
+        json: () => Promise.resolve({
+          search: [
+            { id: 'Q12345', description: 'American technology company' },
+            { id: 'Q67890', description: 'unrelated' },
+          ],
+        }),
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.findWikidataId('Adobe', log);
+
+      expect(result).to.equal('Q12345');
+    });
+
+    it('returns first result if no company match', async () => {
+      fetchStub.resolves({
+        ok: true,
+        json: () => Promise.resolve({
+          search: [
+            { id: 'Q99999', description: 'Something else' },
+          ],
+        }),
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.findWikidataId('Unknown', log);
+
+      expect(result).to.equal('Q99999');
+    });
+
+    it('returns null when no results', async () => {
+      fetchStub.resolves({
+        ok: true,
+        json: () => Promise.resolve({ search: [] }),
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.findWikidataId('NonexistentBrand', log);
+
+      expect(result).to.be.null;
+    });
+
+    it('returns null when response not ok', async () => {
+      fetchStub.resolves({
+        ok: false,
+        status: 500,
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.findWikidataId('Test', log);
+
+      expect(result).to.be.null;
+      expect(log.error).to.have.been.calledWithMatch('Wikidata search failed');
+    });
+
+    it('returns null on fetch error', async () => {
+      fetchStub.rejects(new Error('Network error'));
+
+      const mod = await importWiki();
+
+      const result = await mod.findWikidataId('Test', log);
+
+      expect(result).to.be.null;
+      expect(log.error).to.have.been.called;
+    });
+
+    it('handles entity with no description', async () => {
+      fetchStub.resolves({
+        ok: true,
+        json: () => Promise.resolve({
+          search: [
+            { id: 'Q11111' },
+          ],
+        }),
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.findWikidataId('Test', log);
+
+      expect(result).to.equal('Q11111');
+    });
+  });
+
   describe('getWikidataEntity', () => {
     it('parses label, enwiki title and P856 hosts', async () => {
       fetchStub.resolves({
@@ -60,15 +435,13 @@ describe('services/wikipedia', () => {
         }),
       });
 
-      const mod = await importMod();
+      const mod = await importWiki();
       const entity = await mod.getWikidataEntity('Q489815', log);
 
       expect(entity.id).to.equal('Q489815');
       expect(entity.label).to.equal('DHL');
       expect(entity.enwikiTitle).to.equal('DHL');
       expect(entity.officialWebsiteHosts).to.deep.equal(['www.dhl.com']);
-      // Aliases are no longer parsed (P856-only design).
-      expect(entity).to.not.have.property('aliases');
     });
 
     it('handles missing claims and missing sitelink and invalid P856 URLs', async () => {
@@ -88,7 +461,7 @@ describe('services/wikipedia', () => {
         }),
       });
 
-      const mod = await importMod();
+      const mod = await importWiki();
       const entity = await mod.getWikidataEntity('Q1', log);
 
       expect(entity.label).to.equal('NoWiki');
@@ -102,7 +475,7 @@ describe('services/wikipedia', () => {
         json: () => Promise.resolve({ entities: {} }),
       });
 
-      const mod = await importMod();
+      const mod = await importWiki();
       const entity = await mod.getWikidataEntity('Q404', log);
       expect(entity).to.be.null;
     });
@@ -113,7 +486,7 @@ describe('services/wikipedia', () => {
         json: () => Promise.resolve({ entities: { Q1: { claims: {} } } }),
       });
 
-      const mod = await importMod();
+      const mod = await importWiki();
       const entity = await mod.getWikidataEntity('Q1', log);
       expect(entity.label).to.be.null;
       expect(entity.enwikiTitle).to.be.null;
@@ -122,7 +495,7 @@ describe('services/wikipedia', () => {
 
     it('returns null when response is not ok', async () => {
       fetchStub.resolves({ ok: false, status: 500 });
-      const mod = await importMod();
+      const mod = await importWiki();
       const entity = await mod.getWikidataEntity('Q1', log);
       expect(entity).to.be.null;
       expect(log.error).to.have.been.calledWithMatch('Wikidata entity fetch failed');
@@ -130,7 +503,7 @@ describe('services/wikipedia', () => {
 
     it('returns null on fetch error', async () => {
       fetchStub.rejects(new Error('boom'));
-      const mod = await importMod();
+      const mod = await importWiki();
       const entity = await mod.getWikidataEntity('Q1', log);
       expect(entity).to.be.null;
     });
@@ -138,7 +511,7 @@ describe('services/wikipedia', () => {
 
   describe('validateEntityAgainstSite (P856-only)', () => {
     it('accepts a P856 host whose registrable domain matches the site (co.jp)', async () => {
-      const mod = await importMod();
+      const mod = await importWiki();
       const result = mod.validateEntityAgainstSite({
         entity: { label: 'Dai Nippon Printing', officialWebsiteHosts: ['www.dnp.co.jp'] },
         registrableDomain: 'dnp.co.jp',
@@ -148,7 +521,7 @@ describe('services/wikipedia', () => {
     });
 
     it('rejects a P856 host on a different registrable domain (dnb.de vs dnb.com)', async () => {
-      const mod = await importMod();
+      const mod = await importWiki();
       const result = mod.validateEntityAgainstSite({
         entity: { label: 'German National Library', officialWebsiteHosts: ['www.dnb.de'] },
         registrableDomain: 'dnb.com',
@@ -159,7 +532,7 @@ describe('services/wikipedia', () => {
     });
 
     it('accepts a match found after a non-matching P856 host (multi-host loop)', async () => {
-      const mod = await importMod();
+      const mod = await importWiki();
       const result = mod.validateEntityAgainstSite({
         entity: {
           label: 'DHL',
@@ -172,7 +545,7 @@ describe('services/wikipedia', () => {
     });
 
     it('rejects an entity with no P856 host (no by-name / label fallback)', async () => {
-      const mod = await importMod();
+      const mod = await importWiki();
       const result = mod.validateEntityAgainstSite({
         entity: { label: 'Dun & Bradstreet Inc', officialWebsiteHosts: [] },
         registrableDomain: 'dnb.com',
@@ -182,7 +555,7 @@ describe('services/wikipedia', () => {
     });
 
     it('rejects a P856 match when the site registrable domain is a bare public suffix', async () => {
-      const mod = await importMod();
+      const mod = await importWiki();
       const result = mod.validateEntityAgainstSite({
         entity: { label: 'Some Foreign Org', officialWebsiteHosts: ['co.uk'] },
         registrableDomain: 'co.uk',
@@ -192,7 +565,7 @@ describe('services/wikipedia', () => {
     });
 
     it('rejects a generalized <generic>.<ccTLD> bare public suffix (com.my)', async () => {
-      const mod = await importMod();
+      const mod = await importWiki();
       const result = mod.validateEntityAgainstSite({
         entity: { label: 'Some Foreign Org', officialWebsiteHosts: ['com.my'] },
         registrableDomain: 'com.my',
@@ -202,7 +575,7 @@ describe('services/wikipedia', () => {
     });
 
     it('rejects a single-label / empty registrable domain (bare suffix guard)', async () => {
-      const mod = await importMod();
+      const mod = await importWiki();
       const result = mod.validateEntityAgainstSite({
         entity: { label: 'X', officialWebsiteHosts: ['x.com'] },
         registrableDomain: 'localhost',
@@ -211,7 +584,7 @@ describe('services/wikipedia', () => {
     });
 
     it('returns false for a null entity', async () => {
-      const mod = await importMod();
+      const mod = await importWiki();
       const result = mod.validateEntityAgainstSite({
         entity: null, registrableDomain: 'x.com',
       });
@@ -219,7 +592,7 @@ describe('services/wikipedia', () => {
     });
 
     it('tolerates an entity with no officialWebsiteHosts key', async () => {
-      const mod = await importMod();
+      const mod = await importWiki();
       const result = mod.validateEntityAgainstSite({
         entity: { label: 'Amrize' },
         registrableDomain: 'amrize.com',
@@ -257,7 +630,7 @@ describe('services/wikipedia', () => {
         }),
       });
 
-      const mod = await importMod();
+      const mod = await importWiki();
       const entity = await mod.findValidatedWikidataEntity({
         brandName: 'DHL', registrableDomain: 'dhl.com',
       }, log);
@@ -285,7 +658,7 @@ describe('services/wikipedia', () => {
         }),
       });
 
-      const mod = await importMod();
+      const mod = await importWiki();
       const entity = await mod.findValidatedWikidataEntity({
         brandName: 'DHL', registrableDomain: 'dhl.com',
       }, log);
@@ -314,7 +687,7 @@ describe('services/wikipedia', () => {
         }),
       });
 
-      const mod = await importMod();
+      const mod = await importWiki();
       const entity = await mod.findValidatedWikidataEntity({
         brandName: 'Dnp', registrableDomain: 'dnp.co.jp',
       }, log);
@@ -340,7 +713,7 @@ describe('services/wikipedia', () => {
         }),
       });
 
-      const mod = await importMod();
+      const mod = await importWiki();
       const entity = await mod.findValidatedWikidataEntity({
         brandName: 'Amrize', registrableDomain: 'somethingelse.com',
       }, log);
@@ -350,7 +723,7 @@ describe('services/wikipedia', () => {
 
     it('returns null when there are no candidates', async () => {
       fetchStub.resolves({ ok: true, json: () => Promise.resolve({ search: [] }) });
-      const mod = await importMod();
+      const mod = await importWiki();
       const entity = await mod.findValidatedWikidataEntity({
         brandName: 'Nope', registrableDomain: 'nope.com',
       }, log);
@@ -364,7 +737,7 @@ describe('services/wikipedia', () => {
       });
       fetchStub.onCall(1).resolves({ ok: false, status: 500 });
 
-      const mod = await importMod();
+      const mod = await importWiki();
       const entity = await mod.findValidatedWikidataEntity({
         brandName: 'X', registrableDomain: 'x.com',
       }, log);
@@ -373,7 +746,7 @@ describe('services/wikipedia', () => {
 
     it('returns null when the candidate search request is not ok', async () => {
       fetchStub.resolves({ ok: false, status: 503 });
-      const mod = await importMod();
+      const mod = await importWiki();
       const entity = await mod.findValidatedWikidataEntity({
         brandName: 'X', registrableDomain: 'x.com',
       }, log);
@@ -383,7 +756,7 @@ describe('services/wikipedia', () => {
 
     it('treats a search response without a search array as no candidates', async () => {
       fetchStub.resolves({ ok: true, json: () => Promise.resolve({}) });
-      const mod = await importMod();
+      const mod = await importWiki();
       const entity = await mod.findValidatedWikidataEntity({
         brandName: 'X', registrableDomain: 'x.com',
       }, log);
@@ -398,7 +771,7 @@ describe('services/wikipedia', () => {
         json: () => Promise.resolve({ query: { pages: { 42: { extract: 'DHL is a logistics company.' } } } }),
       });
 
-      const mod = await importMod();
+      const mod = await importWiki();
       const text = await mod.fetchWikipediaExtractByTitle('DHL', 12000, log);
 
       expect(text).to.equal('DHL is a logistics company.');
@@ -409,7 +782,7 @@ describe('services/wikipedia', () => {
     });
 
     it('returns null for a missing title without issuing a request', async () => {
-      const mod = await importMod();
+      const mod = await importWiki();
       const text = await mod.fetchWikipediaExtractByTitle(null, 12000, log);
       expect(text).to.be.null;
       expect(fetchStub).to.not.have.been.called;
@@ -420,7 +793,7 @@ describe('services/wikipedia', () => {
         ok: true,
         json: () => Promise.resolve({ query: { pages: { 42: { extract: 'A'.repeat(5000) } } } }),
       });
-      const mod = await importMod();
+      const mod = await importWiki();
       const text = await mod.fetchWikipediaExtractByTitle('X', 100, log);
       expect(text.length).to.equal(100);
     });
@@ -430,7 +803,7 @@ describe('services/wikipedia', () => {
         ok: true,
         json: () => Promise.resolve({ query: { pages: { 42: { extract: 'short' } } } }),
       });
-      const mod = await importMod();
+      const mod = await importWiki();
       const text = await mod.fetchWikipediaExtractByTitle('X', null, log);
       expect(text).to.equal('short');
     });
@@ -440,7 +813,7 @@ describe('services/wikipedia', () => {
         ok: true,
         json: () => Promise.resolve({ query: { pages: { '-1': { missing: true } } } }),
       });
-      const mod = await importMod();
+      const mod = await importWiki();
       const text = await mod.fetchWikipediaExtractByTitle('X', 12000, log);
       expect(text).to.be.null;
     });
@@ -450,14 +823,14 @@ describe('services/wikipedia', () => {
         ok: true,
         json: () => Promise.resolve({ query: {} }),
       });
-      const mod = await importMod();
+      const mod = await importWiki();
       const text = await mod.fetchWikipediaExtractByTitle('X', 12000, log);
       expect(text).to.be.null;
     });
 
     it('returns null when response is not ok', async () => {
       fetchStub.resolves({ ok: false, status: 500 });
-      const mod = await importMod();
+      const mod = await importWiki();
       const text = await mod.fetchWikipediaExtractByTitle('X', 12000, log);
       expect(text).to.be.null;
       expect(log.error).to.have.been.calledWithMatch('Error fetching Wikipedia extract by title');
@@ -468,7 +841,7 @@ describe('services/wikipedia', () => {
         ok: true,
         json: () => Promise.resolve({ query: { pages: { 42: {} } } }),
       });
-      const mod = await importMod();
+      const mod = await importWiki();
       const text = await mod.fetchWikipediaExtractByTitle('X', 12000, log);
       expect(text).to.equal('');
     });
@@ -500,7 +873,7 @@ describe('services/wikipedia', () => {
         json: () => Promise.resolve({ query: { pages: { 42: { extract: 'DHL intro.' } } } }),
       });
 
-      const mod = await importMod();
+      const mod = await importWiki();
       const result = await mod.fetchValidatedSummary({
         brandName: 'DHL', registrableDomain: 'dhl.com',
       }, log);
@@ -513,7 +886,7 @@ describe('services/wikipedia', () => {
 
     it('returns null when no validated entity', async () => {
       fetchStub.resolves({ ok: true, json: () => Promise.resolve({ search: [] }) });
-      const mod = await importMod();
+      const mod = await importWiki();
       const result = await mod.fetchValidatedSummary({
         brandName: 'X', registrableDomain: 'x.com',
       }, log);
@@ -536,7 +909,7 @@ describe('services/wikipedia', () => {
           },
         }),
       });
-      const mod = await importMod();
+      const mod = await importWiki();
       const result = await mod.fetchValidatedSummary({
         brandName: 'X', registrableDomain: 'x.com',
       }, log);
@@ -559,7 +932,7 @@ describe('services/wikipedia', () => {
       });
       fetchStub.onCall(2).resolves({ ok: false, status: 500 });
 
-      const mod = await importMod();
+      const mod = await importWiki();
       const result = await mod.fetchValidatedSummary({
         brandName: 'DHL', registrableDomain: 'dhl.com',
       }, log);
@@ -586,7 +959,7 @@ describe('services/wikipedia', () => {
         json: () => Promise.resolve({ query: { pages: { '-1': {} } } }),
       });
 
-      const mod = await importMod();
+      const mod = await importWiki();
       const result = await mod.fetchValidatedSummary({
         brandName: 'DHL', registrableDomain: 'dhl.com',
       }, log);
@@ -609,7 +982,7 @@ describe('services/wikipedia', () => {
       });
       fetchStub.onCall(2).resolves({ ok: true, json: () => Promise.resolve({ query: {} }) });
 
-      const mod = await importMod();
+      const mod = await importWiki();
       const result = await mod.fetchValidatedSummary({
         brandName: 'DHL', registrableDomain: 'dhl.com',
       }, log);
@@ -635,7 +1008,7 @@ describe('services/wikipedia', () => {
         json: () => Promise.resolve({ query: { pages: { 42: {} } } }),
       });
 
-      const mod = await importMod();
+      const mod = await importWiki();
       const result = await mod.fetchValidatedSummary({
         brandName: 'DHL', registrableDomain: 'dhl.com',
       }, log);
@@ -643,30 +1016,112 @@ describe('services/wikipedia', () => {
     });
   });
 
+  describe('splitHost', () => {
+    it('returns the registrable domain for a plain apex', async () => {
+      const mod = await importWiki();
+      expect(mod.splitHost('dhl.com')).to.deep.equal({
+        subdomainLabels: [], apexLabel: 'dhl', registrableDomain: 'dhl.com',
+      });
+    });
+
+    it('strips a subdomain label', async () => {
+      const mod = await importWiki();
+      const r = mod.splitHost('dev.amrize.com');
+      expect(r.registrableDomain).to.equal('amrize.com');
+      expect(r.subdomainLabels).to.deep.equal(['dev']);
+    });
+
+    it('honours a multi-part TLD (co.jp)', async () => {
+      const mod = await importWiki();
+      expect(mod.splitHost('dnp.co.jp').registrableDomain).to.equal('dnp.co.jp');
+    });
+
+    it('honours a generalized <generic>.<ccTLD> suffix (com.my)', async () => {
+      const mod = await importWiki();
+      expect(mod.splitHost('shop.company.com.my').registrableDomain).to.equal('company.com.my');
+    });
+
+    it('does not treat a non-generic 2-char ccTLD second level as a suffix (sony.jp)', async () => {
+      const mod = await importWiki();
+      expect(mod.splitHost('shop.sony.jp').registrableDomain).to.equal('sony.jp');
+    });
+
+    it('returns a single label unchanged', async () => {
+      const mod = await importWiki();
+      expect(mod.splitHost('localhost')).to.deep.equal({
+        subdomainLabels: [], apexLabel: 'localhost', registrableDomain: 'localhost',
+      });
+    });
+
+    it('handles an empty hostname', async () => {
+      const mod = await importWiki();
+      expect(mod.splitHost('')).to.deep.equal({
+        subdomainLabels: [], apexLabel: '', registrableDomain: '',
+      });
+    });
+  });
+
   describe('createWikipediaService', () => {
-    it('exposes only entity-bound methods (no by-name lookups)', async () => {
-      const mod = await importMod();
+    it('creates service with bound methods', async () => {
+      const mod = await importWiki();
+
+      const service = mod.createWikipediaService(log);
+
+      expect(service).to.have.property('fetchSummary');
+      expect(service).to.have.property('fetchFullText');
+      expect(service).to.have.property('findWikidataId');
+    });
+
+    it('exposes the entity-binding methods as well', async () => {
+      const mod = await importWiki();
       const service = mod.createWikipediaService(log);
 
       expect(service).to.have.property('getWikidataEntity');
       expect(service).to.have.property('findValidatedWikidataEntity');
       expect(service).to.have.property('fetchExtractByTitle');
       expect(service).to.have.property('fetchValidatedSummary');
-      // Deprecated by-name methods must not be exposed.
-      expect(service).to.not.have.property('fetchSummary');
-      expect(service).to.not.have.property('fetchFullText');
-      expect(service).to.not.have.property('findWikidataId');
     });
 
-    it('binds the logger to service methods', async () => {
+    it('service methods can be called', async () => {
+      fetchStub.resolves({
+        ok: true,
+        json: () => Promise.resolve(['Test', [], [], []]),
+      });
+
+      const mod = await importWiki();
+
+      const service = mod.createWikipediaService(log);
+      expect(await service.fetchSummary('Test')).to.be.null;
+      expect(await service.fetchFullText('Test')).to.be.null;
+    });
+
+    it('findWikidataId service method forwards the brand name', async () => {
+      fetchStub.resolves({ ok: true, json: () => Promise.resolve({ search: [] }) });
+      const mod = await importWiki();
+      const service = mod.createWikipediaService(log);
+      expect(await service.findWikidataId('Test')).to.be.null;
+    });
+
+    it('getWikidataEntity service method forwards the id', async () => {
+      fetchStub.resolves({
+        ok: true,
+        json: () => Promise.resolve({ entities: { Q7: { labels: { en: { value: 'Bound' } }, claims: {} } } }),
+      });
+
+      const mod = await importWiki();
+      const service = mod.createWikipediaService(log);
+      const entity = await service.getWikidataEntity('Q7');
+      expect(entity.id).to.equal('Q7');
+    });
+
+    it('findValidatedWikidataEntity service method binds the logger', async () => {
       fetchStub.resolves({ ok: true, json: () => Promise.resolve({ search: [] }) });
 
-      const mod = await importMod();
+      const mod = await importWiki();
       const service = mod.createWikipediaService(log);
       const result = await service.findValidatedWikidataEntity({
         brandName: 'Test', registrableDomain: 'test.com',
       });
-
       expect(result).to.be.null;
     });
 
@@ -676,32 +1131,212 @@ describe('services/wikipedia', () => {
         json: () => Promise.resolve({ query: { pages: { 42: { extract: 'bound' } } } }),
       });
 
-      const mod = await importMod();
+      const mod = await importWiki();
       const service = mod.createWikipediaService(log);
       const text = await service.fetchExtractByTitle('DHL', 100);
       expect(text).to.equal('bound');
     });
 
-    it('getWikidataEntity service method forwards the id', async () => {
-      fetchStub.resolves({
-        ok: true,
-        json: () => Promise.resolve({ entities: { Q7: { labels: { en: { value: 'Bound' } }, claims: {} } } }),
-      });
-
-      const mod = await importMod();
-      const service = mod.createWikipediaService(log);
-      const entity = await service.getWikidataEntity('Q7');
-      expect(entity.id).to.equal('Q7');
-    });
-
     it('fetchValidatedSummary service method forwards params', async () => {
       fetchStub.resolves({ ok: true, json: () => Promise.resolve({ search: [] }) });
 
-      const mod = await importMod();
+      const mod = await importWiki();
       const service = mod.createWikipediaService(log);
       const result = await service.fetchValidatedSummary({
         brandName: 'Test', registrableDomain: 'test.com',
       });
+      expect(result).to.be.null;
+    });
+  });
+
+  describe('edge cases', () => {
+    it('fetchWikipediaSummary handles page without wikibase_item', async () => {
+      fetchStub.onFirstCall().resolves({
+        ok: true,
+        json: () => Promise.resolve(['Test', ['Test Title'], [], []]),
+      });
+
+      fetchStub.onSecondCall().resolves({
+        ok: true,
+        json: () => Promise.resolve({
+          query: {
+            pages: {
+              12345: {
+                title: 'Test Title',
+                extract: 'Summary text',
+                pageprops: {},
+              },
+            },
+          },
+        }),
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaSummary('Test', log);
+
+      expect(result.title).to.equal('Test Title');
+      expect(result.wikidataId).to.be.null;
+    });
+
+    it('fetchWikipediaFullText handles page with empty extract', async () => {
+      fetchStub.onFirstCall().resolves({
+        ok: true,
+        json: () => Promise.resolve(['Test', ['Test'], [], []]),
+      });
+
+      fetchStub.onSecondCall().resolves({
+        ok: true,
+        json: () => Promise.resolve({
+          query: {
+            pages: {
+              12345: { extract: '' },
+            },
+          },
+        }),
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaFullText('Test', 12000, log);
+
+      expect(result).to.equal('');
+    });
+
+    it('fetchWikipediaSummary handles page without extract', async () => {
+      fetchStub.onFirstCall().resolves({
+        ok: true,
+        json: () => Promise.resolve(['Test', ['Test Title'], [], []]),
+      });
+
+      fetchStub.onSecondCall().resolves({
+        ok: true,
+        json: () => Promise.resolve({
+          query: {
+            pages: {
+              12345: {
+                title: 'Test Title',
+                // No extract field at all
+                pageprops: { wikibase_item: 'Q12345' },
+              },
+            },
+          },
+        }),
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaSummary('Test', log);
+
+      expect(result.title).to.equal('Test Title');
+      expect(result.summary).to.equal('');
+    });
+
+    it('fetchWikipediaFullText handles missing searchData[1] (titles)', async () => {
+      fetchStub.resolves({
+        ok: true,
+        json: () => Promise.resolve(['Test']), // Missing titles array at index 1
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaFullText('Test', 12000, log);
+
+      expect(result).to.be.null;
+    });
+
+    it('fetchWikipediaFullText handles missing query.pages', async () => {
+      fetchStub.onFirstCall().resolves({
+        ok: true,
+        json: () => Promise.resolve(['Test', ['Test Title'], [], []]),
+      });
+
+      fetchStub.onSecondCall().resolves({
+        ok: true,
+        json: () => Promise.resolve({
+          query: {
+            // No pages field
+          },
+        }),
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaFullText('Test', 12000, log);
+
+      // Should return null because pageId would be undefined
+      expect(result).to.be.null;
+    });
+
+    it('findWikidataId handles missing search array in response', async () => {
+      fetchStub.resolves({
+        ok: true,
+        json: () => Promise.resolve({
+          // No search field
+        }),
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.findWikidataId('Test', log);
+
+      expect(result).to.be.null;
+    });
+
+    it('fetchWikipediaSummary handles missing searchData[1] (titles)', async () => {
+      fetchStub.resolves({
+        ok: true,
+        json: () => Promise.resolve(['Search']), // Missing titles array at index 1
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaSummary('Test', log);
+
+      expect(result).to.be.null;
+    });
+
+    it('fetchWikipediaSummary handles missing query.pages in summary response', async () => {
+      fetchStub.onFirstCall().resolves({
+        ok: true,
+        json: () => Promise.resolve(['Test', ['Test Title'], [], []]),
+      });
+
+      fetchStub.onSecondCall().resolves({
+        ok: true,
+        json: () => Promise.resolve({
+          query: {
+            // No pages field - should use fallback {}
+          },
+        }),
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaSummary('Test', log);
+
+      // Should return null because pageId would be undefined
+      expect(result).to.be.null;
+    });
+
+    it('fetchWikipediaSummary handles missing query entirely in response', async () => {
+      fetchStub.onFirstCall().resolves({
+        ok: true,
+        json: () => Promise.resolve(['Test', ['Test Title'], [], []]),
+      });
+
+      fetchStub.onSecondCall().resolves({
+        ok: true,
+        json: () => Promise.resolve({
+          // No query field at all
+        }),
+      });
+
+      const mod = await importWiki();
+
+      const result = await mod.fetchWikipediaSummary('Test', log);
+
+      // Should return null because pages would be {}
       expect(result).to.be.null;
     });
   });
