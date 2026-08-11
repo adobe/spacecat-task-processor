@@ -729,6 +729,60 @@ describe('agents/brand-profile', () => {
     expect(log.info).to.have.been.calledWithMatch('brand-profile persist:');
   });
 
+  it('persist() preserves manual-curated products and does not overwrite them', async () => {
+    const curatedProducts = { items: [{ name: 'Hand-curated widget' }] };
+    const curatedMetadata = { source: 'manual-curated', curated_by: 'ops', count: 1 };
+    const beforeProfile = {
+      contentHash: 'old',
+      version: 1,
+      products: curatedProducts,
+      products_metadata: curatedMetadata,
+    };
+    let currentProfile = beforeProfile;
+    let persisted;
+    const cfg = {
+      getBrandProfile: () => currentProfile,
+      updateBrandProfile: (p) => {
+        persisted = p;
+        currentProfile = { ...p, contentHash: 'new', version: 2 };
+      },
+    };
+    const findById = sandbox.stub().resolves({
+      getConfig: () => cfg,
+      setConfig: sinon.stub(),
+      save: sinon.stub().resolves(),
+      getBaseURL: () => 'https://example.com',
+    });
+    context.dataAccess.Site = { findById };
+
+    const toDynamoItem = sandbox.stub().callsFake((c) => c);
+    const mod = await esmock('../../../src/agents/brand-profile/index.js', {
+      '@adobe/spacecat-shared-data-access/src/models/site/config.js': {
+        Config: { toDynamoItem },
+      },
+    });
+
+    await mod.default.persist(
+      { siteId: '123e4567-e89b-12d3-a456-426614174000', baseURL: 'https://example.com' },
+      context,
+      {
+        main_profile: { tone_attributes: {} },
+        products: { items: [{ name: 'Agent-generated widget' }] },
+        products_metadata: { source: 'none', count: 0 },
+      },
+    );
+
+    // Incoming agent products/metadata must be discarded; curated blocks kept verbatim.
+    expect(persisted.products).to.equal(curatedProducts);
+    expect(persisted.products_metadata).to.equal(curatedMetadata);
+    // Non-product fields from the incoming result still flow through.
+    expect(persisted.main_profile).to.deep.equal({ tone_attributes: {} });
+    expect(log.info).to.have.been.calledWith(
+      'brand-profile persist: preserving manual-curated products',
+      sinon.match.object,
+    );
+  });
+
   it('persist() logs unchanged summary when content hash is same', async () => {
     const profile = { contentHash: 'same', version: 5 };
     const cfg = {

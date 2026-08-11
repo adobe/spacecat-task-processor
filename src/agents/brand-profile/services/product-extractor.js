@@ -23,7 +23,7 @@
 
 import { AzureOpenAIClient } from '@adobe/spacecat-shared-gpt-client';
 import { readPromptFile, renderTemplate } from '../../base.js';
-import { findWikidataId, fetchWikipediaFullText } from './wikipedia.js';
+import { findValidatedWikidataEntity, fetchWikipediaExtractByTitle } from './wikipedia.js';
 
 const USER_AGENT = 'SpaceCat/1.0 (https://github.com/adobe/spacecat; spacecat@adobe.com)';
 const WIKIDATA_SPARQL = 'https://query.wikidata.org/sparql';
@@ -469,14 +469,28 @@ async function extractFromWikipedia(brandName, wikipediaText, gpt, log) {
 }
 
 /**
- * Extract products using Wikidata + Wikipedia fallback.
- * @param {string} brandName - Brand/company name
- * @param {string} [wikipediaSummary] - Optional Wikipedia text for fallback
+ * Extract products bound to a Wikidata entity VALIDATED against the site (LLMO-6580).
+ *
+ * Resolution is P856-only: {@link findValidatedWikidataEntity} accepts a candidate only
+ * when its official-website host shares the site's registrable domain. When nothing
+ * validates we produce NO products (metadata.source stays `'none'`) rather than falling
+ * back to a fuzzy by-name lookup that could bind the profile to a foreign entity. Every
+ * subsequent fetch is bound to that validated entity: SPARQL by its id, and the Wikipedia
+ * fallback by its exact `enwiki` sitelink title.
+ *
+ * @param {object} options - Options
+ * @param {string} options.brandName - Brand/company name
+ * @param {string} [options.registrableDomain=''] - Site registrable domain
+ * @param {string} [options.wikipediaSummary=null] - Optional pre-fetched fallback text
  * @param {object} gpt - AzureOpenAIClient instance
  * @param {object} log - Logger instance
  * @returns {Promise<object>} Extraction result
  */
-export async function extractProducts(brandName, wikipediaSummary, gpt, log) {
+export async function extractProducts({
+  brandName,
+  registrableDomain = '',
+  wikipediaSummary = null,
+}, gpt, log) {
   log.info(`Extracting products for brand: ${brandName}`);
 
   const result = {
@@ -492,32 +506,38 @@ export async function extractProducts(brandName, wikipediaSummary, gpt, log) {
     },
   };
 
-  // Step 1: Find brand's Wikidata ID
-  const wikidataId = await findWikidataId(brandName, log);
+  // Step 1: Resolve+validate the entity via a strong P856 (official-website) host match
+  // against the site's registrable domain. Nothing validates => no products; metadata
+  // stays source 'none'. This is the guard that keeps a fuzzy by-name match from pulling
+  // a foreign entity's catalogue into the profile.
+  const entity = await findValidatedWikidataEntity({ brandName, registrableDomain }, log);
 
-  if (wikidataId) {
-    result.metadata.brand_wikidata_id = wikidataId;
-    log.info(`Found Wikidata ID for ${brandName}: ${wikidataId}`);
-
-    // Step 2: Query Wikidata for products
-    const wikidataProducts = await queryWikidataProducts(wikidataId, log);
-
-    if (wikidataProducts.length > 0) {
-      result.products = wikidataProducts;
-      result.metadata.source = 'wikidata';
-      result.metadata.count = wikidataProducts.length;
-      log.info(`Found ${wikidataProducts.length} products from Wikidata`);
-    }
+  if (!entity) {
+    log.info(`No validated Wikidata entity for ${brandName}; producing no products`);
+    return normalizeResults(result);
   }
 
-  // Step 3: Fallback/augment with Wikipedia if insufficient
-  if (result.products.length < MIN_PRODUCTS_THRESHOLD) {
-    log.info(`Wikidata returned ${result.products.length} products (threshold: ${MIN_PRODUCTS_THRESHOLD}), trying Wikipedia fallback`);
+  result.metadata.brand_wikidata_id = entity.id;
+  result.metadata.validation = entity.validation;
 
-    // Fetch Wikipedia text if not provided
+  // Step 2: Query Wikidata for products (bound to the validated entity id).
+  const wikidataProducts = await queryWikidataProducts(entity.id, log);
+
+  if (wikidataProducts.length > 0) {
+    result.products = wikidataProducts;
+    result.metadata.source = 'wikidata';
+    result.metadata.count = wikidataProducts.length;
+    log.info(`Found ${wikidataProducts.length} products from Wikidata`);
+  }
+
+  // Step 3: Fallback/augment with the validated entity's OWN enwiki article only.
+  if (result.products.length < MIN_PRODUCTS_THRESHOLD) {
+    log.info(`Wikidata returned ${result.products.length} products (threshold: ${MIN_PRODUCTS_THRESHOLD}), trying entity-bound Wikipedia fallback`);
+
+    // Use pre-fetched text if provided; otherwise read the validated entity's own article.
     let wikiText = wikipediaSummary;
-    if (!wikiText) {
-      wikiText = await fetchWikipediaFullText(`${brandName} company`, 12000, log);
+    if (!wikiText && entity.enwikiTitle) {
+      wikiText = await fetchWikipediaExtractByTitle(entity.enwikiTitle, 12000, log);
     }
 
     const wikiResult = await extractFromWikipedia(brandName, wikiText, gpt, log);
@@ -591,9 +611,7 @@ export function createProductExtractorService(env, log) {
     extractFromSitemap: (sitemapUrl, brandName) => (
       extractFromSitemap(sitemapUrl, brandName, gpt, log)
     ),
-    extractProducts: (brandName, wikipediaSummary) => (
-      extractProducts(brandName, wikipediaSummary, gpt, log)
-    ),
+    extractProducts: (options) => extractProducts(options, gpt, log),
     formatProductsForPrompt,
   };
 }

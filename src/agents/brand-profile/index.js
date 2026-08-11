@@ -25,7 +25,7 @@ import { createRegionalContextService } from './services/regional-context.js';
 import { createCompetitorInferenceService } from './services/competitor-inference.js';
 import { createPersonaInferenceService } from './services/persona-inference.js';
 import { createProductExtractorService } from './services/product-extractor.js';
-import { createWikipediaService } from './services/wikipedia.js';
+import { createWikipediaService, splitHost } from './services/wikipedia.js';
 
 /**
  * Call the model with system and user prompts.
@@ -232,9 +232,11 @@ async function run(context, env, log) {
     log.info(`brand-profile: using sitemap for product extraction: ${sitemapUrl}`);
     productsResult = await productService.extractFromSitemap(sitemapUrl, brandName);
   } else {
-    // Use Wikipedia/Wikidata extraction
-    const wikiText = await wikipediaService.fetchFullText(`${brandName} company`, 12000);
-    productsResult = await productService.extractProducts(brandName, wikiText);
+    // Entity-bound Wikipedia/Wikidata extraction (LLMO-6580): products come only from a
+    // Wikidata entity validated against the site via a strong P856 (official-website)
+    // host match. Nothing validates => extractProducts returns source 'none' (no products).
+    const { registrableDomain } = splitHost(new URL(baseURL).hostname);
+    productsResult = await productService.extractProducts({ brandName, registrableDomain });
   }
 
   // Assemble the enhanced profile
@@ -311,7 +313,18 @@ async function persist(message, context, result) {
   const baseURL = site.getBaseURL();
   const before = cfg.getBrandProfile?.() || {};
   const beforeHash = before?.contentHash || null;
-  cfg.updateBrandProfile(result);
+
+  // LLMO-6580: never overwrite a hand-curated product catalogue. Phase-1 wrote ~20
+  // `products_metadata.source == "manual-curated"` blocks in prod; the fixed pipeline
+  // and the P2 backfill MUST preserve them. Everything else still updates.
+  const curated = before?.products_metadata?.source === 'manual-curated';
+  const toPersist = curated
+    ? { ...result, products: before.products, products_metadata: before.products_metadata }
+    : result;
+  if (curated) {
+    log.info('brand-profile persist: preserving manual-curated products', { siteId });
+  }
+  cfg.updateBrandProfile(toPersist);
   const after = cfg.getBrandProfile?.() || {};
   const afterHash = after?.contentHash || null;
   const changed = beforeHash !== afterHash;

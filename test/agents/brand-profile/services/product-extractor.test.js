@@ -25,6 +25,46 @@ import {
 use(sinonChai);
 use(chaiAsPromised);
 
+// --- helpers for the entity-bound extractProducts flow (LLMO-6580) -----------
+
+const searchResp = (ids) => ({
+  ok: true,
+  json: () => Promise.resolve({ search: ids.map((id) => ({ id })) }),
+});
+
+const entityResp = (id, { label, enwikiTitle, hosts = [] }) => ({
+  ok: true,
+  json: () => Promise.resolve({
+    entities: {
+      [id]: {
+        labels: label ? { en: { value: label } } : {},
+        sitelinks: enwikiTitle ? { enwiki: { title: enwikiTitle } } : {},
+        claims: hosts.length
+          ? { P856: hosts.map((h) => ({ mainsnak: { datavalue: { value: `https://${h}` } } })) }
+          : {},
+      },
+    },
+  }),
+});
+
+const sparqlResp = (bindings) => ({
+  ok: true,
+  json: () => Promise.resolve({ results: { bindings } }),
+});
+
+const extractResp = (extract) => ({
+  ok: true,
+  json: () => Promise.resolve({ query: { pages: { 42: { extract } } } }),
+});
+
+const llmResp = (payload) => ({
+  choices: [{ message: { content: JSON.stringify(payload) } }],
+});
+
+const noOpenSearchIssued = (fetchStub) => fetchStub.getCalls().every(
+  (c) => !String(c.args[0]).includes('opensearch'),
+);
+
 describe('services/product-extractor', () => {
   let sandbox;
   let log;
@@ -51,7 +91,6 @@ describe('services/product-extractor', () => {
 
   describe('extractFromSitemap', () => {
     it('extracts products from sitemap URLs using LLM', async () => {
-      // Mock sitemap fetch
       fetchStub.onFirstCall().resolves({
         ok: true,
         text: () => Promise.resolve(`
@@ -62,24 +101,17 @@ describe('services/product-extractor', () => {
         `),
       });
 
-      // Mock LLM response
-      gpt.fetchChatCompletion.resolves({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              products: [
-                { name: 'Widget Pro', category: 'Software', variants: [] },
-                { name: 'Widget Lite', category: 'Software', variants: [] },
-              ],
-              services: [],
-              sub_brands: [],
-              discontinued: [],
-              confidence: 'high',
-              notes: 'Extracted from product URLs',
-            }),
-          },
-        }],
-      });
+      gpt.fetchChatCompletion.resolves(llmResp({
+        products: [
+          { name: 'Widget Pro', category: 'Software', variants: [] },
+          { name: 'Widget Lite', category: 'Software', variants: [] },
+        ],
+        services: [],
+        sub_brands: [],
+        discontinued: [],
+        confidence: 'high',
+        notes: 'Extracted from product URLs',
+      }));
 
       const result = await extractFromSitemap(
         'https://example.com/sitemap.xml',
@@ -194,18 +226,12 @@ describe('services/product-extractor', () => {
         `),
       });
 
-      gpt.fetchChatCompletion.resolves({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              products: ['Widget Pro', 'Widget Lite'],
-              services: ['Support Service'],
-              sub_brands: [],
-              discontinued: ['Old Widget'],
-            }),
-          },
-        }],
-      });
+      gpt.fetchChatCompletion.resolves(llmResp({
+        products: ['Widget Pro', 'Widget Lite'],
+        services: ['Support Service'],
+        sub_brands: [],
+        discontinued: ['Old Widget'],
+      }));
 
       const result = await extractFromSitemap(
         'https://example.com/sitemap.xml',
@@ -229,9 +255,7 @@ describe('services/product-extractor', () => {
         `),
       });
 
-      gpt.fetchChatCompletion.resolves({
-        choices: [], // Empty choices array
-      });
+      gpt.fetchChatCompletion.resolves({ choices: [] });
 
       const result = await extractFromSitemap(
         'https://example.com/sitemap.xml',
@@ -240,7 +264,6 @@ describe('services/product-extractor', () => {
         log,
       );
 
-      // Should use '{}' fallback and return empty arrays
       expect(result.products).to.deep.equal([]);
       expect(result.metadata.confidence).to.equal('unknown');
     });
@@ -266,7 +289,6 @@ describe('services/product-extractor', () => {
         log,
       );
 
-      // Should use '{}' fallback
       expect(result.products).to.deep.equal([]);
     });
 
@@ -280,16 +302,9 @@ describe('services/product-extractor', () => {
         `),
       });
 
-      gpt.fetchChatCompletion.resolves({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              products: [{ name: 'Widget' }],
-              // Missing: sub_brands, confidence, notes
-            }),
-          },
-        }],
-      });
+      gpt.fetchChatCompletion.resolves(llmResp({
+        products: [{ name: 'Widget' }],
+      }));
 
       const result = await extractFromSitemap(
         'https://example.com/sitemap.xml',
@@ -305,538 +320,377 @@ describe('services/product-extractor', () => {
     });
   });
 
-  describe('extractProducts', () => {
-    it('extracts products using Wikidata when available', async () => {
-      // Mock Wikidata ID search
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          search: [{ id: 'Q12345', description: 'American company' }],
-        }),
-      });
+  describe('extractProducts (entity-bound, P856-only)', () => {
+    it('returns validated Wikidata products (happy path, P856 match)', async () => {
+      fetchStub.onCall(0).resolves(searchResp(['Q1']));
+      fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'DHL', enwikiTitle: 'DHL', hosts: ['www.dhl.com'] }));
+      fetchStub.onCall(2).resolves(sparqlResp([
+        { itemLabel: { value: 'Express' }, item: { value: 'http://wikidata.org/Q11' }, typeLabel: { value: 'service' } },
+        { itemLabel: { value: 'Freight' }, item: { value: 'http://wikidata.org/Q12' }, typeLabel: { value: 'service' } },
+        { itemLabel: { value: 'Parcel' }, item: { value: 'http://wikidata.org/Q13' }, typeLabel: { value: 'service' } },
+      ]));
 
-      // Mock SPARQL query
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          results: {
-            bindings: [
-              {
-                itemLabel: { value: 'Photoshop' },
-                item: { value: 'http://wikidata.org/Q34567' },
-                typeLabel: { value: 'software' },
-              },
-              {
-                itemLabel: { value: 'Illustrator' },
-                item: { value: 'http://wikidata.org/Q45678' },
-                typeLabel: { value: 'software' },
-              },
-              {
-                itemLabel: { value: 'Premiere Pro' },
-                item: { value: 'http://wikidata.org/Q56789' },
-                typeLabel: { value: 'software' },
-              },
-            ],
-          },
-        }),
-      });
-
-      const result = await extractProducts('Adobe', null, gpt, log);
+      const result = await extractProducts(
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
+        gpt,
+        log,
+      );
 
       expect(result.products).to.have.length(3);
       expect(result.metadata.source).to.equal('wikidata');
+      expect(result.metadata.brand_wikidata_id).to.equal('Q1');
+      expect(result.metadata.validation).to.equal('p856');
+      expect(noOpenSearchIssued(fetchStub)).to.equal(true);
     });
 
-    it('returns empty when wikidata has no results', async () => {
-      // Mock Wikidata ID search - no results
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          search: [],
-        }),
-      });
+    it('REGRESSION: d*->D-Company yields NO products and NO by-name opensearch', async () => {
+      // Search returns a same-initials article that does NOT own dnp.co.jp.
+      fetchStub.onCall(0).resolves(searchResp(['Q111']));
+      fetchStub.onCall(1).resolves(entityResp('Q111', {
+        label: 'D-Company', enwikiTitle: 'D-Company', hosts: [],
+      }));
 
-      // LLM will be called for Wikipedia fallback
-      gpt.fetchChatCompletion.resolves({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              products: [],
-              services: [],
-              sub_brands: [],
-              discontinued: [],
-            }),
-          },
-        }],
-      });
+      const result = await extractProducts(
+        { brandName: 'Dnp', registrableDomain: 'dnp.co.jp' },
+        gpt,
+        log,
+      );
 
-      const result = await extractProducts('UnknownBrand', null, gpt, log);
+      expect(result.products).to.have.length(0);
+      expect(result.metadata.source).to.equal('none');
+      // The decoupled `opensearch "Dnp company"` fetch must never be issued.
+      expect(noOpenSearchIssued(fetchStub)).to.equal(true);
+      expect(gpt.fetchChatCompletion).to.not.have.been.called;
+    });
 
-      // Should not find products from Wikidata
+    it('REGRESSION: e*->E-Company yields NO products and NO by-name opensearch', async () => {
+      fetchStub.onCall(0).resolves(searchResp(['Q222']));
+      fetchStub.onCall(1).resolves(entityResp('Q222', {
+        label: 'E Company, 506th Infantry Regiment', enwikiTitle: 'E Company', hosts: [],
+      }));
+
+      const result = await extractProducts(
+        { brandName: 'Edb', registrableDomain: 'edb.gov.sg' },
+        gpt,
+        log,
+      );
+
+      expect(result.products).to.have.length(0);
+      expect(result.metadata.source).to.equal('none');
+      expect(noOpenSearchIssued(fetchStub)).to.equal(true);
+    });
+
+    it('returns source none when a candidate has a non-matching P856 host', async () => {
+      fetchStub.onCall(0).resolves(searchResp(['Q9']));
+      fetchStub.onCall(1).resolves(entityResp('Q9', { label: 'Totally Different', hosts: ['other.example'] }));
+
+      const result = await extractProducts(
+        { brandName: 'Amrize', registrableDomain: 'amrize.com' },
+        gpt,
+        log,
+      );
+
+      expect(result.products).to.have.length(0);
+      expect(result.metadata.source).to.equal('none');
       expect(result.metadata.brand_wikidata_id).to.be.null;
     });
 
-    it('uses Wikipedia fallback when wikidata returns fewer than threshold', async () => {
-      // Mock Wikidata ID search
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          search: [{ id: 'Q12345', description: 'company' }],
-        }),
-      });
+    it('uses the validated entity enwiki title (sitelink, not a by-name search) for the fallback', async () => {
+      fetchStub.onCall(0).resolves(searchResp(['Q1']));
+      fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'DHL', enwikiTitle: 'DHL Group', hosts: ['www.dhl.com'] }));
+      // SPARQL below threshold -> triggers entity-bound Wikipedia fallback.
+      fetchStub.onCall(2).resolves(sparqlResp([
+        { itemLabel: { value: 'Express' }, item: { value: 'http://wikidata.org/Q11' } },
+      ]));
+      fetchStub.onCall(3).resolves(extractResp('DHL Group is a logistics company making Freight and Parcel.'));
 
-      // Mock SPARQL query - returns only 1 product (below threshold of 3)
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          results: {
-            bindings: [
-              { itemLabel: { value: 'Product1' }, item: { value: 'http://wikidata.org/Q1' } },
-            ],
-          },
-        }),
-      });
+      gpt.fetchChatCompletion.resolves(llmResp({
+        products: [{ name: 'Freight' }, { name: 'Parcel' }],
+        services: [],
+        sub_brands: ['DHL Express'],
+        discontinued: [],
+      }));
 
-      // Mock Wikipedia search for fallback
-      fetchStub.onCall(2).resolves({
-        ok: true,
-        json: () => Promise.resolve(['Brand', ['Brand Company'], [], []]),
-      });
-
-      // Mock Wikipedia content fetch
-      fetchStub.onCall(3).resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            pages: {
-              12345: { extract: 'Company makes Product2 and Product3.' },
-            },
-          },
-        }),
-      });
-
-      // Mock LLM response for Wikipedia extraction
-      gpt.fetchChatCompletion.resolves({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              products: [{ name: 'Product2' }, { name: 'Product3' }],
-              services: [],
-              sub_brands: ['SubBrand1'],
-              discontinued: [],
-            }),
-          },
-        }],
-      });
-
-      const result = await extractProducts('TestBrand', null, gpt, log);
+      const result = await extractProducts(
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
+        gpt,
+        log,
+      );
 
       expect(result.metadata.source).to.equal('hybrid');
+      // The extract call used the sitelink title, not a by-name search.
+      const extractUrl = fetchStub.getCall(3).args[0];
+      expect(extractUrl).to.include('titles=DHL+Group');
+      expect(noOpenSearchIssued(fetchStub)).to.equal(true);
       expect(result.products.length).to.be.greaterThan(1);
     });
 
-    it('uses provided wikipediaSummary instead of fetching', async () => {
-      // Mock Wikidata ID search - no results to trigger fallback
-      fetchStub.resolves({
-        ok: true,
-        json: () => Promise.resolve({ search: [] }),
-      });
+    it('produces a wikipedia_llm result when SPARQL is empty but the entity validates (P856)', async () => {
+      fetchStub.onCall(0).resolves(searchResp(['Q1']));
+      fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'Amrize', enwikiTitle: 'Amrize', hosts: ['amrize.com'] }));
+      fetchStub.onCall(2).resolves(sparqlResp([]));
+      fetchStub.onCall(3).resolves(extractResp('Amrize makes Cement and Aggregates.'));
 
-      // Mock LLM response
-      gpt.fetchChatCompletion.resolves({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              products: [{ name: 'ExtractedProduct' }],
-              services: [],
-              sub_brands: [],
-              discontinued: [],
-            }),
-          },
-        }],
-      });
+      gpt.fetchChatCompletion.resolves(llmResp({
+        products: [{ name: 'Cement' }, { name: 'Aggregates' }],
+        services: [],
+        sub_brands: [],
+        discontinued: [],
+      }));
 
       const result = await extractProducts(
-        'TestBrand',
-        'Company makes ExtractedProduct.',
+        { brandName: 'Amrize', registrableDomain: 'amrize.com' },
+        gpt,
+        log,
+      );
+
+      expect(result.metadata.source).to.equal('wikipedia_llm');
+      expect(result.metadata.validation).to.equal('p856');
+      expect(result.products).to.have.length(2);
+    });
+
+    it('skips the text fallback when the validated entity has no enwiki article', async () => {
+      fetchStub.onCall(0).resolves(searchResp(['Q1']));
+      fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'DHL', enwikiTitle: null, hosts: ['dhl.com'] }));
+      fetchStub.onCall(2).resolves(sparqlResp([
+        { itemLabel: { value: 'Express' }, item: { value: 'http://wikidata.org/Q11' } },
+      ]));
+
+      const result = await extractProducts(
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
+        gpt,
+        log,
+      );
+
+      // SPARQL-only result stands; no LLM call because there is no fallback text.
+      expect(result.products).to.have.length(1);
+      expect(gpt.fetchChatCompletion).to.not.have.been.called;
+      expect(result.metadata.source).to.equal('wikidata');
+    });
+
+    it('accepts a provided wikipediaSummary without re-fetching the article', async () => {
+      fetchStub.onCall(0).resolves(searchResp(['Q1']));
+      fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'Amrize', enwikiTitle: 'Amrize', hosts: ['amrize.com'] }));
+      fetchStub.onCall(2).resolves(sparqlResp([]));
+
+      gpt.fetchChatCompletion.resolves(llmResp({
+        products: [{ name: 'ProvidedProduct' }],
+        services: [],
+        sub_brands: [],
+        discontinued: [],
+      }));
+
+      const result = await extractProducts(
+        {
+          brandName: 'Amrize',
+          registrableDomain: 'amrize.com',
+          wikipediaSummary: 'Amrize makes ProvidedProduct.',
+        },
         gpt,
         log,
       );
 
       expect(result.metadata.source).to.equal('wikipedia_llm');
       expect(result.products).to.have.length(1);
+      // Only search + entity + SPARQL fetches; NO extract-by-title fetch.
+      expect(fetchStub.callCount).to.equal(3);
     });
 
-    it('handles SPARQL query failure gracefully', async () => {
-      // Mock Wikidata ID search
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          search: [{ id: 'Q12345', description: 'company' }],
-        }),
-      });
+    it('merges hybrid results and de-duplicates overlaps', async () => {
+      fetchStub.onCall(0).resolves(searchResp(['Q1']));
+      fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'DHL', enwikiTitle: 'DHL', hosts: ['dhl.com'] }));
+      fetchStub.onCall(2).resolves(sparqlResp([
+        { itemLabel: { value: 'Product1' }, item: { value: 'http://wikidata.org/Q11' } },
+      ]));
+      fetchStub.onCall(3).resolves(extractResp('DHL info'));
 
-      // Mock SPARQL query failure
-      fetchStub.onSecondCall().resolves({
-        ok: false,
-        status: 500,
-      });
+      gpt.fetchChatCompletion.resolves(llmResp({
+        products: [
+          { name: 'Product1' }, // duplicate
+          { name: 'Product2' },
+          { name: '' }, // filtered
+        ],
+        services: [
+          { name: 'Service1' },
+          { name: '' },
+        ],
+        sub_brands: ['SubBrand1'],
+        discontinued: [
+          { name: 'OldProduct' },
+          { name: '' },
+        ],
+      }));
 
-      // Mock Wikipedia search for fallback
-      fetchStub.onCall(2).resolves({
-        ok: true,
-        json: () => Promise.resolve(['Brand', ['Brand'], [], []]),
-      });
+      const result = await extractProducts(
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
+        gpt,
+        log,
+      );
 
-      fetchStub.onCall(3).resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: { pages: { 123: { extract: 'Company info' } } },
-        }),
-      });
-
-      gpt.fetchChatCompletion.resolves({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              products: [{ name: 'FallbackProduct' }],
-              services: [],
-              sub_brands: [],
-              discontinued: [],
-            }),
-          },
-        }],
-      });
-
-      const result = await extractProducts('TestBrand', null, gpt, log);
-
-      // Should still return result via fallback
-      expect(result).to.have.property('products');
-    });
-
-    it('handles Wikipedia extraction error gracefully', async () => {
-      // Mock Wikidata ID search - no results
-      fetchStub.resolves({
-        ok: true,
-        json: () => Promise.resolve({ search: [] }),
-      });
-
-      // Mock LLM error
-      gpt.fetchChatCompletion.rejects(new Error('LLM failed'));
-
-      const result = await extractProducts('TestBrand', 'Some text', gpt, log);
-
-      // Should return empty result without error
-      expect(result.products).to.have.length(0);
-    });
-
-    it('handles LLM response with empty choices in Wikipedia extraction', async () => {
-      // Mock Wikidata ID search - no results to trigger Wikipedia fallback
-      fetchStub.resolves({
-        ok: true,
-        json: () => Promise.resolve({ search: [] }),
-      });
-
-      // Mock LLM returning empty choices (triggers '{}' fallback)
-      gpt.fetchChatCompletion.resolves({
-        choices: [],
-      });
-
-      const result = await extractProducts('TestBrand', 'Some Wikipedia text', gpt, log);
-
-      // Should return empty arrays from the '{}' fallback
-      expect(result.products).to.have.length(0);
-      expect(result.services).to.have.length(0);
-    });
-
-    it('handles LLM response with null message content in Wikipedia extraction', async () => {
-      // Mock Wikidata ID search - no results to trigger Wikipedia fallback
-      fetchStub.resolves({
-        ok: true,
-        json: () => Promise.resolve({ search: [] }),
-      });
-
-      // Mock LLM returning null content (triggers '{}' fallback)
-      gpt.fetchChatCompletion.resolves({
-        choices: [{ message: { content: null } }],
-      });
-
-      const result = await extractProducts('TestBrand', 'Some Wikipedia text', gpt, log);
-
-      // Should return empty arrays from the '{}' fallback
-      expect(result.products).to.have.length(0);
-    });
-
-    it('handles LLM response with missing sub_brands in Wikipedia extraction', async () => {
-      // Mock Wikidata ID search - no results to trigger Wikipedia fallback
-      fetchStub.resolves({
-        ok: true,
-        json: () => Promise.resolve({ search: [] }),
-      });
-
-      // Mock LLM returning result without sub_brands (triggers '|| []' fallback)
-      gpt.fetchChatCompletion.resolves({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              products: [{ name: 'Product1' }],
-              services: [],
-              // sub_brands is missing - should fallback to []
-              discontinued: [],
-            }),
-          },
-        }],
-      });
-
-      const result = await extractProducts('TestBrand', 'Some Wikipedia text', gpt, log);
-
-      expect(result.products).to.have.length(1);
-      expect(result.sub_brands).to.deep.equal([]);
-    });
-
-    it('handles null Wikipedia text in fallback', async () => {
-      // Mock Wikidata ID search - no results
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({ search: [] }),
-      });
-
-      // Mock Wikipedia search - no results
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Brand', [], [], []]),
-      });
-
-      const result = await extractProducts('TestBrand', null, gpt, log);
-
-      // Should return empty result
-      expect(result.products).to.have.length(0);
-      expect(gpt.fetchChatCompletion).not.to.have.been.called;
-    });
-
-    it('skips Wikidata IDs that appear as labels', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          search: [{ id: 'Q12345', description: 'company' }],
-        }),
-      });
-
-      // SPARQL returns item with Q-ID as label (should be filtered)
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          results: {
-            bindings: [
-              { itemLabel: { value: 'Q99999' }, item: { value: 'http://wikidata.org/Q99999' } },
-              { itemLabel: { value: 'ValidProduct' }, item: { value: 'http://wikidata.org/Q1' } },
-              { itemLabel: { value: 'ValidProduct' }, item: { value: 'http://wikidata.org/Q2' } },
-              { itemLabel: { value: 'Product3' }, item: { value: 'http://wikidata.org/Q3' } },
-            ],
-          },
-        }),
-      });
-
-      const result = await extractProducts('TestBrand', null, gpt, log);
-
-      // Should filter out Q99999 and dedupe ValidProduct
-      expect(result.products.find((p) => p.name === 'Q99999')).to.be.undefined;
-    });
-
-    it('truncates long Wikipedia text before LLM extraction', async () => {
-      fetchStub.resolves({
-        ok: true,
-        json: () => Promise.resolve({ search: [] }),
-      });
-
-      gpt.fetchChatCompletion.resolves({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              products: [],
-              services: [],
-              sub_brands: [],
-              discontinued: [],
-            }),
-          },
-        }],
-      });
-
-      const longText = 'A'.repeat(10000);
-      await extractProducts('TestBrand', longText, gpt, log);
-
-      // LLM should have been called with truncated text
-      expect(gpt.fetchChatCompletion).to.have.been.called;
-    });
-
-    it('merges results with overlapping products (deduplication)', async () => {
-      // Mock Wikidata ID search
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          search: [{ id: 'Q12345', description: 'company' }],
-        }),
-      });
-
-      // Mock SPARQL - returns 1 product (below threshold)
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          results: {
-            bindings: [
-              { itemLabel: { value: 'Product1' }, item: { value: 'http://wikidata.org/Q1' } },
-            ],
-          },
-        }),
-      });
-
-      // Mock Wikipedia search for fallback
-      fetchStub.onCall(2).resolves({
-        ok: true,
-        json: () => Promise.resolve(['Brand', ['Brand'], [], []]),
-      });
-
-      fetchStub.onCall(3).resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: { pages: { 123: { extract: 'Company info' } } },
-        }),
-      });
-
-      // LLM returns same product + additional ones
-      gpt.fetchChatCompletion.resolves({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              products: [
-                { name: 'Product1' }, // Duplicate
-                { name: 'Product2' },
-                { name: '' }, // Empty name - should be filtered
-              ],
-              services: [
-                { name: 'Service1' },
-                { name: '' }, // Empty name
-              ],
-              sub_brands: ['SubBrand1', 'SubBrand1'], // Duplicate
-              discontinued: [
-                { name: 'OldProduct' },
-                { name: '' }, // Empty name
-              ],
-            }),
-          },
-        }],
-      });
-
-      const result = await extractProducts('TestBrand', null, gpt, log);
-
-      // Product1 should not be duplicated
-      const product1Count = result.products.filter((p) => p.name === 'Product1').length;
-      expect(product1Count).to.equal(1);
-
-      // Empty names should be filtered
+      expect(result.products.filter((p) => p.name === 'Product1')).to.have.length(1);
       expect(result.products.find((p) => p.name === '')).to.be.undefined;
       expect(result.services.find((s) => s.name === '')).to.be.undefined;
     });
 
-    it('merges results with missing properties in primary', async () => {
-      // Mock Wikidata ID search
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          search: [{ id: 'Q12345', description: 'company' }],
-        }),
-      });
+    it('handles a SPARQL query failure gracefully via the fallback', async () => {
+      fetchStub.onCall(0).resolves(searchResp(['Q1']));
+      fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'DHL', enwikiTitle: 'DHL', hosts: ['dhl.com'] }));
+      fetchStub.onCall(2).resolves({ ok: false, status: 500 });
+      fetchStub.onCall(3).resolves(extractResp('DHL info'));
 
-      // Mock SPARQL - returns empty results (below threshold)
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          results: { bindings: [] },
-        }),
-      });
+      gpt.fetchChatCompletion.resolves(llmResp({
+        products: [{ name: 'FallbackProduct' }],
+        services: [],
+        sub_brands: [],
+        discontinued: [],
+      }));
 
-      // Mock Wikipedia search for fallback
-      fetchStub.onCall(2).resolves({
-        ok: true,
-        json: () => Promise.resolve(['Brand', ['Brand'], [], []]),
-      });
+      const result = await extractProducts(
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
+        gpt,
+        log,
+      );
 
-      fetchStub.onCall(3).resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: { pages: { 123: { extract: 'Company info' } } },
-        }),
-      });
+      expect(result).to.have.property('products');
+      expect(result.metadata.source).to.equal('wikipedia_llm');
+    });
 
-      // LLM returns products with items that have missing name property
-      gpt.fetchChatCompletion.resolves({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              products: [
-                { category: 'Software' }, // No name
-                { name: null, category: 'Software' }, // Null name
-                { name: 'ValidProduct' },
-              ],
-              services: [
-                { description: 'Service description' }, // No name
-              ],
-              sub_brands: ['Brand1'],
-              discontinued: [
-                { reason: 'obsolete' }, // No name
-              ],
-            }),
-          },
-        }],
-      });
+    it('handles a Wikipedia LLM extraction error gracefully', async () => {
+      fetchStub.onCall(0).resolves(searchResp(['Q1']));
+      fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'DHL', enwikiTitle: 'DHL', hosts: ['dhl.com'] }));
+      fetchStub.onCall(2).resolves(sparqlResp([]));
+      fetchStub.onCall(3).resolves(extractResp('DHL info'));
 
-      const result = await extractProducts('TestBrand', null, gpt, log);
+      gpt.fetchChatCompletion.rejects(new Error('LLM failed'));
 
-      // Products with missing/null names should be filtered out
+      const result = await extractProducts(
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
+        gpt,
+        log,
+      );
+
+      expect(result.products).to.have.length(0);
+    });
+
+    it('truncates a long fallback article before the LLM call', async () => {
+      fetchStub.onCall(0).resolves(searchResp(['Q1']));
+      fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'DHL', enwikiTitle: 'DHL', hosts: ['dhl.com'] }));
+      fetchStub.onCall(2).resolves(sparqlResp([]));
+      fetchStub.onCall(3).resolves(extractResp('A'.repeat(9000)));
+
+      gpt.fetchChatCompletion.resolves(llmResp({
+        products: [{ name: 'FromLongText' }],
+        services: [],
+        sub_brands: [],
+        discontinued: [],
+      }));
+
+      const result = await extractProducts(
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
+        gpt,
+        log,
+      );
+
+      // The 9000-char extract must be truncated to 8000 chars + ellipsis before the LLM
+      // sees it. Assert on the rendered prompt so removing the truncation fails the test.
+      const prompt = gpt.fetchChatCompletion.firstCall.args[0];
+      expect(prompt).to.include('...');
+      expect(prompt).to.include('A'.repeat(8000));
+      expect(prompt).to.not.include('A'.repeat(9000));
       expect(result.products).to.have.length(1);
-      expect(result.products[0].name).to.equal('ValidProduct');
+    });
+
+    it('handles an empty-choices LLM response in the fallback (\'{}\' fallback)', async () => {
+      fetchStub.onCall(0).resolves(searchResp(['Q1']));
+      fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'DHL', enwikiTitle: 'DHL', hosts: ['dhl.com'] }));
+      fetchStub.onCall(2).resolves(sparqlResp([]));
+      fetchStub.onCall(3).resolves(extractResp('DHL info'));
+
+      gpt.fetchChatCompletion.resolves({ choices: [] });
+
+      const result = await extractProducts(
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
+        gpt,
+        log,
+      );
+
+      expect(result.products).to.have.length(0);
+      expect(result.services).to.have.length(0);
+    });
+
+    it('skips Wikidata IDs that appear as labels', async () => {
+      fetchStub.onCall(0).resolves(searchResp(['Q1']));
+      fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'DHL', enwikiTitle: 'DHL', hosts: ['dhl.com'] }));
+      fetchStub.onCall(2).resolves(sparqlResp([
+        { itemLabel: { value: 'Q99999' }, item: { value: 'http://wikidata.org/Q99999' } },
+        { itemLabel: { value: 'ValidProduct' }, item: { value: 'http://wikidata.org/Q1a' } },
+        { itemLabel: { value: 'ValidProduct' }, item: { value: 'http://wikidata.org/Q2a' } },
+        { itemLabel: { value: 'Product3' }, item: { value: 'http://wikidata.org/Q3a' } },
+      ]));
+
+      const result = await extractProducts(
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
+        gpt,
+        log,
+      );
+
+      expect(result.products.find((p) => p.name === 'Q99999')).to.be.undefined;
     });
 
     it('handles wikidata returning discontinued products', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          search: [{ id: 'Q12345', description: 'company' }],
-        }),
-      });
+      fetchStub.onCall(0).resolves(searchResp(['Q1']));
+      fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'DHL', enwikiTitle: 'DHL', hosts: ['dhl.com'] }));
+      fetchStub.onCall(2).resolves(sparqlResp([
+        {
+          itemLabel: { value: 'CurrentProduct' },
+          item: { value: 'http://wikidata.org/Q11' },
+          inception: { value: '2020-01-01T00:00:00Z' },
+        },
+        {
+          itemLabel: { value: 'OldProduct' },
+          item: { value: 'http://wikidata.org/Q12' },
+          inception: { value: '1990-01-01T00:00:00Z' },
+          discontinued: { value: '2010-01-01T00:00:00Z' },
+        },
+        {
+          itemLabel: { value: 'Product3' },
+          item: { value: 'http://wikidata.org/Q13' },
+          typeLabel: { value: 'software_product' },
+        },
+      ]));
 
-      // SPARQL returns products with discontinuation dates
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          results: {
-            bindings: [
-              {
-                itemLabel: { value: 'CurrentProduct' },
-                item: { value: 'http://wikidata.org/Q1' },
-                inception: { value: '2020-01-01T00:00:00Z' },
-              },
-              {
-                itemLabel: { value: 'OldProduct' },
-                item: { value: 'http://wikidata.org/Q2' },
-                inception: { value: '1990-01-01T00:00:00Z' },
-                discontinued: { value: '2010-01-01T00:00:00Z' },
-              },
-              {
-                itemLabel: { value: 'Product3' },
-                item: { value: 'http://wikidata.org/Q3' },
-                typeLabel: { value: 'software_product' },
-              },
-            ],
-          },
-        }),
-      });
-
-      const result = await extractProducts('TestBrand', null, gpt, log);
+      const result = await extractProducts(
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
+        gpt,
+        log,
+      );
 
       expect(result.products).to.have.length(3);
       const discontinued = result.products.find((p) => p.name === 'OldProduct');
       expect(discontinued.status).to.equal('discontinued');
+    });
+
+    it('parses inception dates (with and without T, empty, missing)', async () => {
+      fetchStub.onCall(0).resolves(searchResp(['Q1']));
+      fetchStub.onCall(1).resolves(entityResp('Q1', { label: 'DHL', enwikiTitle: 'DHL', hosts: ['dhl.com'] }));
+      fetchStub.onCall(2).resolves(sparqlResp([
+        { itemLabel: { value: 'P1' }, item: { value: 'http://wikidata.org/Q11' }, inception: { value: '1995' } },
+        { itemLabel: { value: 'P2' }, item: { value: 'http://wikidata.org/Q12' }, inception: { value: '' } },
+        { itemLabel: { value: 'P3' }, item: { value: 'http://wikidata.org/Q13' } },
+        { itemLabel: { value: 'P4' }, item: { value: 'http://wikidata.org/Q14' }, inception: { value: '2020-05-15T00:00:00Z' } },
+        { itemLabel: { value: 'P5' }, item: { value: 'http://wikidata.org/Q15' }, inception: null },
+      ]));
+
+      const result = await extractProducts(
+        { brandName: 'DHL', registrableDomain: 'dhl.com' },
+        gpt,
+        log,
+      );
+
+      expect(result.products).to.have.length(5);
+      expect(result.products[0].inception_year).to.equal(1995);
+      expect(result.products[3].inception_year).to.equal(2020);
+      expect(result.products[2].inception_year).to.be.null;
     });
   });
 
@@ -888,14 +742,14 @@ describe('services/product-extractor', () => {
   });
 
   describe('createProductExtractorService', () => {
+    const env = {
+      AZURE_OPENAI_ENDPOINT: 'https://example.openai.azure.com',
+      AZURE_OPENAI_KEY: 'test-key',
+      AZURE_API_VERSION: '2023-05-15',
+      AZURE_COMPLETION_DEPLOYMENT: 'gpt-4',
+    };
+
     it('creates service with bound methods', () => {
-      // Provide required env vars for Azure client
-      const env = {
-        AZURE_OPENAI_ENDPOINT: 'https://example.openai.azure.com',
-        AZURE_OPENAI_KEY: 'test-key',
-        AZURE_API_VERSION: '2023-05-15',
-        AZURE_COMPLETION_DEPLOYMENT: 'gpt-4',
-      };
       const service = createProductExtractorService(env, log);
 
       expect(service).to.have.property('extractFromSitemap');
@@ -903,46 +757,25 @@ describe('services/product-extractor', () => {
       expect(service).to.have.property('formatProductsForPrompt');
     });
 
-    it('service methods can be called', async () => {
-      const env = {
-        AZURE_OPENAI_ENDPOINT: 'https://example.openai.azure.com',
-        AZURE_OPENAI_KEY: 'test-key',
-        AZURE_API_VERSION: '2023-05-15',
-        AZURE_COMPLETION_DEPLOYMENT: 'gpt-4',
-      };
-
-      // Mock fetch for sitemap
+    it('extractFromSitemap service method can be called', async () => {
       fetchStub.resolves({
         ok: true,
         text: () => Promise.resolve('<urlset></urlset>'),
       });
 
       const service = createProductExtractorService(env, log);
-
-      // Call extractFromSitemap through service
       const result = await service.extractFromSitemap('https://example.com/sitemap.xml', 'Test');
       expect(result).to.have.property('metadata');
     });
 
-    it('extractProducts service method can be called', async () => {
-      const env = {
-        AZURE_OPENAI_ENDPOINT: 'https://example.openai.azure.com',
-        AZURE_OPENAI_KEY: 'test-key',
-        AZURE_API_VERSION: '2023-05-15',
-        AZURE_COMPLETION_DEPLOYMENT: 'gpt-4',
-      };
-
-      // Mock Wikidata search - no results
-      fetchStub.resolves({
-        ok: true,
-        json: () => Promise.resolve({ search: [] }),
-      });
+    it('extractProducts service method forwards the options object', async () => {
+      // No candidates -> no validated entity -> source none
+      fetchStub.resolves({ ok: true, json: () => Promise.resolve({ search: [] }) });
 
       const service = createProductExtractorService(env, log);
-
-      // Call extractProducts through service
-      const result = await service.extractProducts('TestBrand', null);
+      const result = await service.extractProducts({ brandName: 'TestBrand', registrableDomain: 'test.com' });
       expect(result).to.have.property('metadata');
+      expect(result.metadata.source).to.equal('none');
     });
   });
 
@@ -964,91 +797,6 @@ describe('services/product-extractor', () => {
     });
   });
 
-  describe('extractProducts date parsing', () => {
-    it('handles date strings without T separator', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          search: [{ id: 'Q12345', description: 'company' }],
-        }),
-      });
-
-      // SPARQL returns products with date in non-ISO format
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          results: {
-            bindings: [
-              {
-                itemLabel: { value: 'Product1' },
-                item: { value: 'http://wikidata.org/Q1' },
-                inception: { value: '1995' }, // No T separator
-              },
-              {
-                itemLabel: { value: 'Product2' },
-                item: { value: 'http://wikidata.org/Q2' },
-                inception: { value: '' }, // Empty
-              },
-              {
-                itemLabel: { value: 'Product3' },
-                item: { value: 'http://wikidata.org/Q3' },
-                // No inception at all
-              },
-            ],
-          },
-        }),
-      });
-
-      const result = await extractProducts('TestBrand', null, gpt, log);
-
-      expect(result.products).to.have.length(3);
-      expect(result.products[0].inception_year).to.equal(1995);
-    });
-
-    it('handles non-string date values gracefully (error catch)', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          search: [{ id: 'Q12345', description: 'company' }],
-        }),
-      });
-
-      // SPARQL returns products with inception as a non-standard value
-      // The .value is what the code extracts - simulating edge case where type is wrong
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          results: {
-            bindings: [
-              {
-                itemLabel: { value: 'Product1' },
-                item: { value: 'http://wikidata.org/Q1' },
-                inception: { value: '2020-05-15T00:00:00Z' }, // Normal date with T
-              },
-              {
-                itemLabel: { value: 'Product2' },
-                item: { value: 'http://wikidata.org/Q2' },
-                // inception is completely missing (undefined)
-              },
-              {
-                itemLabel: { value: 'Product3' },
-                item: { value: 'http://wikidata.org/Q3' },
-                inception: null, // inception object is null
-              },
-            ],
-          },
-        }),
-      });
-
-      const result = await extractProducts('TestBrand', null, gpt, log);
-
-      expect(result.products).to.have.length(3);
-      expect(result.products[0].inception_year).to.equal(2020);
-      expect(result.products[1].inception_year).to.be.null;
-      expect(result.products[2].inception_year).to.be.null;
-    });
-  });
-
   describe('extractFromSitemap URL filtering', () => {
     it('includes URLs matching product name pattern', async () => {
       fetchStub.resolves({
@@ -1062,18 +810,12 @@ describe('services/product-extractor', () => {
         `),
       });
 
-      gpt.fetchChatCompletion.resolves({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              products: [{ name: 'Widget Pro' }],
-              services: [],
-              sub_brands: [],
-              discontinued: [],
-            }),
-          },
-        }],
-      });
+      gpt.fetchChatCompletion.resolves(llmResp({
+        products: [{ name: 'Widget Pro' }],
+        services: [],
+        sub_brands: [],
+        discontinued: [],
+      }));
 
       await extractFromSitemap(
         'https://example.com/sitemap.xml',
@@ -1082,8 +824,11 @@ describe('services/product-extractor', () => {
         log,
       );
 
-      // Should have called LLM with filtered URLs
-      expect(gpt.fetchChatCompletion).to.have.been.called;
+      // A product-name-pattern URL is kept while an excluded section is dropped: assert on
+      // the rendered prompt so a broken filterProductUrls would fail the test.
+      const prompt = gpt.fetchChatCompletion.firstCall.args[0];
+      expect(prompt).to.include('example.com/widget-pro');
+      expect(prompt).to.not.include('example.com/about');
     });
   });
 
@@ -1098,18 +843,12 @@ describe('services/product-extractor', () => {
         `),
       });
 
-      gpt.fetchChatCompletion.resolves({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              products: null, // Non-array
-              services: 'not-an-array', // Non-array
-              sub_brands: [],
-              discontinued: undefined,
-            }),
-          },
-        }],
-      });
+      gpt.fetchChatCompletion.resolves(llmResp({
+        products: null,
+        services: 'not-an-array',
+        sub_brands: [],
+        discontinued: undefined,
+      }));
 
       const result = await extractFromSitemap(
         'https://example.com/sitemap.xml',
@@ -1132,26 +871,20 @@ describe('services/product-extractor', () => {
         `),
       });
 
-      gpt.fetchChatCompletion.resolves({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              products: [
-                { name: 'Widget' },
-                { name: 'widget' }, // Duplicate (case insensitive)
-                { name: 'WIDGET' }, // Another duplicate
-                { name: 'Other Product' },
-              ],
-              services: [
-                { name: 'Service' },
-                { name: 'service' }, // Duplicate
-              ],
-              sub_brands: [],
-              discontinued: [],
-            }),
-          },
-        }],
-      });
+      gpt.fetchChatCompletion.resolves(llmResp({
+        products: [
+          { name: 'Widget' },
+          { name: 'widget' },
+          { name: 'WIDGET' },
+          { name: 'Other Product' },
+        ],
+        services: [
+          { name: 'Service' },
+          { name: 'service' },
+        ],
+        sub_brands: [],
+        discontinued: [],
+      }));
 
       const result = await extractFromSitemap(
         'https://example.com/sitemap.xml',
@@ -1160,7 +893,6 @@ describe('services/product-extractor', () => {
         log,
       );
 
-      // Should deduplicate
       expect(result.products).to.have.length(2);
       expect(result.services).to.have.length(1);
     });
@@ -1175,22 +907,16 @@ describe('services/product-extractor', () => {
         `),
       });
 
-      gpt.fetchChatCompletion.resolves({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              products: [
-                { name: '' }, // Empty name
-                { name: 'Valid Product' },
-                { name: null }, // Null name
-              ],
-              services: [{ name: '' }], // Empty name
-              sub_brands: [],
-              discontinued: [],
-            }),
-          },
-        }],
-      });
+      gpt.fetchChatCompletion.resolves(llmResp({
+        products: [
+          { name: '' },
+          { name: 'Valid Product' },
+          { name: null },
+        ],
+        services: [{ name: '' }],
+        sub_brands: [],
+        discontinued: [],
+      }));
 
       const result = await extractFromSitemap(
         'https://example.com/sitemap.xml',
@@ -1199,7 +925,6 @@ describe('services/product-extractor', () => {
         log,
       );
 
-      // Should filter out empty names
       expect(result.products).to.have.length(1);
       expect(result.products[0].name).to.equal('Valid Product');
       expect(result.services).to.have.length(0);
