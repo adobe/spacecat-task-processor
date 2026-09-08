@@ -784,4 +784,109 @@ describe('services/wikipedia', () => {
       expect(await mod.fetchWikidataSitelinkTitle('Q6690181', log)).to.equal(null);
     });
   });
+
+  describe('fetchWikipediaArticleByTitle', () => {
+    const pageResp = (over = {}) => ({
+      ok: true,
+      json: () => Promise.resolve({
+        query: {
+          pages: {
+            123: {
+              title: 'Lovesac',
+              extract: 'Lovesac is a furniture company.\n\nIt makes modular couches.',
+              pageprops: { wikibase_item: 'Q6690181' },
+              ...over,
+            },
+          },
+        },
+      }),
+    });
+
+    it('fetches extract + wikibase_item in one call and requests redirects=1', async () => {
+      fetchStub.resolves(pageResp());
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/wikipedia.js',
+        {},
+      );
+
+      const res = await mod.fetchWikipediaArticleByTitle('Lovesac', 12000, log);
+
+      expect(res).to.deep.include({ title: 'Lovesac', wikidataId: 'Q6690181' });
+      expect(res.fullText).to.include('modular couches');
+      expect(res.summary).to.equal('Lovesac is a furniture company.');
+      const url = fetchStub.firstCall.args[0];
+      expect(url).to.include('prop=extracts');
+      expect(url).to.include('pageprops');
+      expect(url).to.include('redirects=1');
+      expect(url).to.not.include('action=opensearch');
+    });
+
+    it('truncates fullText to maxChars', async () => {
+      fetchStub.resolves(pageResp({ extract: 'x'.repeat(50) }));
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/wikipedia.js',
+        {},
+      );
+
+      const res = await mod.fetchWikipediaArticleByTitle('Lovesac', 10, log);
+      expect(res.fullText).to.have.length(10);
+    });
+
+    it('returns wikidataId null when the page has no wikibase_item', async () => {
+      fetchStub.resolves(pageResp({ pageprops: {} }));
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/wikipedia.js',
+        {},
+      );
+
+      const res = await mod.fetchWikipediaArticleByTitle('Lovesac', 12000, log);
+      expect(res.wikidataId).to.equal(null);
+    });
+
+    it('returns null for a missing page (-1)', async () => {
+      fetchStub.resolves({
+        ok: true,
+        json: () => Promise.resolve({ query: { pages: { '-1': {} } } }),
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/wikipedia.js',
+        {},
+      );
+
+      expect(await mod.fetchWikipediaArticleByTitle('Nope', 12000, log)).to.equal(null);
+    });
+
+    it('returns null on non-ok and on reject', async () => {
+      fetchStub.resolves({ ok: false, status: 500 });
+
+      let mod = await esmock(
+        '../../../../src/agents/brand-profile/services/wikipedia.js',
+        {},
+      );
+      expect(await mod.fetchWikipediaArticleByTitle('Lovesac', 12000, log)).to.equal(null);
+
+      fetchStub.rejects(new Error('network'));
+      mod = await esmock(
+        '../../../../src/agents/brand-profile/services/wikipedia.js',
+        {},
+      );
+      expect(await mod.fetchWikipediaArticleByTitle('Lovesac', 12000, log)).to.equal(null);
+    });
+
+    it('uses a default maxChars when not provided', async () => {
+      fetchStub.resolves(pageResp({ extract: 'y'.repeat(20000) }));
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/wikipedia.js',
+        {},
+      );
+
+      const res = await mod.fetchWikipediaArticleByTitle('Lovesac', undefined, log);
+      expect(res.fullText).to.have.length(12000);
+    });
+  });
 });

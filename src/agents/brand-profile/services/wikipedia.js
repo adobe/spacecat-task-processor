@@ -276,6 +276,62 @@ export async function fetchWikidataSitelinkTitle(wikidataId, log) {
 }
 
 /**
+ * Fetch an exact Wikipedia article by title (no search), returning its text and
+ * its Wikidata entity id in a single query.
+ * @param {string} title - Exact article title
+ * @param {number} [maxChars=12000] - Max characters of full text to return
+ * @param {object} log - Logger instance
+ * @returns {Promise<{title:string, fullText:string, summary:string, wikidataId:string|null}|null>}
+ */
+export async function fetchWikipediaArticleByTitle(title, maxChars, log) {
+  const limit = maxChars || 12000;
+  try {
+    const params = new URLSearchParams({
+      action: 'query',
+      titles: title,
+      prop: 'extracts|pageprops',
+      explaintext: 'true',
+      ppprop: 'wikibase_item',
+      redirects: '1',
+      format: 'json',
+    });
+
+    const resp = await fetch(`${WIKIPEDIA_API_BASE}?${params}`, {
+      headers: { 'User-Agent': USER_AGENT },
+    });
+
+    if (!resp.ok) {
+      throw new Error(`Wikipedia article fetch failed: ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    const pages = data.query?.pages || {};
+    const pageId = Object.keys(pages)[0];
+
+    if (!pageId || pageId === '-1') {
+      return null;
+    }
+
+    const page = pages[pageId];
+    const fullText = (page.extract || '').slice(0, limit);
+    const summary = fullText.split('\n\n')[0].trim();
+    const wikidataId = page.pageprops?.wikibase_item || null;
+
+    log.info(`Fetched Wikipedia article "${page.title}" (wikidata: ${wikidataId || 'none'})`);
+
+    return {
+      title: page.title,
+      fullText,
+      summary,
+      wikidataId,
+    };
+  } catch (e) {
+    log.error(`Error fetching Wikipedia article "${title}": ${e.message}`);
+    return null;
+  }
+}
+
+/**
  * Create a Wikipedia service instance.
  * @param {object} log - Logger instance
  * @returns {object} Service instance with bound methods
