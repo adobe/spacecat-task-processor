@@ -27,6 +27,11 @@ import { createPersonaInferenceService } from './services/persona-inference.js';
 import { createProductExtractorService } from './services/product-extractor.js';
 import { createWikipediaService } from './services/wikipedia.js';
 
+// Sentinel returned by extractBrandName when no usable brand name can be
+// derived; the Wikipedia resolve is skipped for it (a name search would
+// contaminate). Compared by value in extractBrandName and the run() gate.
+const UNKNOWN_BRAND = 'Unknown Brand';
+
 /**
  * Call the model with system and user prompts.
  * @param {object} options - Call options
@@ -80,7 +85,7 @@ function extractBrandName(baseProfile, baseURL) {
     // Ignore URL parse errors
   }
 
-  return 'Unknown Brand';
+  return UNKNOWN_BRAND;
 }
 
 /**
@@ -171,7 +176,7 @@ async function run(context, env, log) {
   // name is the unknown-brand sentinel (a name search would contaminate).
   const needsWikipedia = !hasText(sitemapUrl)
     || !(Array.isArray(llmoCompetitors) && llmoCompetitors.length > 0);
-  const brandWiki = (brandName !== 'Unknown Brand' && needsWikipedia)
+  const brandWiki = (brandName !== UNKNOWN_BRAND && needsWikipedia)
     ? await wikipediaService.resolveBrand(brandName)
     : {
       wikidataId: null,

@@ -537,7 +537,11 @@ export async function extractProducts(brandName, wikipediaContext, gpt, log) {
 
     let wikiText;
     if (hasProvidedText) {
-      // Caller supplied the exact (already QID-anchored) article text.
+      // Caller supplied the exact article text. Trust assumption: the caller is
+      // responsible for having QID-anchored/verified this text (index.js resolves
+      // it via resolveBrandWikipedia and only passes non-empty text when verified).
+      // `wikipedia_verified` here reflects "text present", not an independent check,
+      // so a caller passing unverified text would record a `true` breadcrumb.
       wikiText = ctx.wikipediaText || '';
       result.metadata.wikipedia_verified = Boolean(wikiText);
       if (!wikiText) {

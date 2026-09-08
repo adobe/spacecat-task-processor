@@ -459,14 +459,17 @@ describe('services/wikipedia', () => {
       expect(res.verified).to.equal(false);
     });
 
-    it('never throws: degrades to fetch-error if an unexpected error escapes', async () => {
-      // Reach the guard-mismatch branch, then make its logging throw so the
-      // failure escapes the inner helpers into the outer catch.
+    it('never throws, and preserves an internally-resolved QID, if an error escapes', async () => {
+      // No QID in opts, so findWikidataId resolves Q6690181 internally; reach the
+      // guard-mismatch branch and make its logging throw so the failure escapes
+      // the inner helpers into the outer catch.
       route({ title: sitelink('Lovisa'), art: article('Q1141985') });
       const throwingLog = { ...log, warn: sandbox.stub().throws(new Error('logger down')) };
       const mod = await load();
-      const res = await mod.resolveBrandWikipedia('Lovesac', { wikidataId: 'Q6690181' }, throwingLog);
+      const res = await mod.resolveBrandWikipedia('Lovesac', {}, throwingLog);
       expect(res).to.include({ verified: false, discardReason: 'fetch-error' });
+      // The breadcrumb keeps the QID resolved before the failure, not null.
+      expect(res.wikidataId).to.equal('Q6690181');
       expect(throwingLog.error).to.have.been.called;
     });
   });

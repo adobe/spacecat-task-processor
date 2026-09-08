@@ -1,6 +1,6 @@
 # Brand-profile: QID-anchored Wikipedia resolution
 
-- Status: proposed
+- Status: decided (implemented in PR #359)
 - Date: 2026-09-08
 - Repo: spacecat-task-processor (`src/agents/brand-profile`)
 - Upstream report: adobe-rnd/llmo-data-retrieval-service#3200

@@ -121,7 +121,7 @@ export async function fetchWikidataSitelinkTitle(wikidataId, log) {
  * @returns {Promise<{title:string, fullText:string, summary:string, wikidataId:string|null}|null>}
  */
 export async function fetchWikipediaArticleByTitle(title, maxChars, log) {
-  const limit = maxChars || 12000;
+  const limit = maxChars ?? 12000;
   try {
     const params = new URLSearchParams({
       action: 'query',
@@ -180,8 +180,10 @@ export async function fetchWikipediaArticleByTitle(title, maxChars, log) {
  */
 export async function resolveBrandWikipedia(brandName, opts, log) {
   const { wikidataId } = opts || {};
-  const empty = (discardReason, qid = wikidataId || null, title = null) => ({
-    wikidataId: qid,
+  // Hoisted so the outer catch can report a QID resolved inside the try.
+  let qid = wikidataId || null;
+  const empty = (discardReason, id = qid, title = null) => ({
+    wikidataId: id,
     title,
     fullText: '',
     summary: '',
@@ -190,7 +192,7 @@ export async function resolveBrandWikipedia(brandName, opts, log) {
   });
 
   try {
-    const qid = wikidataId || await findWikidataId(brandName, log);
+    qid = wikidataId || await findWikidataId(brandName, log);
     if (!qid) {
       return empty('no-qid');
     }
