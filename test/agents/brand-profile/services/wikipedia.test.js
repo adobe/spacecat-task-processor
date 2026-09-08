@@ -458,6 +458,17 @@ describe('services/wikipedia', () => {
       const res = await mod.resolveBrandWikipedia('Lovesac', { wikidataId: 'Q6690181' }, log);
       expect(res.verified).to.equal(false);
     });
+
+    it('never throws: degrades to fetch-error if an unexpected error escapes', async () => {
+      // Reach the guard-mismatch branch, then make its logging throw so the
+      // failure escapes the inner helpers into the outer catch.
+      route({ title: sitelink('Lovisa'), art: article('Q1141985') });
+      const throwingLog = { ...log, warn: sandbox.stub().throws(new Error('logger down')) };
+      const mod = await load();
+      const res = await mod.resolveBrandWikipedia('Lovesac', { wikidataId: 'Q6690181' }, throwingLog);
+      expect(res).to.include({ verified: false, discardReason: 'fetch-error' });
+      expect(throwingLog.error).to.have.been.called;
+    });
   });
 
   describe('createWikipediaService.resolveBrand', () => {
