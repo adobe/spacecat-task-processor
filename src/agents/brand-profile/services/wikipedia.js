@@ -242,6 +242,40 @@ export async function findWikidataId(brandName, log) {
 }
 
 /**
+ * Resolve the English Wikipedia article title for a Wikidata entity via its sitelink.
+ * @param {string} wikidataId - Wikidata entity ID (e.g. "Q6690181")
+ * @param {object} log - Logger instance
+ * @returns {Promise<string|null>} enwiki page title, or null when absent/failed
+ */
+export async function fetchWikidataSitelinkTitle(wikidataId, log) {
+  try {
+    const params = new URLSearchParams({
+      action: 'wbgetentities',
+      ids: wikidataId,
+      props: 'sitelinks',
+      sitefilter: 'enwiki',
+      format: 'json',
+    });
+
+    const resp = await fetch(`${WIKIDATA_API}?${params}`, {
+      headers: { 'User-Agent': USER_AGENT },
+    });
+
+    if (!resp.ok) {
+      throw new Error(`wbgetentities failed: ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    const title = data.entities?.[wikidataId]?.sitelinks?.enwiki?.title || null;
+    log.info(`Wikidata sitelink for ${wikidataId}: ${title || 'none'}`);
+    return title;
+  } catch (e) {
+    log.error(`Error fetching Wikidata sitelink for ${wikidataId}: ${e.message}`);
+    return null;
+  }
+}
+
+/**
  * Create a Wikipedia service instance.
  * @param {object} log - Logger instance
  * @returns {object} Service instance with bound methods

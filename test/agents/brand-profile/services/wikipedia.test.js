@@ -723,4 +723,65 @@ describe('services/wikipedia', () => {
       expect(result).to.be.null;
     });
   });
+
+  describe('fetchWikidataSitelinkTitle', () => {
+    it('returns the enwiki title for a QID', async () => {
+      fetchStub.resolves({
+        ok: true,
+        json: () => Promise.resolve({
+          entities: { Q6690181: { sitelinks: { enwiki: { title: 'Lovesac' } } } },
+        }),
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/wikipedia.js',
+        {},
+      );
+
+      const title = await mod.fetchWikidataSitelinkTitle('Q6690181', log);
+
+      expect(title).to.equal('Lovesac');
+      const calledUrl = fetchStub.firstCall.args[0];
+      expect(calledUrl).to.include('action=wbgetentities');
+      expect(calledUrl).to.include('sitefilter=enwiki');
+      expect(calledUrl).to.include('Q6690181');
+    });
+
+    it('returns null when the entity has no enwiki sitelink', async () => {
+      fetchStub.resolves({
+        ok: true,
+        json: () => Promise.resolve({ entities: { Q6690181: { sitelinks: {} } } }),
+      });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/wikipedia.js',
+        {},
+      );
+
+      expect(await mod.fetchWikidataSitelinkTitle('Q6690181', log)).to.equal(null);
+    });
+
+    it('returns null on a non-ok response', async () => {
+      fetchStub.resolves({ ok: false, status: 500 });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/wikipedia.js',
+        {},
+      );
+
+      expect(await mod.fetchWikidataSitelinkTitle('Q6690181', log)).to.equal(null);
+      expect(log.error).to.have.been.called;
+    });
+
+    it('returns null when fetch rejects', async () => {
+      fetchStub.rejects(new Error('network'));
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/wikipedia.js',
+        {},
+      );
+
+      expect(await mod.fetchWikidataSitelinkTitle('Q6690181', log)).to.equal(null);
+    });
+  });
 });
