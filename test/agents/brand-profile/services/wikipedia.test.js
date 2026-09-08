@@ -889,4 +889,106 @@ describe('services/wikipedia', () => {
       expect(res.fullText).to.have.length(12000);
     });
   });
+
+  describe('resolveBrandWikipedia', () => {
+    const ok = (body) => ({ ok: true, json: () => Promise.resolve(body) });
+    const searchHit = (id) => ok({ search: [{ id, description: 'furniture company' }] });
+    const sitelink = (title) => ok({
+      entities: { Q6690181: { sitelinks: { enwiki: { title } } } },
+    });
+    const article = (wb) => ok({
+      query: {
+        pages: {
+          1: {
+            title: 'Lovesac',
+            extract: 'Lovesac is furniture.\n\nMore.',
+            pageprops: wb === undefined ? {} : { wikibase_item: wb },
+          },
+        },
+      },
+    });
+    const route = ({ search, title, art }) => fetchStub.callsFake((url) => {
+      if (url.includes('wbsearchentities')) return Promise.resolve(search || searchHit('Q6690181'));
+      if (url.includes('wbgetentities')) return Promise.resolve(title || sitelink('Lovesac'));
+      return Promise.resolve(art || article('Q6690181'));
+    });
+    const load = () => esmock('../../../../src/agents/brand-profile/services/wikipedia.js', {});
+
+    it('resolves and verifies when the article wikibase_item matches the QID', async () => {
+      route({});
+      const mod = await load();
+      const res = await mod.resolveBrandWikipedia('Lovesac', { wikidataId: 'Q6690181' }, log);
+      expect(res).to.include({
+        verified: true, wikidataId: 'Q6690181', title: 'Lovesac', discardReason: null,
+      });
+      expect(res.fullText).to.include('furniture');
+      const urls = fetchStub.getCalls().map((c) => c.args[0]);
+      expect(urls.some((u) => u.includes('wbsearchentities'))).to.equal(false);
+    });
+
+    it('re-resolves the QID from brandName when none is passed', async () => {
+      route({});
+      const mod = await load();
+      const res = await mod.resolveBrandWikipedia('Lovesac', {}, log);
+      expect(res.verified).to.equal(true);
+      const urls = fetchStub.getCalls().map((c) => c.args[0]);
+      expect(urls.some((u) => u.includes('wbsearchentities'))).to.equal(true);
+    });
+
+    it('discards on guard mismatch and warns with diagnostics', async () => {
+      route({ title: sitelink('Lovisa'), art: article('Q1141985') });
+      const mod = await load();
+      const res = await mod.resolveBrandWikipedia('Lovesac', { wikidataId: 'Q6690181' }, log);
+      expect(res).to.include({
+        verified: false, discardReason: 'guard-mismatch', fullText: '', summary: '',
+      });
+      expect(log.warn).to.have.been.called;
+      const msg = log.warn.firstCall.args[0];
+      expect(msg).to.include('Q6690181');
+      expect(msg).to.include('Q1141985');
+    });
+
+    it('discards when the page has no wikibase_item (distinct from mismatch)', async () => {
+      route({ art: article(undefined) });
+      const mod = await load();
+      const res = await mod.resolveBrandWikipedia('Lovesac', { wikidataId: 'Q6690181' }, log);
+      expect(res).to.include({ verified: false, discardReason: 'guard-mismatch' });
+    });
+
+    it('returns no-qid when the QID cannot be resolved', async () => {
+      route({ search: ok({ search: [] }) });
+      const mod = await load();
+      const res = await mod.resolveBrandWikipedia('Nope', {}, log);
+      expect(res).to.include({ verified: false, discardReason: 'no-qid' });
+    });
+
+    it('returns no-sitelink when the entity has no enwiki article', async () => {
+      route({ title: ok({ entities: { Q6690181: { sitelinks: {} } } }) });
+      const mod = await load();
+      const res = await mod.resolveBrandWikipedia('Lovesac', { wikidataId: 'Q6690181' }, log);
+      expect(res).to.include({ verified: false, discardReason: 'no-sitelink', wikidataId: 'Q6690181' });
+    });
+
+    it('returns fetch-error when the article fetch fails', async () => {
+      route({ art: { ok: false, status: 500 } });
+      const mod = await load();
+      const res = await mod.resolveBrandWikipedia('Lovesac', { wikidataId: 'Q6690181' }, log);
+      expect(res).to.include({ verified: false, discardReason: 'fetch-error' });
+    });
+
+    it('does exact-string QID comparison (no normalization)', async () => {
+      route({ art: article('q6690181') });
+      const mod = await load();
+      const res = await mod.resolveBrandWikipedia('Lovesac', { wikidataId: 'Q6690181' }, log);
+      expect(res.verified).to.equal(false);
+    });
+  });
+
+  describe('createWikipediaService.resolveBrand', () => {
+    it('exposes resolveBrand as a bound function', async () => {
+      const mod = await esmock('../../../../src/agents/brand-profile/services/wikipedia.js', {});
+      const svc = mod.createWikipediaService(log);
+      expect(svc).to.have.property('resolveBrand').that.is.a('function');
+    });
+  });
 });

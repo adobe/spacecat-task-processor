@@ -332,6 +332,62 @@ export async function fetchWikipediaArticleByTitle(title, maxChars, log) {
 }
 
 /**
+ * Resolve the QID-anchored Wikipedia article for a brand.
+ * QID -> enwiki sitelink title -> exact article -> guard on wikibase_item.
+ * Never throws; degrades to empty text with a discardReason.
+ * @param {string} brandName - Brand/company name
+ * @param {{wikidataId?: string}} [opts] - a known QID skips the name lookup
+ * @param {object} log - Logger instance
+ * @returns {Promise<{wikidataId: string|null, title: string|null, fullText: string,
+ *   summary: string, verified: boolean, discardReason: string|null}>}
+ */
+export async function resolveBrandWikipedia(brandName, opts, log) {
+  const { wikidataId } = opts || {};
+  const empty = (discardReason, qid = wikidataId || null, title = null) => ({
+    wikidataId: qid,
+    title,
+    fullText: '',
+    summary: '',
+    verified: false,
+    discardReason,
+  });
+
+  try {
+    const qid = wikidataId || await findWikidataId(brandName, log);
+    if (!qid) {
+      return empty('no-qid');
+    }
+
+    const title = await fetchWikidataSitelinkTitle(qid, log);
+    if (!title) {
+      return empty('no-sitelink', qid);
+    }
+
+    const article = await fetchWikipediaArticleByTitle(title, 12000, log);
+    if (!article) {
+      return empty('fetch-error', qid, title);
+    }
+
+    if (article.wikidataId !== qid) {
+      log.warn(`brand-profile: wikipedia guard mismatch for ${brandName}: expected ${qid}, article '${article.title}' had ${article.wikidataId} - discarding`);
+      return empty('guard-mismatch', qid, article.title);
+    }
+
+    return {
+      wikidataId: qid,
+      title: article.title,
+      fullText: article.fullText,
+      summary: article.summary,
+      verified: true,
+      discardReason: null,
+    };
+  } catch (e) {
+    log.error(`brand-profile: resolveBrandWikipedia failed for ${brandName}: ${e.message}`);
+    return empty('fetch-error');
+  }
+}
+
+/**
  * Create a Wikipedia service instance.
  * @param {object} log - Logger instance
  * @returns {object} Service instance with bound methods
@@ -341,5 +397,6 @@ export function createWikipediaService(log) {
     fetchSummary: (searchQuery) => fetchWikipediaSummary(searchQuery, log),
     fetchFullText: (searchQuery, maxChars) => fetchWikipediaFullText(searchQuery, maxChars, log),
     findWikidataId: (brandName) => findWikidataId(brandName, log),
+    resolveBrand: (brandName, opts) => resolveBrandWikipedia(brandName, opts, log),
   };
 }
