@@ -165,6 +165,23 @@ async function run(context, env, log) {
   const productService = createProductExtractorService(env, log);
   const wikipediaService = createWikipediaService(log);
 
+  // Resolve the QID-anchored Wikipedia article once, shared across the phases
+  // that need it. Skip entirely when neither phase needs Wikipedia (a sitemap
+  // covers products and LLMO already supplied competitors) or when the brand
+  // name is the unknown-brand sentinel (a name search would contaminate).
+  const needsWikipedia = !hasText(sitemapUrl)
+    || !(Array.isArray(llmoCompetitors) && llmoCompetitors.length > 0);
+  const brandWiki = (brandName !== 'Unknown Brand' && needsWikipedia)
+    ? await wikipediaService.resolveBrand(brandName)
+    : {
+      wikidataId: null,
+      title: null,
+      fullText: '',
+      summary: '',
+      verified: false,
+      discardReason: 'skipped',
+    };
+
   // Phase 2: Infer region from URL
   log.info('brand-profile: inferring region from URL');
   const regionInference = await regionalService.inferRegionFromUrl(baseURL);
@@ -200,15 +217,11 @@ async function run(context, env, log) {
     competitorsSource = 'llmo';
   } else {
     log.info('brand-profile: inferring competitors');
-    // Optionally fetch Wikipedia summary for better competitor inference
-    const wikiResult = await wikipediaService.fetchSummary(`${brandName} company`);
-    const wikiSummary = wikiResult?.summary || '';
-
     const competitorResult = await competitorService.inferCompetitors({
       brandName,
       industry,
       countryCode,
-      wikipediaSummary: wikiSummary,
+      wikipediaSummary: brandWiki.summary,
     });
     competitors = competitorResult.competitors || [];
     competitorsSource = 'inferred';
@@ -232,9 +245,11 @@ async function run(context, env, log) {
     log.info(`brand-profile: using sitemap for product extraction: ${sitemapUrl}`);
     productsResult = await productService.extractFromSitemap(sitemapUrl, brandName);
   } else {
-    // Use Wikipedia/Wikidata extraction
-    const wikiText = await wikipediaService.fetchFullText(`${brandName} company`, 12000);
-    productsResult = await productService.extractProducts(brandName, wikiText);
+    // Use Wikidata + QID-anchored Wikipedia extraction (resolved once, above).
+    productsResult = await productService.extractProducts(brandName, {
+      wikidataId: brandWiki.wikidataId,
+      wikipediaText: brandWiki.fullText,
+    });
   }
 
   // Assemble the enhanced profile

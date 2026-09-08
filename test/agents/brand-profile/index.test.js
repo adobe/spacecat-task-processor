@@ -82,8 +82,14 @@ describe('agents/brand-profile', () => {
     },
     '../../../src/agents/brand-profile/services/wikipedia.js': {
       createWikipediaService: () => ({
-        fetchSummary: sb.stub().resolves(null),
-        fetchFullText: sb.stub().resolves(null),
+        resolveBrand: sb.stub().resolves({
+          wikidataId: null,
+          title: null,
+          fullText: '',
+          summary: '',
+          verified: false,
+          discardReason: 'guard-mismatch',
+        }),
       }),
     },
   });
@@ -213,8 +219,14 @@ describe('agents/brand-profile', () => {
     };
 
     const mockWikipediaService = {
-      fetchSummary: sandbox.stub().resolves({ summary: 'Company summary' }),
-      fetchFullText: sandbox.stub().resolves('Full text'),
+      resolveBrand: sandbox.stub().resolves({
+        wikidataId: 'Q6690181',
+        title: 'SwissLife',
+        fullText: 'Company full text',
+        summary: 'Company summary',
+        verified: true,
+        discardReason: null,
+      }),
     };
 
     const mod = await esmock('../../../src/agents/brand-profile/index.js', {
@@ -321,8 +333,14 @@ describe('agents/brand-profile', () => {
       },
       '../../../src/agents/brand-profile/services/wikipedia.js': {
         createWikipediaService: () => ({
-          fetchSummary: sandbox.stub().resolves(null),
-          fetchFullText: sandbox.stub().resolves(null),
+          resolveBrand: sandbox.stub().resolves({
+            wikidataId: null,
+            title: null,
+            fullText: '',
+            summary: '',
+            verified: false,
+            discardReason: 'guard-mismatch',
+          }),
         }),
       },
     });
@@ -393,8 +411,14 @@ describe('agents/brand-profile', () => {
       },
       '../../../src/agents/brand-profile/services/wikipedia.js': {
         createWikipediaService: () => ({
-          fetchSummary: sandbox.stub().resolves(null),
-          fetchFullText: sandbox.stub().resolves(null),
+          resolveBrand: sandbox.stub().resolves({
+            wikidataId: null,
+            title: null,
+            fullText: '',
+            summary: '',
+            verified: false,
+            discardReason: 'guard-mismatch',
+          }),
         }),
       },
     });
@@ -453,8 +477,14 @@ describe('agents/brand-profile', () => {
       },
       '../../../src/agents/brand-profile/services/wikipedia.js': {
         createWikipediaService: () => ({
-          fetchSummary: sandbox.stub().resolves(null),
-          fetchFullText: sandbox.stub().resolves(null),
+          resolveBrand: sandbox.stub().resolves({
+            wikidataId: null,
+            title: null,
+            fullText: '',
+            summary: '',
+            verified: false,
+            discardReason: 'guard-mismatch',
+          }),
         }),
       },
     });
@@ -513,8 +543,14 @@ describe('agents/brand-profile', () => {
       },
       '../../../src/agents/brand-profile/services/wikipedia.js': {
         createWikipediaService: () => ({
-          fetchSummary: sandbox.stub().resolves(null),
-          fetchFullText: sandbox.stub().resolves(null),
+          resolveBrand: sandbox.stub().resolves({
+            wikidataId: null,
+            title: null,
+            fullText: '',
+            summary: '',
+            verified: false,
+            discardReason: 'guard-mismatch',
+          }),
         }),
       },
     });
@@ -575,8 +611,14 @@ describe('agents/brand-profile', () => {
       },
       '../../../src/agents/brand-profile/services/wikipedia.js': {
         createWikipediaService: () => ({
-          fetchSummary: sandbox.stub().resolves(null),
-          fetchFullText: sandbox.stub().resolves(null),
+          resolveBrand: sandbox.stub().resolves({
+            wikidataId: null,
+            title: null,
+            fullText: '',
+            summary: '',
+            verified: false,
+            discardReason: 'guard-mismatch',
+          }),
         }),
       },
     });
@@ -909,5 +951,118 @@ describe('agents/brand-profile', () => {
     expect(highlightBlock.text.text).to.include('*Top Competitors:* AXA, Zurich');
     expect(highlightBlock.text.text).to.include('*Personas:* Empty Nester, Young Professional');
     expect(highlightBlock.text.text).to.include('*Products:* 3 extracted');
+  });
+
+  describe('run - QID anchoring', () => {
+    // Build an esmocked run() whose services are captured stubs we can assert on.
+    const buildRun = async (baseProfile) => {
+      const services = {
+        wikipediaService: {
+          resolveBrand: sandbox.stub().resolves({
+            wikidataId: 'Q6690181',
+            title: 'Lovesac',
+            fullText: 'Lovesac makes furniture.',
+            summary: 'Lovesac makes furniture.',
+            verified: true,
+            discardReason: null,
+          }),
+        },
+        productService: {
+          extractFromSitemap: sandbox.stub().resolves({ products: [], metadata: {} }),
+          extractProducts: sandbox.stub().resolves({ products: [], metadata: {} }),
+        },
+        competitorService: {
+          inferCompetitors: sandbox.stub().resolves({ competitors: [] }),
+        },
+      };
+
+      const fetchChatCompletion = sandbox.stub().resolves({
+        choices: [{ message: { content: JSON.stringify(baseProfile) } }],
+      });
+
+      const mod = await esmock('../../../src/agents/brand-profile/index.js', {
+        '@adobe/spacecat-shared-gpt-client': {
+          AzureOpenAIClient: { createFrom: sandbox.stub().returns({ fetchChatCompletion }) },
+        },
+        '../../../src/agents/base.js': {
+          readPromptFile: sandbox.stub().returns('PROMPT'),
+          renderTemplate: sandbox.stub().returns('RENDERED'),
+        },
+        '../../../src/agents/brand-profile/services/regional-context.js': {
+          createRegionalContextService: () => ({
+            inferRegionFromUrl: sandbox.stub().resolves({ country_code: 'US' }),
+            inferRegionalContext: sandbox.stub().resolves({ languages: ['en-US'] }),
+          }),
+        },
+        '../../../src/agents/brand-profile/services/competitor-inference.js': {
+          createCompetitorInferenceService: () => services.competitorService,
+        },
+        '../../../src/agents/brand-profile/services/persona-inference.js': {
+          createPersonaInferenceService: () => ({
+            inferPersonas: sandbox.stub().resolves({ personas: [] }),
+          }),
+        },
+        '../../../src/agents/brand-profile/services/product-extractor.js': {
+          createProductExtractorService: () => services.productService,
+        },
+        '../../../src/agents/brand-profile/services/wikipedia.js': {
+          createWikipediaService: () => services.wikipediaService,
+        },
+      });
+
+      return { run: mod.default.run, services };
+    };
+
+    it('resolves once and passes the anchored context to extractProducts', async () => {
+      const { run, services } = await buildRun({ main_profile: { brand_name: 'Lovesac' } });
+
+      await run({ baseURL: 'https://lovesac.com', params: { enhance: true } }, env, log);
+
+      expect(services.wikipediaService.resolveBrand).to.have.been.calledOnce;
+      const productArgs = services.productService.extractProducts.firstCall.args;
+      expect(productArgs[1]).to.include({ wikidataId: 'Q6690181' });
+      expect(productArgs[1].wikipediaText).to.include('furniture');
+    });
+
+    it('does NOT resolve Wikipedia when both sitemapUrl and llmoCompetitors are provided', async () => {
+      const { run, services } = await buildRun({ main_profile: { brand_name: 'Lovesac' } });
+
+      await run(
+        {
+          baseURL: 'https://lovesac.com',
+          params: { enhance: true, sitemapUrl: 'https://lovesac.com/sitemap.xml', competitors: ['A', 'B'] },
+        },
+        env,
+        log,
+      );
+
+      expect(services.wikipediaService.resolveBrand).to.not.have.been.called;
+      expect(services.productService.extractFromSitemap).to.have.been.called;
+    });
+
+    it('resolves for the summary when llmoCompetitors is empty even if sitemapUrl is set', async () => {
+      const { run, services } = await buildRun({ main_profile: { brand_name: 'Lovesac' } });
+
+      await run(
+        {
+          baseURL: 'https://lovesac.com',
+          params: { enhance: true, sitemapUrl: 'https://lovesac.com/sitemap.xml' },
+        },
+        env,
+        log,
+      );
+
+      expect(services.wikipediaService.resolveBrand).to.have.been.calledOnce;
+      expect(services.productService.extractFromSitemap).to.have.been.called;
+    });
+
+    it('skips resolve for the Unknown Brand sentinel', async () => {
+      // Empty profile + a domain-less baseURL -> extractBrandName returns "Unknown Brand".
+      const { run, services } = await buildRun({});
+
+      await run({ baseURL: 'https://a.io', params: { enhance: true } }, env, log);
+
+      expect(services.wikipediaService.resolveBrand).to.not.have.been.called;
+    });
   });
 });
