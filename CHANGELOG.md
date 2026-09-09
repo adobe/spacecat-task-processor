@@ -1,3 +1,10 @@
+## [1.16.20](https://github.com/adobe/spacecat-task-processor/compare/v1.16.19...v1.16.20) (2026-09-09)
+
+
+### Bug Fixes
+
+* **brand-profile:** anchor Wikipedia fallback to the resolved Wikidata QID ([#359](https://github.com/adobe/spacecat-task-processor/issues/359)) ([40dd1c1](https://github.com/adobe/spacecat-task-processor/commit/40dd1c16eb5bfc7190988be0e28a799778c9bde9)), closes [adobe-rnd/llmo-data-retrieval-service#3200](https://github.com/adobe-rnd/llmo-data-retrieval-service/issues/3200) [adobe-rnd/llmo-data-retrieval-service#3200](https://github.com/adobe-rnd/llmo-data-retrieval-service/issues/3200) [adobe-rnd/llmo-data-retrieval-service#3200](https://github.com/adobe-rnd/llmo-data-retrieval-service/issues/3200)
+
 ## [1.16.19](https://github.com/adobe/spacecat-task-processor/compare/v1.16.18...v1.16.19) (2026-09-08)
 
 
