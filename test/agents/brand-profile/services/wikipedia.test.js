@@ -490,6 +490,8 @@ describe('services/wikipedia', () => {
       ['aia.com.hk', 'aia.com.hk'],
       ['capella.edu', 'capella.edu'],
       ['WWW.Example.CO.UK', 'example.co.uk'],
+      // unparseable even with the https:// prefix (space in authority) -> bare-hostname fallthrough
+      ['bad host.com', 'bad host.com'],
       ['', null],
       [null, null],
     ];
