@@ -23,7 +23,7 @@
 
 import { AzureOpenAIClient } from '@adobe/spacecat-shared-gpt-client';
 import { readPromptFile, renderTemplate } from '../../base.js';
-import { findWikidataId, resolveBrandWikipedia } from './wikipedia.js';
+import { findWikidataId, resolveBrandWikipedia, validateEntityMatchesBrand } from './wikipedia.js';
 
 const USER_AGENT = 'SpaceCat/1.0 (https://github.com/adobe/spacecat; spacecat@adobe.com)';
 const WIKIDATA_SPARQL = 'https://query.wikidata.org/sparql';
@@ -514,7 +514,29 @@ export async function extractProducts(brandName, wikipediaContext, gpt, log) {
   };
 
   // Step 1: Find brand's Wikidata ID (reuse the caller's when provided)
-  const wikidataId = ctxQid || await findWikidataId(brandName, log);
+  let wikidataId = ctxQid || await findWikidataId(brandName, log);
+
+  // Step 1b: Validate the resolved entity actually is this brand before trusting
+  // any of its data. The QID->article guard cannot catch a QID that was itself
+  // resolved to the wrong same-named entity (e.g. capella.edu -> Q12970, the star
+  // Capella). Requires domain + industry context; when the caller doesn't supply
+  // them the check is skipped and behaviour is unchanged.
+  let entityInvalidated = false;
+  if (wikidataId && ctx.domain && ctx.industry) {
+    const validation = await validateEntityMatchesBrand(
+      {
+        wikidataId, brandName, domain: ctx.domain, industry: ctx.industry,
+      },
+      gpt,
+      log,
+    );
+    result.metadata.entity_validation = validation;
+    if (!validation.match) {
+      log.warn(`brand-profile: entity ${wikidataId} does not match brand "${brandName}" (${ctx.domain}) via ${validation.method} - discarding Wikidata/Wikipedia sources`);
+      wikidataId = null;
+      entityInvalidated = true;
+    }
+  }
 
   if (wikidataId) {
     result.metadata.brand_wikidata_id = wikidataId;
@@ -536,7 +558,13 @@ export async function extractProducts(brandName, wikipediaContext, gpt, log) {
     log.info(`Wikidata returned ${result.products.length} products (threshold: ${MIN_PRODUCTS_THRESHOLD}), trying Wikipedia fallback`);
 
     let wikiText;
-    if (hasProvidedText) {
+    if (entityInvalidated) {
+      // The resolved entity failed brand validation - never use its article text,
+      // even if the caller passed some (it would be the wrong entity's article).
+      wikiText = '';
+      result.metadata.wikipedia_verified = false;
+      result.metadata.wikipedia_discard_reason = 'entity-brand-mismatch';
+    } else if (hasProvidedText) {
       // Caller supplied the exact article text. Trust assumption: the caller is
       // responsible for having QID-anchored/verified this text (index.js resolves
       // it via resolveBrandWikipedia and only passes non-empty text when verified).

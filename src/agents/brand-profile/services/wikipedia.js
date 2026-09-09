@@ -226,6 +226,129 @@ export async function resolveBrandWikipedia(brandName, opts, log) {
   }
 }
 
+// Common two-level public suffixes, so registrableDomain keeps the org label
+// (e.g. prudential.com.au, not com.au). Not exhaustive by design - it only needs
+// the suffixes our customer domains actually use.
+const TWO_LEVEL_SUFFIXES = new Set([
+  'co.uk', 'com.au', 'co.jp', 'com.br', 'co.nz', 'co.in', 'com.sg', 'com.hk',
+  'co.za', 'com.mx', 'com.tr', 'co.kr', 'com.cn', 'co.id', 'com.ph', 'com.my',
+  'co.th', 'com.vn', 'co.il', 'com.tw', 'com.ar', 'com.co',
+]);
+
+/**
+ * Best-effort registrable domain (eTLD+1) for a host or URL. Lowercased, `www.`
+ * stripped, subdomains dropped. Handles the common two-level suffixes above so
+ * `brand.toyota.com` and `toyota.com` both reduce to `toyota.com`.
+ * @param {string} input - A hostname or URL
+ * @returns {string|null} registrable domain, or null when it can't be derived
+ */
+export function registrableDomain(input) {
+  if (!input) {
+    return null;
+  }
+  let host = String(input).trim().toLowerCase();
+  try {
+    host = new URL(host.includes('://') ? host : `https://${host}`).hostname;
+  } catch {
+    // not a parseable URL - fall through and treat `host` as a bare hostname
+  }
+  host = host.replace(/^www\./, '');
+  const labels = host.split('.').filter(Boolean);
+  if (labels.length <= 2) {
+    return labels.length ? labels.join('.') : null;
+  }
+  const lastTwo = labels.slice(-2).join('.');
+  return TWO_LEVEL_SUFFIXES.has(lastTwo) ? labels.slice(-3).join('.') : lastTwo;
+}
+
+/**
+ * Fetch a Wikidata entity's official website(s) (P856) and English description.
+ * @param {string} wikidataId - Wikidata entity ID
+ * @param {object} log - Logger instance
+ * @returns {Promise<{description: string, officialWebsites: string[]}|null>}
+ */
+export async function fetchWikidataEntityMeta(wikidataId, log) {
+  try {
+    const params = new URLSearchParams({
+      action: 'wbgetentities',
+      ids: wikidataId,
+      props: 'claims|descriptions',
+      languages: 'en',
+      format: 'json',
+    });
+    const resp = await fetch(`${WIKIDATA_API}?${params}`, {
+      headers: { 'User-Agent': USER_AGENT },
+    });
+    if (!resp.ok) {
+      throw new Error(`wbgetentities failed: ${resp.status}`);
+    }
+    const data = await resp.json();
+    const entity = data.entities?.[wikidataId] || {};
+    const description = entity.descriptions?.en?.value || '';
+    const officialWebsites = (entity.claims?.P856 || [])
+      .map((claim) => claim?.mainsnak?.datavalue?.value)
+      .filter(Boolean);
+    return { description, officialWebsites };
+  } catch (e) {
+    log.error(`brand-profile: fetchWikidataEntityMeta failed for ${wikidataId}: ${e.message}`);
+    return null;
+  }
+}
+
+/**
+ * Verify that a resolved Wikidata entity actually corresponds to the brand.
+ *
+ * The QID guard in resolveBrandWikipedia only proves the *article* matches the
+ * *QID* - it cannot catch a QID that was itself resolved to the wrong same-named
+ * entity (e.g. capella.edu -> Q12970, the star Capella). This closes that gap:
+ *   1. Official website (P856) registrable-domain match -> confirmed.
+ *   2. Otherwise an LLM check of the entity description against the brand's
+ *      domain + industry.
+ * Fails OPEN (match) on any infrastructure error so it never regresses a brand
+ * we simply couldn't verify; only a definitive LLM "no" rejects.
+ *
+ * @param {{wikidataId: string, brandName: string, domain: string, industry: string}} args
+ * @param {object} gpt - AzureOpenAIClient instance (or null)
+ * @param {object} log - Logger instance
+ * @returns {Promise<{match: boolean, method: string, reason: string}>}
+ */
+export async function validateEntityMatchesBrand({
+  wikidataId, brandName, domain, industry,
+}, gpt, log) {
+  const brandDomain = registrableDomain(domain);
+  const meta = await fetchWikidataEntityMeta(wikidataId, log);
+  if (!meta) {
+    return { match: true, method: 'error-failopen', reason: 'entity-meta-unavailable' };
+  }
+
+  // 1) Deterministic: official website registrable-domain match.
+  const websiteHit = meta.officialWebsites.find(
+    (site) => brandDomain && registrableDomain(site) === brandDomain,
+  );
+  if (websiteHit) {
+    return { match: true, method: 'official_website', reason: websiteHit };
+  }
+
+  // 2) LLM content check. Without a verifier we cannot confirm - fail open.
+  if (!gpt || typeof gpt.fetchChatCompletion !== 'function') {
+    return { match: true, method: 'no-verifier', reason: meta.description || '' };
+  }
+  try {
+    const prompt = `You verify whether a Wikipedia/Wikidata entity is the same organization as a website.
+Website domain: ${domain}
+Brand name: ${brandName}
+Industry: ${industry || 'unknown'}
+Candidate entity (${wikidataId}) description: "${meta.description || 'n/a'}"
+Is the candidate entity the SAME organization that operates that website? Consider the industry and domain. Answer with a single word: yes or no.`;
+    const resp = await gpt.fetchChatCompletion(prompt, { temperature: 0, maxTokens: 3 });
+    const answer = (resp?.choices?.[0]?.message?.content || '').trim().toLowerCase();
+    return { match: answer.startsWith('y'), method: 'llm', reason: meta.description || '' };
+  } catch (e) {
+    log.warn(`brand-profile: entity LLM validation failed for ${wikidataId}: ${e.message} - failing open`);
+    return { match: true, method: 'error-failopen', reason: 'llm-error' };
+  }
+}
+
 /**
  * Create a Wikipedia service instance.
  * @param {object} log - Logger instance

@@ -485,6 +485,76 @@ describe('services/product-extractor', () => {
       expect(result.products).to.have.length(1);
     });
 
+    it('discards a wrong same-named entity (validation fails) and emits no wikidata/wikipedia data', async () => {
+      // Entity metadata for validation: no official website, star description.
+      fetchStub.resolves({
+        ok: true,
+        json: () => Promise.resolve({
+          entities: { Q12970: { claims: {}, descriptions: { en: { value: 'bright star in the constellation Auriga' } } } },
+        }),
+      });
+      // LLM says the entity is NOT the brand.
+      gpt.fetchChatCompletion.resolves({ choices: [{ message: { content: 'no' } }] });
+
+      const result = await extractProducts(
+        'Capella',
+        {
+          wikidataId: 'Q12970',
+          wikipediaText: 'Capella is the brightest star in Auriga.',
+          domain: 'capella.edu',
+          industry: 'Education',
+        },
+        gpt,
+        log,
+      );
+
+      expect(result.metadata.entity_validation.match).to.equal(false);
+      expect(result.metadata.entity_validation.method).to.equal('llm');
+      expect(result.metadata.brand_wikidata_id).to.equal(null);
+      expect(result.metadata.wikipedia_discard_reason).to.equal('entity-brand-mismatch');
+      expect(result.products).to.have.length(0);
+      // The wrong QID must not reach the SPARQL products query.
+      const urls = fetchStub.getCalls().map((c) => c.args[0]);
+      expect(urls.some((u) => u.includes('query.wikidata.org'))).to.equal(false);
+    });
+
+    it('proceeds when the entity validates via official website match', async () => {
+      // Entity metadata: official website matches the brand domain -> deterministic pass.
+      fetchStub.resolves({
+        ok: true,
+        json: () => Promise.resolve({
+          entities: { Q123: { claims: { P856: [{ mainsnak: { datavalue: { value: 'https://www.capella.edu' } } }] }, descriptions: { en: { value: 'online university' } } } },
+        }),
+      });
+      // Only the product-extraction LLM call should happen (no validation LLM).
+      gpt.fetchChatCompletion.resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              products: [{ name: 'BSc Nursing' }], services: [], sub_brands: [], discontinued: [],
+            }),
+          },
+        }],
+      });
+
+      const result = await extractProducts(
+        'Capella University',
+        {
+          wikidataId: 'Q123',
+          wikipediaText: 'Capella University is an online university.',
+          domain: 'capella.edu',
+          industry: 'Education',
+        },
+        gpt,
+        log,
+      );
+
+      expect(result.metadata.entity_validation.match).to.equal(true);
+      expect(result.metadata.entity_validation.method).to.equal('official_website');
+      expect(result.metadata.brand_wikidata_id).to.equal('Q123');
+      expect(result.products).to.have.length(1);
+    });
+
     it('handles SPARQL query failure gracefully', async () => {
       // Mock Wikidata ID search
       fetchStub.onFirstCall().resolves({

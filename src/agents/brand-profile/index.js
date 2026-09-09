@@ -251,9 +251,13 @@ async function run(context, env, log) {
     productsResult = await productService.extractFromSitemap(sitemapUrl, brandName);
   } else {
     // Use Wikidata + QID-anchored Wikipedia extraction (resolved once, above).
+    // Pass domain + industry so the extractor can validate the resolved entity is
+    // actually this brand (guards the wrong same-named QID class of contamination).
     productsResult = await productService.extractProducts(brandName, {
       wikidataId: brandWiki.wikidataId,
       wikipediaText: brandWiki.fullText,
+      domain: new URL(baseURL).hostname,
+      industry,
     });
   }
 

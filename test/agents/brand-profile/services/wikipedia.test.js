@@ -481,4 +481,103 @@ describe('services/wikipedia', () => {
       expect(svc).to.have.property('resolveBrand').that.is.a('function');
     });
   });
+
+  describe('registrableDomain', () => {
+    const cases = [
+      ['https://www.lovesac.com', 'lovesac.com'],
+      ['brand.toyota.com', 'toyota.com'],
+      ['https://prudential.com.au/foo', 'prudential.com.au'],
+      ['aia.com.hk', 'aia.com.hk'],
+      ['capella.edu', 'capella.edu'],
+      ['WWW.Example.CO.UK', 'example.co.uk'],
+      ['', null],
+      [null, null],
+    ];
+    cases.forEach(([input, expected]) => {
+      it(`reduces ${JSON.stringify(input)} -> ${JSON.stringify(expected)}`, async () => {
+        const mod = await esmock('../../../../src/agents/brand-profile/services/wikipedia.js', {});
+        expect(mod.registrableDomain(input)).to.equal(expected);
+      });
+    });
+  });
+
+  describe('validateEntityMatchesBrand', () => {
+    const load = () => esmock('../../../../src/agents/brand-profile/services/wikipedia.js', {});
+    const metaResp = (claims, description) => {
+      const descriptions = description ? { en: { value: description } } : {};
+      return {
+        ok: true,
+        json: () => Promise.resolve({ entities: { Q1: { claims, descriptions } } }),
+      };
+    };
+
+    it('matches deterministically when the official website domain matches', async () => {
+      fetchStub.resolves(metaResp(
+        { P856: [{ mainsnak: { datavalue: { value: 'https://www.lovesac.com/' } } }] },
+        'furniture company',
+      ));
+      const gpt = { fetchChatCompletion: sandbox.stub() };
+      const mod = await load();
+      const r = await mod.validateEntityMatchesBrand({
+        wikidataId: 'Q1', brandName: 'Lovesac', domain: 'lovesac.com', industry: 'Furniture',
+      }, gpt, log);
+      expect(r.match).to.equal(true);
+      expect(r.method).to.equal('official_website');
+      expect(gpt.fetchChatCompletion).to.not.have.been.called;
+    });
+
+    it('rejects when no website match and the LLM says no', async () => {
+      fetchStub.resolves(metaResp({}, 'bright star in the constellation Auriga'));
+      const gpt = { fetchChatCompletion: sandbox.stub().resolves({ choices: [{ message: { content: 'no' } }] }) };
+      const mod = await load();
+      const r = await mod.validateEntityMatchesBrand({
+        wikidataId: 'Q1', brandName: 'Capella', domain: 'capella.edu', industry: 'Education',
+      }, gpt, log);
+      expect(r.match).to.equal(false);
+      expect(r.method).to.equal('llm');
+    });
+
+    it('accepts when the LLM says yes', async () => {
+      fetchStub.resolves(metaResp({}, 'an online university'));
+      const gpt = { fetchChatCompletion: sandbox.stub().resolves({ choices: [{ message: { content: 'Yes.' } }] }) };
+      const mod = await load();
+      const r = await mod.validateEntityMatchesBrand({
+        wikidataId: 'Q1', brandName: 'Capella', domain: 'capella.edu', industry: 'Education',
+      }, gpt, log);
+      expect(r.match).to.equal(true);
+      expect(r.method).to.equal('llm');
+    });
+
+    it('fails open (match) when entity metadata cannot be fetched', async () => {
+      fetchStub.resolves({ ok: false, status: 500 });
+      const gpt = { fetchChatCompletion: sandbox.stub() };
+      const mod = await load();
+      const r = await mod.validateEntityMatchesBrand({
+        wikidataId: 'Q1', brandName: 'X', domain: 'x.com', industry: 'Tech',
+      }, gpt, log);
+      expect(r.match).to.equal(true);
+      expect(r.method).to.equal('error-failopen');
+    });
+
+    it('fails open (match) when the LLM call throws', async () => {
+      fetchStub.resolves(metaResp({}, 'some description'));
+      const gpt = { fetchChatCompletion: sandbox.stub().rejects(new Error('llm down')) };
+      const mod = await load();
+      const r = await mod.validateEntityMatchesBrand({
+        wikidataId: 'Q1', brandName: 'X', domain: 'x.com', industry: 'Tech',
+      }, gpt, log);
+      expect(r.match).to.equal(true);
+      expect(r.method).to.equal('error-failopen');
+    });
+
+    it('fails open (match) when no verifier is available and no website matches', async () => {
+      fetchStub.resolves(metaResp({}, 'some description'));
+      const mod = await load();
+      const r = await mod.validateEntityMatchesBrand({
+        wikidataId: 'Q1', brandName: 'X', domain: 'x.com', industry: 'Tech',
+      }, null, log);
+      expect(r.match).to.equal(true);
+      expect(r.method).to.equal('no-verifier');
+    });
+  });
 });
