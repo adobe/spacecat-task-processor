@@ -397,19 +397,25 @@ describe('services/product-extractor', () => {
         }),
       });
 
-      // Mock Wikipedia search for fallback
+      // Mock the QID-anchored resolve: wbgetentities sitelink, then article.
       fetchStub.onCall(2).resolves({
         ok: true,
-        json: () => Promise.resolve(['Brand', ['Brand Company'], [], []]),
+        json: () => Promise.resolve({
+          entities: { Q12345: { sitelinks: { enwiki: { title: 'TestBrand Company' } } } },
+        }),
       });
 
-      // Mock Wikipedia content fetch
+      // Mock the exact-article fetch; wikibase_item matches the QID (guard passes).
       fetchStub.onCall(3).resolves({
         ok: true,
         json: () => Promise.resolve({
           query: {
             pages: {
-              12345: { extract: 'Company makes Product2 and Product3.' },
+              12345: {
+                title: 'TestBrand Company',
+                extract: 'Company makes Product2 and Product3.',
+                pageprops: { wikibase_item: 'Q12345' },
+              },
             },
           },
         }),
@@ -431,11 +437,17 @@ describe('services/product-extractor', () => {
 
       const result = await extractProducts('TestBrand', null, gpt, log);
 
+      expect(gpt.fetchChatCompletion).to.have.been.called;
+      // Mechanism: the fallback must resolve via the QID, never a name search.
+      const urls = fetchStub.getCalls().map((c) => c.args[0]);
+      expect(urls.some((u) => u.includes('action=opensearch'))).to.equal(false);
+      expect(urls.some((u) => u.includes('wbgetentities'))).to.equal(true);
       expect(result.metadata.source).to.equal('hybrid');
+      expect(result.metadata.wikipedia_verified).to.equal(true);
       expect(result.products.length).to.be.greaterThan(1);
     });
 
-    it('uses provided wikipediaSummary instead of fetching', async () => {
+    it('uses provided wikipediaText instead of fetching', async () => {
       // Mock Wikidata ID search - no results to trigger fallback
       fetchStub.resolves({
         ok: true,
@@ -458,12 +470,18 @@ describe('services/product-extractor', () => {
 
       const result = await extractProducts(
         'TestBrand',
-        'Company makes ExtractedProduct.',
+        { wikipediaText: 'Company makes ExtractedProduct.' },
         gpt,
         log,
       );
 
+      expect(gpt.fetchChatCompletion).to.have.been.called;
+      // Mechanism: provided text is used verbatim, never a name-based fetch.
+      const urls = fetchStub.getCalls().map((c) => c.args[0]);
+      expect(urls.some((u) => u.includes('action=opensearch'))).to.equal(false);
+      expect(urls.some((u) => u.includes('wbgetentities'))).to.equal(false);
       expect(result.metadata.source).to.equal('wikipedia_llm');
+      expect(result.metadata.wikipedia_verified).to.equal(true);
       expect(result.products).to.have.length(1);
     });
 
@@ -482,16 +500,26 @@ describe('services/product-extractor', () => {
         status: 500,
       });
 
-      // Mock Wikipedia search for fallback
+      // Mock the QID-anchored resolve for the fallback.
       fetchStub.onCall(2).resolves({
         ok: true,
-        json: () => Promise.resolve(['Brand', ['Brand'], [], []]),
+        json: () => Promise.resolve({
+          entities: { Q12345: { sitelinks: { enwiki: { title: 'TestBrand' } } } },
+        }),
       });
 
       fetchStub.onCall(3).resolves({
         ok: true,
         json: () => Promise.resolve({
-          query: { pages: { 123: { extract: 'Company info' } } },
+          query: {
+            pages: {
+              123: {
+                title: 'TestBrand',
+                extract: 'Company info',
+                pageprops: { wikibase_item: 'Q12345' },
+              },
+            },
+          },
         }),
       });
 
@@ -510,8 +538,9 @@ describe('services/product-extractor', () => {
 
       const result = await extractProducts('TestBrand', null, gpt, log);
 
-      // Should still return result via fallback
-      expect(result).to.have.property('products');
+      // Should still return result via the QID-anchored fallback (extraction ran).
+      expect(gpt.fetchChatCompletion).to.have.been.called;
+      expect(result.products.map((p) => p.name)).to.include('FallbackProduct');
     });
 
     it('handles Wikipedia extraction error gracefully', async () => {
@@ -524,9 +553,10 @@ describe('services/product-extractor', () => {
       // Mock LLM error
       gpt.fetchChatCompletion.rejects(new Error('LLM failed'));
 
-      const result = await extractProducts('TestBrand', 'Some text', gpt, log);
+      const result = await extractProducts('TestBrand', { wikipediaText: 'Some text' }, gpt, log);
 
       // Should return empty result without error
+      expect(gpt.fetchChatCompletion).to.have.been.called;
       expect(result.products).to.have.length(0);
     });
 
@@ -542,9 +572,10 @@ describe('services/product-extractor', () => {
         choices: [],
       });
 
-      const result = await extractProducts('TestBrand', 'Some Wikipedia text', gpt, log);
+      const result = await extractProducts('TestBrand', { wikipediaText: 'Some Wikipedia text' }, gpt, log);
 
       // Should return empty arrays from the '{}' fallback
+      expect(gpt.fetchChatCompletion).to.have.been.called;
       expect(result.products).to.have.length(0);
       expect(result.services).to.have.length(0);
     });
@@ -561,9 +592,10 @@ describe('services/product-extractor', () => {
         choices: [{ message: { content: null } }],
       });
 
-      const result = await extractProducts('TestBrand', 'Some Wikipedia text', gpt, log);
+      const result = await extractProducts('TestBrand', { wikipediaText: 'Some Wikipedia text' }, gpt, log);
 
       // Should return empty arrays from the '{}' fallback
+      expect(gpt.fetchChatCompletion).to.have.been.called;
       expect(result.products).to.have.length(0);
     });
 
@@ -588,8 +620,9 @@ describe('services/product-extractor', () => {
         }],
       });
 
-      const result = await extractProducts('TestBrand', 'Some Wikipedia text', gpt, log);
+      const result = await extractProducts('TestBrand', { wikipediaText: 'Some Wikipedia text' }, gpt, log);
 
+      expect(gpt.fetchChatCompletion).to.have.been.called;
       expect(result.products).to.have.length(1);
       expect(result.sub_brands).to.deep.equal([]);
     });
@@ -663,7 +696,7 @@ describe('services/product-extractor', () => {
       });
 
       const longText = 'A'.repeat(10000);
-      await extractProducts('TestBrand', longText, gpt, log);
+      await extractProducts('TestBrand', { wikipediaText: longText }, gpt, log);
 
       // LLM should have been called with truncated text
       expect(gpt.fetchChatCompletion).to.have.been.called;
@@ -690,16 +723,26 @@ describe('services/product-extractor', () => {
         }),
       });
 
-      // Mock Wikipedia search for fallback
+      // Mock the QID-anchored resolve for the fallback.
       fetchStub.onCall(2).resolves({
         ok: true,
-        json: () => Promise.resolve(['Brand', ['Brand'], [], []]),
+        json: () => Promise.resolve({
+          entities: { Q12345: { sitelinks: { enwiki: { title: 'TestBrand' } } } },
+        }),
       });
 
       fetchStub.onCall(3).resolves({
         ok: true,
         json: () => Promise.resolve({
-          query: { pages: { 123: { extract: 'Company info' } } },
+          query: {
+            pages: {
+              123: {
+                title: 'TestBrand',
+                extract: 'Company info',
+                pageprops: { wikibase_item: 'Q12345' },
+              },
+            },
+          },
         }),
       });
 
@@ -729,6 +772,9 @@ describe('services/product-extractor', () => {
 
       const result = await extractProducts('TestBrand', null, gpt, log);
 
+      // Mechanism: the merge only exercises dedup if the LLM extraction ran.
+      expect(gpt.fetchChatCompletion).to.have.been.called;
+
       // Product1 should not be duplicated
       const product1Count = result.products.filter((p) => p.name === 'Product1').length;
       expect(product1Count).to.equal(1);
@@ -755,16 +801,26 @@ describe('services/product-extractor', () => {
         }),
       });
 
-      // Mock Wikipedia search for fallback
+      // Mock the QID-anchored resolve for the fallback.
       fetchStub.onCall(2).resolves({
         ok: true,
-        json: () => Promise.resolve(['Brand', ['Brand'], [], []]),
+        json: () => Promise.resolve({
+          entities: { Q12345: { sitelinks: { enwiki: { title: 'TestBrand' } } } },
+        }),
       });
 
       fetchStub.onCall(3).resolves({
         ok: true,
         json: () => Promise.resolve({
-          query: { pages: { 123: { extract: 'Company info' } } },
+          query: {
+            pages: {
+              123: {
+                title: 'TestBrand',
+                extract: 'Company info',
+                pageprops: { wikibase_item: 'Q12345' },
+              },
+            },
+          },
         }),
       });
 
@@ -837,6 +893,108 @@ describe('services/product-extractor', () => {
       expect(result.products).to.have.length(3);
       const discontinued = result.products.find((p) => p.name === 'OldProduct');
       expect(discontinued.status).to.equal('discontinued');
+    });
+  });
+
+  describe('extractProducts - QID-anchored context', () => {
+    it('uses the provided wikipediaText and does NOT name-search Wikipedia', async () => {
+      // SPARQL returns < 3 so the fallback path is taken
+      fetchStub.resolves({ ok: true, json: async () => ({ results: { bindings: [] } }) });
+      gpt.fetchChatCompletion = sandbox.stub().resolves({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              products: [{ name: 'Sactionals', category: 'Furniture' }],
+              sub_brands: ['Sac'],
+            }),
+          },
+        }],
+      });
+      const res = await extractProducts(
+        'Lovesac',
+        { wikidataId: 'Q6690181', wikipediaText: 'Lovesac makes modular couches.' },
+        gpt,
+        log,
+      );
+      expect(gpt.fetchChatCompletion).to.have.been.called;
+      const urls = fetchStub.getCalls().map((c) => c.args[0]);
+      expect(urls.some((u) => u.includes('action=opensearch'))).to.equal(false);
+      expect(res.metadata.brand_wikidata_id).to.equal('Q6690181');
+      expect(res.metadata.wikipedia_verified).to.equal(true);
+      expect(res.sub_brands).to.include('Sac');
+    });
+
+    it('resolves via resolveBrandWikipedia when no wikipediaText key is provided', async () => {
+      // wbsearchentities is skipped (QID provided); SPARQL, then sitelink, then article.
+      fetchStub.onCall(0).resolves({
+        ok: true,
+        json: async () => ({ results: { bindings: [] } }),
+      });
+      fetchStub.onCall(1).resolves({
+        ok: true,
+        json: async () => ({
+          entities: { Q6690181: { sitelinks: { enwiki: { title: 'Lovesac' } } } },
+        }),
+      });
+      fetchStub.onCall(2).resolves({
+        ok: true,
+        json: async () => ({
+          query: {
+            pages: {
+              1: { title: 'Lovesac', extract: 'Furniture.', pageprops: { wikibase_item: 'Q6690181' } },
+            },
+          },
+        }),
+      });
+      gpt.fetchChatCompletion = sandbox.stub().resolves({
+        choices: [{ message: { content: '{"products":[]}' } }],
+      });
+      const res = await extractProducts('Lovesac', { wikidataId: 'Q6690181' }, gpt, log);
+      expect(res.metadata.wikipedia_verified).to.equal(true);
+    });
+
+    it('records wikipedia_discard_reason when the internal resolve is unverified', async () => {
+      // SPARQL < 3 forces the fallback; the QID has no enwiki sitelink.
+      fetchStub.onCall(0).resolves({
+        ok: true,
+        json: async () => ({ results: { bindings: [] } }),
+      });
+      fetchStub.onCall(1).resolves({
+        ok: true,
+        json: async () => ({ entities: { Q6690181: { sitelinks: {} } } }),
+      });
+      const res = await extractProducts('Lovesac', { wikidataId: 'Q6690181' }, gpt, log);
+      expect(res.metadata.wikipedia_verified).to.equal(false);
+      expect(res.metadata.wikipedia_discard_reason).to.equal('no-sitelink');
+    });
+
+    it('marks verified=false when provided wikipediaText is empty (upstream discard)', async () => {
+      fetchStub.resolves({ ok: true, json: async () => ({ results: { bindings: [] } }) });
+      const res = await extractProducts('Lovesac', { wikidataId: 'Q6690181', wikipediaText: '' }, gpt, log);
+      expect(res.metadata.wikipedia_verified).to.equal(false);
+      expect(res.metadata.wikipedia_discard_reason).to.equal('unresolved-upstream');
+    });
+
+    it('skips the Wikipedia fallback entirely when SPARQL already returned enough products', async () => {
+      const bindings = [1, 2, 3].map((n) => ({
+        itemLabel: { value: `P${n}` },
+        item: { value: `http://wd/Q${n}` },
+      }));
+      fetchStub.resolves({ ok: true, json: async () => ({ results: { bindings } }) });
+      const res = await extractProducts('Lovesac', { wikidataId: 'Q6690181' }, gpt, log);
+      const urls = fetchStub.getCalls().map((c) => c.args[0]);
+      expect(urls.some((u) => u.includes('wbgetentities'))).to.equal(false);
+      expect(res.products).to.have.length.of.at.least(3);
+    });
+
+    it('throws on a stray non-object context (stale caller)', async () => {
+      await expect(extractProducts('Lovesac', 'raw text', gpt, log)).to.be.rejectedWith(/wikipediaContext/);
+    });
+
+    it('treats null/undefined context as no context (no crash)', async () => {
+      fetchStub.resolves({ ok: true, json: async () => ({ results: { bindings: [] } }) });
+      const res = await extractProducts('Lovesac', null, gpt, log);
+      expect(res).to.have.property('products');
     });
   });
 

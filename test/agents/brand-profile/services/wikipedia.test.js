@@ -39,330 +39,6 @@ describe('services/wikipedia', () => {
     sandbox.restore();
   });
 
-  describe('fetchWikipediaSummary', () => {
-    it('fetches and returns Wikipedia summary', async () => {
-      // Mock search response
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve([
-          'Swiss Life',
-          ['Swiss Life'],
-          [''],
-          ['https://en.wikipedia.org/wiki/Swiss_Life'],
-        ]),
-      });
-
-      // Mock summary response
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            pages: {
-              12345: {
-                title: 'Swiss Life',
-                extract: 'Swiss Life is a Swiss insurance company...',
-                pageprops: { wikibase_item: 'Q680290' },
-              },
-            },
-          },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaSummary('Swiss Life company', log);
-
-      expect(result.title).to.equal('Swiss Life');
-      expect(result.summary).to.include('Swiss insurance company');
-      expect(result.wikidataId).to.equal('Q680290');
-    });
-
-    it('returns null when no search results', async () => {
-      fetchStub.resolves({
-        ok: true,
-        json: () => Promise.resolve(['Swiss Life', [], [], []]),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaSummary('Unknown Company', log);
-
-      expect(result).to.be.null;
-    });
-
-    it('returns null on fetch error', async () => {
-      fetchStub.rejects(new Error('Network error'));
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaSummary('Test', log);
-
-      expect(result).to.be.null;
-      expect(log.error).to.have.been.called;
-    });
-
-    it('throws when search response is not ok', async () => {
-      fetchStub.resolves({
-        ok: false,
-        status: 500,
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaSummary('Test', log);
-
-      expect(result).to.be.null;
-      expect(log.error).to.have.been.calledWithMatch('Wikipedia search failed');
-    });
-
-    it('throws when summary response is not ok', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test Title'], [], []]),
-      });
-
-      fetchStub.onSecondCall().resolves({
-        ok: false,
-        status: 503,
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaSummary('Test', log);
-
-      expect(result).to.be.null;
-      expect(log.error).to.have.been.calledWithMatch('Wikipedia summary fetch failed');
-    });
-
-    it('returns null when page not found (pageId is -1)', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test Title'], [], []]),
-      });
-
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            pages: {
-              '-1': { missing: true },
-            },
-          },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaSummary('Test', log);
-
-      expect(result).to.be.null;
-    });
-  });
-
-  describe('fetchWikipediaFullText', () => {
-    it('fetches full Wikipedia article text', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Swiss Life', ['Swiss Life'], [], []]),
-      });
-
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            pages: {
-              12345: {
-                extract: 'Full article content...',
-              },
-            },
-          },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Swiss Life company', 12000, log);
-
-      expect(result).to.equal('Full article content...');
-    });
-
-    it('truncates content to maxChars', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test'], [], []]),
-      });
-
-      const longText = 'A'.repeat(20000);
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            pages: {
-              12345: {
-                extract: longText,
-              },
-            },
-          },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Test', 1000, log);
-
-      expect(result.length).to.equal(1000);
-    });
-
-    it('returns null when no search results', async () => {
-      fetchStub.resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', [], [], []]),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Unknown', 12000, log);
-
-      expect(result).to.be.null;
-    });
-
-    it('returns null when search response not ok', async () => {
-      fetchStub.resolves({
-        ok: false,
-        status: 500,
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Test', 12000, log);
-
-      expect(result).to.be.null;
-      expect(log.error).to.have.been.calledWithMatch('Wikipedia search failed');
-    });
-
-    it('returns null when content response not ok', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test'], [], []]),
-      });
-
-      fetchStub.onSecondCall().resolves({
-        ok: false,
-        status: 503,
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Test', 12000, log);
-
-      expect(result).to.be.null;
-      expect(log.error).to.have.been.calledWithMatch('Wikipedia content fetch failed');
-    });
-
-    it('returns null when page not found (pageId is -1)', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test'], [], []]),
-      });
-
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            pages: {
-              '-1': { missing: true },
-            },
-          },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Test', 12000, log);
-
-      expect(result).to.be.null;
-    });
-
-    it('returns null on fetch error', async () => {
-      fetchStub.rejects(new Error('Network error'));
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Test', 12000, log);
-
-      expect(result).to.be.null;
-      expect(log.error).to.have.been.called;
-    });
-
-    it('uses default maxChars when not provided', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test'], [], []]),
-      });
-
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            pages: {
-              12345: {
-                extract: 'Short content',
-              },
-            },
-          },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Test', null, log);
-
-      expect(result).to.equal('Short content');
-    });
-  });
-
   describe('findWikidataId', () => {
     it('finds Wikidata ID for a brand', async () => {
       fetchStub.resolves({
@@ -482,15 +158,14 @@ describe('services/wikipedia', () => {
 
       const service = mod.createWikipediaService(log);
 
-      expect(service).to.have.property('fetchSummary');
-      expect(service).to.have.property('fetchFullText');
       expect(service).to.have.property('findWikidataId');
+      expect(service).to.have.property('resolveBrand');
     });
 
     it('service methods can be called', async () => {
       fetchStub.resolves({
         ok: true,
-        json: () => Promise.resolve(['Test', [], [], []]),
+        json: () => Promise.resolve({ search: [] }),
       });
 
       const mod = await esmock(
@@ -499,146 +174,13 @@ describe('services/wikipedia', () => {
       );
 
       const service = mod.createWikipediaService(log);
-      const result = await service.fetchSummary('Test');
+      const result = await service.findWikidataId('Test');
 
       expect(result).to.be.null;
     });
   });
 
   describe('edge cases', () => {
-    it('fetchWikipediaSummary handles page without wikibase_item', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test Title'], [], []]),
-      });
-
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            pages: {
-              12345: {
-                title: 'Test Title',
-                extract: 'Summary text',
-                pageprops: {},
-              },
-            },
-          },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaSummary('Test', log);
-
-      expect(result.title).to.equal('Test Title');
-      expect(result.wikidataId).to.be.null;
-    });
-
-    it('fetchWikipediaFullText handles page with empty extract', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test'], [], []]),
-      });
-
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            pages: {
-              12345: { extract: '' },
-            },
-          },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Test', 12000, log);
-
-      expect(result).to.equal('');
-    });
-
-    it('fetchWikipediaSummary handles page without extract', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test Title'], [], []]),
-      });
-
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            pages: {
-              12345: {
-                title: 'Test Title',
-                // No extract field at all
-                pageprops: { wikibase_item: 'Q12345' },
-              },
-            },
-          },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaSummary('Test', log);
-
-      expect(result.title).to.equal('Test Title');
-      expect(result.summary).to.equal('');
-    });
-
-    it('fetchWikipediaFullText handles missing searchData[1] (titles)', async () => {
-      fetchStub.resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test']), // Missing titles array at index 1
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Test', 12000, log);
-
-      expect(result).to.be.null;
-    });
-
-    it('fetchWikipediaFullText handles missing query.pages', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test Title'], [], []]),
-      });
-
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            // No pages field
-          },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaFullText('Test', 12000, log);
-
-      // Should return null because pageId would be undefined
-      expect(result).to.be.null;
-    });
-
     it('findWikidataId handles missing search array in response', async () => {
       fetchStub.resolves({
         ok: true,
@@ -656,11 +198,15 @@ describe('services/wikipedia', () => {
 
       expect(result).to.be.null;
     });
+  });
 
-    it('fetchWikipediaSummary handles missing searchData[1] (titles)', async () => {
+  describe('fetchWikidataSitelinkTitle', () => {
+    it('returns the enwiki title for a QID', async () => {
       fetchStub.resolves({
         ok: true,
-        json: () => Promise.resolve(['Search']), // Missing titles array at index 1
+        json: () => Promise.resolve({
+          entities: { Q6690181: { sitelinks: { enwiki: { title: 'Lovesac' } } } },
+        }),
       });
 
       const mod = await esmock(
@@ -668,48 +214,118 @@ describe('services/wikipedia', () => {
         {},
       );
 
-      const result = await mod.fetchWikipediaSummary('Test', log);
+      const title = await mod.fetchWikidataSitelinkTitle('Q6690181', log);
 
-      expect(result).to.be.null;
+      expect(title).to.equal('Lovesac');
+      const calledUrl = fetchStub.firstCall.args[0];
+      expect(calledUrl).to.include('action=wbgetentities');
+      expect(calledUrl).to.include('sitefilter=enwiki');
+      expect(calledUrl).to.include('Q6690181');
     });
 
-    it('fetchWikipediaSummary handles missing query.pages in summary response', async () => {
-      fetchStub.onFirstCall().resolves({
+    it('returns null when the entity has no enwiki sitelink', async () => {
+      fetchStub.resolves({
         ok: true,
-        json: () => Promise.resolve(['Test', ['Test Title'], [], []]),
+        json: () => Promise.resolve({ entities: { Q6690181: { sitelinks: {} } } }),
       });
 
-      fetchStub.onSecondCall().resolves({
-        ok: true,
-        json: () => Promise.resolve({
-          query: {
-            // No pages field - should use fallback {}
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/wikipedia.js',
+        {},
+      );
+
+      expect(await mod.fetchWikidataSitelinkTitle('Q6690181', log)).to.equal(null);
+    });
+
+    it('returns null on a non-ok response', async () => {
+      fetchStub.resolves({ ok: false, status: 500 });
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/wikipedia.js',
+        {},
+      );
+
+      expect(await mod.fetchWikidataSitelinkTitle('Q6690181', log)).to.equal(null);
+      expect(log.error).to.have.been.called;
+    });
+
+    it('returns null when fetch rejects', async () => {
+      fetchStub.rejects(new Error('network'));
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/wikipedia.js',
+        {},
+      );
+
+      expect(await mod.fetchWikidataSitelinkTitle('Q6690181', log)).to.equal(null);
+    });
+  });
+
+  describe('fetchWikipediaArticleByTitle', () => {
+    const pageResp = (over = {}) => ({
+      ok: true,
+      json: () => Promise.resolve({
+        query: {
+          pages: {
+            123: {
+              title: 'Lovesac',
+              extract: 'Lovesac is a furniture company.\n\nIt makes modular couches.',
+              pageprops: { wikibase_item: 'Q6690181' },
+              ...over,
+            },
           },
-        }),
-      });
-
-      const mod = await esmock(
-        '../../../../src/agents/brand-profile/services/wikipedia.js',
-        {},
-      );
-
-      const result = await mod.fetchWikipediaSummary('Test', log);
-
-      // Should return null because pageId would be undefined
-      expect(result).to.be.null;
+        },
+      }),
     });
 
-    it('fetchWikipediaSummary handles missing query entirely in response', async () => {
-      fetchStub.onFirstCall().resolves({
-        ok: true,
-        json: () => Promise.resolve(['Test', ['Test Title'], [], []]),
-      });
+    it('fetches extract + wikibase_item in one call and requests redirects=1', async () => {
+      fetchStub.resolves(pageResp());
 
-      fetchStub.onSecondCall().resolves({
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/wikipedia.js',
+        {},
+      );
+
+      const res = await mod.fetchWikipediaArticleByTitle('Lovesac', 12000, log);
+
+      expect(res).to.deep.include({ title: 'Lovesac', wikidataId: 'Q6690181' });
+      expect(res.fullText).to.include('modular couches');
+      expect(res.summary).to.equal('Lovesac is a furniture company.');
+      const url = fetchStub.firstCall.args[0];
+      expect(url).to.include('prop=extracts');
+      expect(url).to.include('pageprops');
+      expect(url).to.include('redirects=1');
+      expect(url).to.not.include('action=opensearch');
+    });
+
+    it('truncates fullText to maxChars', async () => {
+      fetchStub.resolves(pageResp({ extract: 'x'.repeat(50) }));
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/wikipedia.js',
+        {},
+      );
+
+      const res = await mod.fetchWikipediaArticleByTitle('Lovesac', 10, log);
+      expect(res.fullText).to.have.length(10);
+    });
+
+    it('returns wikidataId null when the page has no wikibase_item', async () => {
+      fetchStub.resolves(pageResp({ pageprops: {} }));
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/wikipedia.js',
+        {},
+      );
+
+      const res = await mod.fetchWikipediaArticleByTitle('Lovesac', 12000, log);
+      expect(res.wikidataId).to.equal(null);
+    });
+
+    it('returns null for a missing page (-1)', async () => {
+      fetchStub.resolves({
         ok: true,
-        json: () => Promise.resolve({
-          // No query field at all
-        }),
+        json: () => Promise.resolve({ query: { pages: { '-1': {} } } }),
       });
 
       const mod = await esmock(
@@ -717,10 +333,152 @@ describe('services/wikipedia', () => {
         {},
       );
 
-      const result = await mod.fetchWikipediaSummary('Test', log);
+      expect(await mod.fetchWikipediaArticleByTitle('Nope', 12000, log)).to.equal(null);
+    });
 
-      // Should return null because pages would be {}
-      expect(result).to.be.null;
+    it('returns null on non-ok and on reject', async () => {
+      fetchStub.resolves({ ok: false, status: 500 });
+
+      let mod = await esmock(
+        '../../../../src/agents/brand-profile/services/wikipedia.js',
+        {},
+      );
+      expect(await mod.fetchWikipediaArticleByTitle('Lovesac', 12000, log)).to.equal(null);
+
+      fetchStub.rejects(new Error('network'));
+      mod = await esmock(
+        '../../../../src/agents/brand-profile/services/wikipedia.js',
+        {},
+      );
+      expect(await mod.fetchWikipediaArticleByTitle('Lovesac', 12000, log)).to.equal(null);
+    });
+
+    it('uses a default maxChars when not provided', async () => {
+      fetchStub.resolves(pageResp({ extract: 'y'.repeat(20000) }));
+
+      const mod = await esmock(
+        '../../../../src/agents/brand-profile/services/wikipedia.js',
+        {},
+      );
+
+      const res = await mod.fetchWikipediaArticleByTitle('Lovesac', undefined, log);
+      expect(res.fullText).to.have.length(12000);
+    });
+  });
+
+  describe('resolveBrandWikipedia', () => {
+    const ok = (body) => ({ ok: true, json: () => Promise.resolve(body) });
+    const searchHit = (id) => ok({ search: [{ id, description: 'furniture company' }] });
+    const sitelink = (title) => ok({
+      entities: { Q6690181: { sitelinks: { enwiki: { title } } } },
+    });
+    const article = (wb) => ok({
+      query: {
+        pages: {
+          1: {
+            title: 'Lovesac',
+            extract: 'Lovesac is furniture.\n\nMore.',
+            pageprops: wb === undefined ? {} : { wikibase_item: wb },
+          },
+        },
+      },
+    });
+    const route = ({ search, title, art }) => fetchStub.callsFake((url) => {
+      if (url.includes('wbsearchentities')) return Promise.resolve(search || searchHit('Q6690181'));
+      if (url.includes('wbgetentities')) return Promise.resolve(title || sitelink('Lovesac'));
+      return Promise.resolve(art || article('Q6690181'));
+    });
+    const load = () => esmock('../../../../src/agents/brand-profile/services/wikipedia.js', {});
+
+    it('resolves and verifies when the article wikibase_item matches the QID', async () => {
+      route({});
+      const mod = await load();
+      const res = await mod.resolveBrandWikipedia('Lovesac', { wikidataId: 'Q6690181' }, log);
+      expect(res).to.include({
+        verified: true, wikidataId: 'Q6690181', title: 'Lovesac', discardReason: null,
+      });
+      expect(res.fullText).to.include('furniture');
+      const urls = fetchStub.getCalls().map((c) => c.args[0]);
+      expect(urls.some((u) => u.includes('wbsearchentities'))).to.equal(false);
+    });
+
+    it('re-resolves the QID from brandName when none is passed', async () => {
+      route({});
+      const mod = await load();
+      const res = await mod.resolveBrandWikipedia('Lovesac', {}, log);
+      expect(res.verified).to.equal(true);
+      const urls = fetchStub.getCalls().map((c) => c.args[0]);
+      expect(urls.some((u) => u.includes('wbsearchentities'))).to.equal(true);
+    });
+
+    it('discards on guard mismatch and warns with diagnostics', async () => {
+      route({ title: sitelink('Lovisa'), art: article('Q1141985') });
+      const mod = await load();
+      const res = await mod.resolveBrandWikipedia('Lovesac', { wikidataId: 'Q6690181' }, log);
+      expect(res).to.include({
+        verified: false, discardReason: 'guard-mismatch', fullText: '', summary: '',
+      });
+      expect(log.warn).to.have.been.called;
+      const msg = log.warn.firstCall.args[0];
+      expect(msg).to.include('Q6690181');
+      expect(msg).to.include('Q1141985');
+    });
+
+    it('discards when the page has no wikibase_item (distinct from mismatch)', async () => {
+      route({ art: article(undefined) });
+      const mod = await load();
+      const res = await mod.resolveBrandWikipedia('Lovesac', { wikidataId: 'Q6690181' }, log);
+      expect(res).to.include({ verified: false, discardReason: 'guard-mismatch' });
+    });
+
+    it('returns no-qid when the QID cannot be resolved', async () => {
+      route({ search: ok({ search: [] }) });
+      const mod = await load();
+      const res = await mod.resolveBrandWikipedia('Nope', {}, log);
+      expect(res).to.include({ verified: false, discardReason: 'no-qid' });
+    });
+
+    it('returns no-sitelink when the entity has no enwiki article', async () => {
+      route({ title: ok({ entities: { Q6690181: { sitelinks: {} } } }) });
+      const mod = await load();
+      const res = await mod.resolveBrandWikipedia('Lovesac', { wikidataId: 'Q6690181' }, log);
+      expect(res).to.include({ verified: false, discardReason: 'no-sitelink', wikidataId: 'Q6690181' });
+    });
+
+    it('returns fetch-error when the article fetch fails', async () => {
+      route({ art: { ok: false, status: 500 } });
+      const mod = await load();
+      const res = await mod.resolveBrandWikipedia('Lovesac', { wikidataId: 'Q6690181' }, log);
+      expect(res).to.include({ verified: false, discardReason: 'fetch-error' });
+    });
+
+    it('does exact-string QID comparison (no normalization)', async () => {
+      route({ art: article('q6690181') });
+      const mod = await load();
+      const res = await mod.resolveBrandWikipedia('Lovesac', { wikidataId: 'Q6690181' }, log);
+      expect(res.verified).to.equal(false);
+    });
+
+    it('never throws, and preserves an internally-resolved QID, if an error escapes', async () => {
+      // No QID in opts, so findWikidataId resolves Q6690181 internally; reach the
+      // guard-mismatch branch and make its logging throw so the failure escapes
+      // the inner helpers into the outer catch.
+      route({ title: sitelink('Lovisa'), art: article('Q1141985') });
+      const throwingLog = { ...log, warn: sandbox.stub().throws(new Error('logger down')) };
+      const mod = await load();
+      const res = await mod.resolveBrandWikipedia('Lovesac', {}, throwingLog);
+      expect(res).to.include({ verified: false, discardReason: 'fetch-error' });
+      // The breadcrumb keeps the QID resolved before the failure, not null.
+      expect(res.wikidataId).to.equal('Q6690181');
+      expect(throwingLog.error).to.have.been.called;
+    });
+  });
+
+  describe('createWikipediaService.resolveBrand', () => {
+    it('exposes resolveBrand as a bound function', async () => {
+      const mod = await esmock('../../../../src/agents/brand-profile/services/wikipedia.js', {});
+      const svc = mod.createWikipediaService(log);
+      expect(svc).to.have.property('resolveBrand').that.is.a('function');
     });
   });
 });

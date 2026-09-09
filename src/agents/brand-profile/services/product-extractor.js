@@ -23,7 +23,7 @@
 
 import { AzureOpenAIClient } from '@adobe/spacecat-shared-gpt-client';
 import { readPromptFile, renderTemplate } from '../../base.js';
-import { findWikidataId, fetchWikipediaFullText } from './wikipedia.js';
+import { findWikidataId, resolveBrandWikipedia } from './wikipedia.js';
 
 const USER_AGENT = 'SpaceCat/1.0 (https://github.com/adobe/spacecat; spacecat@adobe.com)';
 const WIKIDATA_SPARQL = 'https://query.wikidata.org/sparql';
@@ -470,14 +470,35 @@ async function extractFromWikipedia(brandName, wikipediaText, gpt, log) {
 
 /**
  * Extract products using Wikidata + Wikipedia fallback.
+ *
+ * The Wikipedia fallback is anchored to the brand's Wikidata QID: the caller
+ * may pass an already-resolved QID and/or the exact Wikipedia article text to
+ * use, so the fallback never re-searches Wikipedia by name (the contamination
+ * bug this fix addresses). When no text is provided, the fallback resolves the
+ * article through the QID's enwiki sitelink and only uses it when the article's
+ * `wikibase_item` matches the QID.
+ *
  * @param {string} brandName - Brand/company name
- * @param {string} [wikipediaSummary] - Optional Wikipedia text for fallback
+ * @param {object} [wikipediaContext] - QID-anchored context
+ *   `{ wikidataId?, wikipediaText? }`. `null`/`undefined` -> no context; a
+ *   truthy non-object throws.
  * @param {object} gpt - AzureOpenAIClient instance
  * @param {object} log - Logger instance
  * @returns {Promise<object>} Extraction result
  */
-export async function extractProducts(brandName, wikipediaSummary, gpt, log) {
+export async function extractProducts(brandName, wikipediaContext, gpt, log) {
   log.info(`Extracting products for brand: ${brandName}`);
+
+  let ctx;
+  if (wikipediaContext == null) {
+    ctx = {};
+  } else if (typeof wikipediaContext !== 'object') {
+    throw new Error('extractProducts: wikipediaContext must be an object { wikidataId, wikipediaText }');
+  } else {
+    ctx = wikipediaContext;
+  }
+  const ctxQid = ctx.wikidataId;
+  const hasProvidedText = Object.prototype.hasOwnProperty.call(ctx, 'wikipediaText');
 
   const result = {
     products: [],
@@ -492,8 +513,8 @@ export async function extractProducts(brandName, wikipediaSummary, gpt, log) {
     },
   };
 
-  // Step 1: Find brand's Wikidata ID
-  const wikidataId = await findWikidataId(brandName, log);
+  // Step 1: Find brand's Wikidata ID (reuse the caller's when provided)
+  const wikidataId = ctxQid || await findWikidataId(brandName, log);
 
   if (wikidataId) {
     result.metadata.brand_wikidata_id = wikidataId;
@@ -510,26 +531,49 @@ export async function extractProducts(brandName, wikipediaSummary, gpt, log) {
     }
   }
 
-  // Step 3: Fallback/augment with Wikipedia if insufficient
+  // Step 3: QID-anchored Wikipedia fallback if insufficient
   if (result.products.length < MIN_PRODUCTS_THRESHOLD) {
     log.info(`Wikidata returned ${result.products.length} products (threshold: ${MIN_PRODUCTS_THRESHOLD}), trying Wikipedia fallback`);
 
-    // Fetch Wikipedia text if not provided
-    let wikiText = wikipediaSummary;
-    if (!wikiText) {
-      wikiText = await fetchWikipediaFullText(`${brandName} company`, 12000, log);
+    let wikiText;
+    if (hasProvidedText) {
+      // Caller supplied the exact article text. Trust assumption: the caller is
+      // responsible for having QID-anchored/verified this text (index.js resolves
+      // it via resolveBrandWikipedia and only passes non-empty text when verified).
+      // `wikipedia_verified` here reflects "text present", not an independent check,
+      // so a caller passing unverified text would record a `true` breadcrumb.
+      wikiText = ctx.wikipediaText || '';
+      result.metadata.wikipedia_verified = Boolean(wikiText);
+      if (!wikiText) {
+        result.metadata.wikipedia_discard_reason = 'unresolved-upstream';
+      }
+    } else if (wikidataId) {
+      // Resolve the article via the QID's enwiki sitelink and guard it.
+      const resolved = await resolveBrandWikipedia(brandName, { wikidataId }, log);
+      wikiText = resolved.verified ? resolved.fullText : '';
+      result.metadata.wikipedia_verified = resolved.verified;
+      if (!resolved.verified) {
+        result.metadata.wikipedia_discard_reason = resolved.discardReason;
+      }
+    } else {
+      // No QID at all - never fall back to a name-based Wikipedia search.
+      wikiText = '';
+      result.metadata.wikipedia_verified = false;
+      result.metadata.wikipedia_discard_reason = 'no-qid';
     }
 
-    const wikiResult = await extractFromWikipedia(brandName, wikiText, gpt, log);
+    if (wikiText) {
+      const wikiResult = await extractFromWikipedia(brandName, wikiText, gpt, log);
 
-    if (wikiResult) {
-      const merged = mergeResults(result, wikiResult);
-      Object.assign(result, merged);
+      if (wikiResult) {
+        const merged = mergeResults(result, wikiResult);
+        Object.assign(result, merged);
 
-      if (result.metadata.source === 'wikidata') {
-        result.metadata.source = 'hybrid';
-      } else {
-        result.metadata.source = 'wikipedia_llm';
+        if (result.metadata.source === 'wikidata') {
+          result.metadata.source = 'hybrid';
+        } else {
+          result.metadata.source = 'wikipedia_llm';
+        }
       }
     }
   }
@@ -591,8 +635,8 @@ export function createProductExtractorService(env, log) {
     extractFromSitemap: (sitemapUrl, brandName) => (
       extractFromSitemap(sitemapUrl, brandName, gpt, log)
     ),
-    extractProducts: (brandName, wikipediaSummary) => (
-      extractProducts(brandName, wikipediaSummary, gpt, log)
+    extractProducts: (brandName, wikipediaContext) => (
+      extractProducts(brandName, wikipediaContext, gpt, log)
     ),
     formatProductsForPrompt,
   };

@@ -19,169 +19,6 @@ const WIKIDATA_API = 'https://www.wikidata.org/w/api.php';
 const USER_AGENT = 'SpaceCat/1.0 (https://github.com/adobe/spacecat; spacecat@adobe.com)';
 
 /**
- * Fetch Wikipedia summary for a brand.
- * @param {string} searchQuery - Search query (e.g., "Swiss Life company")
- * @param {object} log - Logger instance
- * @returns {Promise<object>} Wikipedia result with title, summary, and pageId
- */
-export async function fetchWikipediaSummary(searchQuery, log) {
-  log.info(`Fetching Wikipedia summary for: ${searchQuery}`);
-
-  try {
-    // First, search for the page
-    const searchParams = new URLSearchParams({
-      action: 'opensearch',
-      search: searchQuery,
-      limit: '5',
-      namespace: '0',
-      format: 'json',
-    });
-
-    const searchUrl = `${WIKIPEDIA_API_BASE}?${searchParams}`;
-    const searchResp = await fetch(searchUrl, {
-      headers: { 'User-Agent': USER_AGENT },
-    });
-
-    if (!searchResp.ok) {
-      throw new Error(`Wikipedia search failed: ${searchResp.status}`);
-    }
-
-    const searchData = await searchResp.json();
-    const titles = searchData[1] || [];
-
-    if (titles.length === 0) {
-      log.info(`No Wikipedia results found for: ${searchQuery}`);
-      return null;
-    }
-
-    // Use the first result
-    const title = titles[0];
-
-    // Now fetch the summary
-    const summaryParams = new URLSearchParams({
-      action: 'query',
-      titles: title,
-      prop: 'extracts|pageprops',
-      exintro: 'true',
-      explaintext: 'true',
-      ppprop: 'wikibase_item',
-      format: 'json',
-    });
-
-    const summaryUrl = `${WIKIPEDIA_API_BASE}?${summaryParams}`;
-    const summaryResp = await fetch(summaryUrl, {
-      headers: { 'User-Agent': USER_AGENT },
-    });
-
-    if (!summaryResp.ok) {
-      throw new Error(`Wikipedia summary fetch failed: ${summaryResp.status}`);
-    }
-
-    const summaryData = await summaryResp.json();
-    const pages = summaryData.query?.pages || {};
-    const pageId = Object.keys(pages)[0];
-
-    if (!pageId || pageId === '-1') {
-      log.info(`Wikipedia page not found for: ${title}`);
-      return null;
-    }
-
-    const page = pages[pageId];
-    const wikidataId = page.pageprops?.wikibase_item || null;
-
-    log.info(`Found Wikipedia summary for "${title}" (wikidata: ${wikidataId})`);
-
-    return {
-      title: page.title,
-      summary: page.extract || '',
-      pageId: parseInt(pageId, 10),
-      wikidataId,
-    };
-  } catch (e) {
-    log.error(`Error fetching Wikipedia summary: ${e.message}`);
-    return null;
-  }
-}
-
-/**
- * Fetch full Wikipedia article text for deeper extraction.
- * @param {string} searchQuery - Search query
- * @param {number} [maxChars=12000] - Maximum characters to return
- * @param {object} log - Logger instance
- * @returns {Promise<string|null>} Article text or null
- */
-export async function fetchWikipediaFullText(searchQuery, maxChars, log) {
-  const limit = maxChars || 12000;
-  log.info(`Fetching full Wikipedia text for: ${searchQuery} (max ${limit} chars)`);
-
-  try {
-    // Search for the page first
-    const searchParams = new URLSearchParams({
-      action: 'opensearch',
-      search: searchQuery,
-      limit: '1',
-      namespace: '0',
-      format: 'json',
-    });
-
-    const searchUrl = `${WIKIPEDIA_API_BASE}?${searchParams}`;
-    const searchResp = await fetch(searchUrl, {
-      headers: { 'User-Agent': USER_AGENT },
-    });
-
-    if (!searchResp.ok) {
-      throw new Error(`Wikipedia search failed: ${searchResp.status}`);
-    }
-
-    const searchData = await searchResp.json();
-    const titles = searchData[1] || [];
-
-    if (titles.length === 0) {
-      log.info(`No Wikipedia results found for: ${searchQuery}`);
-      return null;
-    }
-
-    const title = titles[0];
-
-    // Fetch full extract
-    const contentParams = new URLSearchParams({
-      action: 'query',
-      titles: title,
-      prop: 'extracts',
-      explaintext: 'true',
-      format: 'json',
-    });
-
-    const contentUrl = `${WIKIPEDIA_API_BASE}?${contentParams}`;
-    const contentResp = await fetch(contentUrl, {
-      headers: { 'User-Agent': USER_AGENT },
-    });
-
-    if (!contentResp.ok) {
-      throw new Error(`Wikipedia content fetch failed: ${contentResp.status}`);
-    }
-
-    const contentData = await contentResp.json();
-    const pages = contentData.query?.pages || {};
-    const pageId = Object.keys(pages)[0];
-
-    if (!pageId || pageId === '-1') {
-      return null;
-    }
-
-    const extract = pages[pageId].extract || '';
-    const truncated = extract.slice(0, limit);
-
-    log.info(`Fetched ${truncated.length} chars of Wikipedia text for "${title}"`);
-
-    return truncated;
-  } catch (e) {
-    log.error(`Error fetching Wikipedia full text: ${e.message}`);
-    return null;
-  }
-}
-
-/**
  * Find a brand's Wikidata ID by name.
  * @param {string} brandName - Brand name to search for
  * @param {object} log - Logger instance
@@ -242,14 +79,161 @@ export async function findWikidataId(brandName, log) {
 }
 
 /**
+ * Resolve the English Wikipedia article title for a Wikidata entity via its sitelink.
+ * @param {string} wikidataId - Wikidata entity ID (e.g. "Q6690181")
+ * @param {object} log - Logger instance
+ * @returns {Promise<string|null>} enwiki page title, or null when absent/failed
+ */
+export async function fetchWikidataSitelinkTitle(wikidataId, log) {
+  try {
+    const params = new URLSearchParams({
+      action: 'wbgetentities',
+      ids: wikidataId,
+      props: 'sitelinks',
+      sitefilter: 'enwiki',
+      format: 'json',
+    });
+
+    const resp = await fetch(`${WIKIDATA_API}?${params}`, {
+      headers: { 'User-Agent': USER_AGENT },
+    });
+
+    if (!resp.ok) {
+      throw new Error(`wbgetentities failed: ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    const title = data.entities?.[wikidataId]?.sitelinks?.enwiki?.title || null;
+    log.info(`Wikidata sitelink for ${wikidataId}: ${title || 'none'}`);
+    return title;
+  } catch (e) {
+    log.error(`Error fetching Wikidata sitelink for ${wikidataId}: ${e.message}`);
+    return null;
+  }
+}
+
+/**
+ * Fetch an exact Wikipedia article by title (no search), returning its text and
+ * its Wikidata entity id in a single query.
+ * @param {string} title - Exact article title
+ * @param {number} [maxChars=12000] - Max characters of full text to return
+ * @param {object} log - Logger instance
+ * @returns {Promise<{title:string, fullText:string, summary:string, wikidataId:string|null}|null>}
+ */
+export async function fetchWikipediaArticleByTitle(title, maxChars, log) {
+  const limit = maxChars ?? 12000;
+  try {
+    const params = new URLSearchParams({
+      action: 'query',
+      titles: title,
+      prop: 'extracts|pageprops',
+      explaintext: 'true',
+      ppprop: 'wikibase_item',
+      redirects: '1',
+      format: 'json',
+    });
+
+    const resp = await fetch(`${WIKIPEDIA_API_BASE}?${params}`, {
+      headers: { 'User-Agent': USER_AGENT },
+    });
+
+    if (!resp.ok) {
+      throw new Error(`Wikipedia article fetch failed: ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    const pages = data.query?.pages || {};
+    const pageId = Object.keys(pages)[0];
+
+    if (!pageId || pageId === '-1') {
+      return null;
+    }
+
+    const page = pages[pageId];
+    const fullText = (page.extract || '').slice(0, limit);
+    const summary = fullText.split('\n\n')[0].trim();
+    const wikidataId = page.pageprops?.wikibase_item || null;
+
+    log.info(`Fetched Wikipedia article "${page.title}" (wikidata: ${wikidataId || 'none'})`);
+
+    return {
+      title: page.title,
+      fullText,
+      summary,
+      wikidataId,
+    };
+  } catch (e) {
+    log.error(`Error fetching Wikipedia article "${title}": ${e.message}`);
+    return null;
+  }
+}
+
+/**
+ * Resolve the QID-anchored Wikipedia article for a brand.
+ * QID -> enwiki sitelink title -> exact article -> guard on wikibase_item.
+ * Never throws; degrades to empty text with a discardReason.
+ * @param {string} brandName - Brand/company name
+ * @param {{wikidataId?: string}} [opts] - a known QID skips the name lookup
+ * @param {object} log - Logger instance
+ * @returns {Promise<{wikidataId: string|null, title: string|null, fullText: string,
+ *   summary: string, verified: boolean, discardReason: string|null}>}
+ */
+export async function resolveBrandWikipedia(brandName, opts, log) {
+  const { wikidataId } = opts || {};
+  // Hoisted so the outer catch can report a QID resolved inside the try.
+  let qid = wikidataId || null;
+  const empty = (discardReason, id = qid, title = null) => ({
+    wikidataId: id,
+    title,
+    fullText: '',
+    summary: '',
+    verified: false,
+    discardReason,
+  });
+
+  try {
+    qid = wikidataId || await findWikidataId(brandName, log);
+    if (!qid) {
+      return empty('no-qid');
+    }
+
+    const title = await fetchWikidataSitelinkTitle(qid, log);
+    if (!title) {
+      return empty('no-sitelink', qid);
+    }
+
+    const article = await fetchWikipediaArticleByTitle(title, 12000, log);
+    if (!article) {
+      return empty('fetch-error', qid, title);
+    }
+
+    if (article.wikidataId !== qid) {
+      log.warn(`brand-profile: wikipedia guard mismatch for ${brandName}: expected ${qid}, article '${article.title}' had ${article.wikidataId} - discarding`);
+      return empty('guard-mismatch', qid, article.title);
+    }
+
+    return {
+      wikidataId: qid,
+      title: article.title,
+      fullText: article.fullText,
+      summary: article.summary,
+      verified: true,
+      discardReason: null,
+    };
+  } catch (e) {
+    log.error(`brand-profile: resolveBrandWikipedia failed for ${brandName}: ${e.message}`);
+    return empty('fetch-error');
+  }
+}
+
+/**
  * Create a Wikipedia service instance.
  * @param {object} log - Logger instance
  * @returns {object} Service instance with bound methods
  */
 export function createWikipediaService(log) {
   return {
-    fetchSummary: (searchQuery) => fetchWikipediaSummary(searchQuery, log),
-    fetchFullText: (searchQuery, maxChars) => fetchWikipediaFullText(searchQuery, maxChars, log),
     findWikidataId: (brandName) => findWikidataId(brandName, log),
+    resolveBrand: (brandName, opts) => resolveBrandWikipedia(brandName, opts, log),
   };
 }

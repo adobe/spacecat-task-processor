@@ -214,7 +214,12 @@ The enhanced brand profile includes these top-level fields:
 
 **Functions:**
 - `extractFromSitemap(sitemapUrl, brandName)` - Parse sitemap URLs and infer products
-- `extractProducts(brandName, wikipediaText)` - Use Wikidata/Wikipedia fallback
+- `extractProducts(brandName, { wikidataId, wikipediaText })` - Use Wikidata/Wikipedia
+  fallback. The Wikipedia fallback is QID-anchored: the caller supplies the
+  already-resolved Wikidata QID and article text (resolved once in `index.js`
+  from the QID's enwiki sitelink and guarded on `wikibase_item`), so the fallback
+  never re-searches Wikipedia by name. When no text is supplied but a QID is
+  known, `extractProducts` resolves the article itself via `resolveBrandWikipedia`.
 
 **Output format:**
 ```json
@@ -227,19 +232,35 @@ The enhanced brand profile includes these top-level fields:
     "source": "sitemap|wikidata|wikipedia_llm|hybrid",
     "count": 42,
     "brand_wikidata_id": "Q12345",
+    "wikipedia_verified": true,
+    "wikipedia_discard_reason": "no-qid|no-sitelink|guard-mismatch|fetch-error|unresolved-upstream",
     "extracted_at": "2026-01-30T12:00:00Z"
   }
 }
 ```
+
+`wikipedia_verified` / `wikipedia_discard_reason` are a breadcrumb: when the
+Wikipedia fallback ran, they record whether it was QID-verified and, if not,
+why it was discarded (see `wikidata-anchoring-fix.md`). `wikipedia_discard_reason`
+is absent when `wikipedia_verified` is `true`, and both are absent when the
+fallback did not run at all (e.g. sitemap or sufficient Wikidata products).
 
 ### Wikipedia Service
 
 **File:** `services/wikipedia.js`
 
 **Functions:**
-- `fetchSummary(searchQuery)` - Get Wikipedia intro + Wikidata ID
-- `fetchFullText(searchQuery, maxChars)` - Get full article text
 - `findWikidataId(brandName)` - Search Wikidata for entity ID
+- `resolveBrand(brandName, { wikidataId })` - QID-anchored resolve: from the QID
+  (reused if supplied, else looked up), fetch the enwiki sitelink title, fetch
+  that exact article, and guard on `wikibase_item === QID`. Returns
+  `{ wikidataId, title, fullText, summary, verified, discardReason }`; degrades
+  to empty text with a `discardReason` rather than returning wrong-brand data.
+  Never throws.
+
+The former name-based `fetchSummary`/`fetchFullText` were removed: a name search
+took `titles[0]` and could return a same-named but unrelated company, which is
+the contamination bug this design fixes. See `wikidata-anchoring-fix.md`.
 
 ## Prompt Customization
 
