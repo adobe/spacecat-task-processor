@@ -16,39 +16,73 @@ import { say } from '../../utils/slack-utils.js';
 const TASK_TYPE = 'demo-url-processor';
 
 /**
- * Gets the IMS tenant ID from the organization
+ * Reads the explicit IMS-org-id -> Experience Cloud tenant slug override from
+ * the IMS_ORG_TENANT_ID_MAPPINGS secret (a JSON object keyed by IMS org id).
  * @param {string} imsOrgId - The IMS organization ID
- * @param {object} organization - The organization object
+ * @param {object} env - The environment object
+ * @param {object} log - The logger
+ * @returns {string|undefined} The mapped tenant slug, or undefined when absent/unparseable
+ */
+function getMappedTenantId(imsOrgId, env, log) {
+  const raw = env.IMS_ORG_TENANT_ID_MAPPINGS;
+  if (!raw) {
+    return undefined;
+  }
+  try {
+    const mappings = JSON.parse(raw);
+    return mappings?.[imsOrgId];
+  } catch (error) {
+    log.error(`Failed to parse IMS_ORG_TENANT_ID_MAPPINGS: ${error.message}`);
+    return undefined;
+  }
+}
+
+/**
+ * Resolves the Experience Cloud tenant slug for the demo URL.
+ *
+ * Resolution order:
+ *   1. IMS_ORG_TENANT_ID_MAPPINGS[imsOrgId] - explicit, ops-curated override
+ *   2. IMS product-context tenant_id (getImsOrganizationDetails)
+ *   3. DEFAULT_TENANT_ID
+ *
+ * The SpaceCat org name is deliberately NOT slugified as a fallback: internally
+ * onboarded sites live under the shared "Sites Internal" IMS org, so the org
+ * name is the customer brand (e.g. "Dave and Busters") and slugifying it yields
+ * a tenant that does not exist in Experience Cloud (e.g. "daveandbusters"),
+ * producing a broken deep link. When the tenant cannot be determined we fall
+ * back to a known-good default instead.
+ *
+ * @param {string} imsOrgId - The IMS organization ID
  * @param {object} context - The context object
  * @param {object} slackContext - The Slack context object
- * @returns {string} The IMS tenant ID
+ * @returns {Promise<string>} The Experience Cloud tenant slug
  */
-async function getImsTenantId(imsOrgId, organization, context, slackContext) {
-  // Get tenantId from organization
-  const { name, tenantId } = organization;
+async function getImsTenantId(imsOrgId, context, slackContext) {
   const { log, env, imsClient } = context;
-  if (tenantId) {
-    log.info(`Tenant ID found in organization: ${tenantId}`);
-    return tenantId;
-  } else {
-    // Get tenantId from IMS org details if tenantId is not there in organization
-    let imsOrgDetails;
-    try {
-      imsOrgDetails = await imsClient.getImsOrganizationDetails(imsOrgId);
-      log.info(`IMS Org Details - tenantId: ${imsOrgDetails.tenantId}`);
+
+  // 1. Explicit ops-curated override (imsOrgId -> tenant slug)
+  const mappedTenantId = getMappedTenantId(imsOrgId, env, log);
+  if (mappedTenantId) {
+    log.info(`Tenant ID resolved from IMS_ORG_TENANT_ID_MAPPINGS: ${mappedTenantId}`);
+    return mappedTenantId;
+  }
+
+  // 2. IMS product-context tenant_id
+  try {
+    const imsOrgDetails = await imsClient.getImsOrganizationDetails(imsOrgId);
+    if (imsOrgDetails?.tenantId) {
+      log.info(`Tenant ID resolved from IMS org details: ${imsOrgDetails.tenantId}`);
       return imsOrgDetails.tenantId;
-    } catch (error) {
-      log.error(`Error retrieving IMS Org details: ${error.message}`);
     }
+    log.warn(`IMS org details returned no tenantId for imsOrgId: ${imsOrgId}`);
+  } catch (error) {
+    log.error(`Error retrieving IMS Org details: ${error.message}`);
   }
-  // As a fallback option, use name to generate tenant id (backward compatible for existing orgs)
-  if (name) {
-    log.info(`Using organization name to generate tenant ID: ${name}`);
-    return name.toLowerCase().replace(/\s+/g, '');
-  }
-  log.error('Using default tenant ID');
-  await say(env, log, slackContext, ':x: Using default tenant ID');
-  return context.env.DEFAULT_TENANT_ID;
+
+  // 3. Known-good default (never the customer brand name)
+  log.error('Falling back to default tenant ID');
+  await say(env, log, slackContext, ':warning: Using default tenant ID for demo URL');
+  return env.DEFAULT_TENANT_ID;
 }
 
 /**
@@ -75,7 +109,6 @@ export async function runDemoUrlProcessor(message, context) {
     organizationId,
   });
 
-  let imsTenantId = context.env.DEFAULT_TENANT_ID;
   try {
     const organization = await Organization.findById(organizationId);
     if (!organization) {
@@ -85,10 +118,12 @@ export async function runDemoUrlProcessor(message, context) {
       }
       return ok({ message: 'Organization not found' });
     }
-    imsTenantId = await getImsTenantId(imsOrgId, organization, context, slackContext);
   } catch (error) {
     log.error(`Error finding organization for organizationId: ${organizationId}`, error);
   }
+
+  // Tenant resolution depends only on the IMS org id, not the org record.
+  const imsTenantId = await getImsTenantId(imsOrgId, context, slackContext);
 
   const demoUrl = `${experienceUrl}?organizationId=${organizationId}#/@${imsTenantId}/sites-optimizer/sites/${siteId}/home`;
   const slackMessage = `:white_check_mark: Onboarding setup completed for the site ${siteUrl}!\nAccess your environment here: ${demoUrl}`;
