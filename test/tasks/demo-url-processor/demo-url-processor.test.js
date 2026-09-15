@@ -17,6 +17,8 @@ import { MockContextBuilder } from '../../shared.js';
 // Dynamic import for ES modules
 let runDemoUrlProcessor;
 
+const IMS_ORG_ID = '8C6043F15F43B6390A49401A@AdobeOrg';
+
 describe('Demo URL Processor', () => {
   let context;
   let message;
@@ -32,15 +34,15 @@ describe('Demo URL Processor', () => {
     // Create sandbox
     const sandbox = sinon.createSandbox();
 
-    // Mock context
+    // Mock context. The Organization record carries the customer brand name
+    // ("Dave and Busters"); it must NOT be slugified into the tenant slug.
     context = new MockContextBuilder()
       .withSandbox(sandbox)
       .withDataAccess({
         Organization: {
           findById: sandbox.stub().resolves({
-            name: 'Adobe Sites Engineering',
-            tenantId: 'adobe-sites-engineering',
-            imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
+            name: 'Dave and Busters',
+            imsOrgId: IMS_ORG_ID,
           }),
         },
       })
@@ -49,15 +51,17 @@ describe('Demo URL Processor', () => {
     // Add imsClient to context
     context.imsClient = {
       getImsOrganizationDetails: sandbox.stub().resolves({
-        tenantId: 'ims-tenant-id',
+        tenantId: 'sitesinternal',
       }),
     };
+
+    context.env.DEFAULT_TENANT_ID = 'sitesinternal';
 
     // Mock message
     message = {
       siteId: 'test-site-id',
       siteUrl: 'example.com',
-      imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
+      imsOrgId: IMS_ORG_ID,
       organizationId: 'test-org-id',
       taskContext: {
         experienceUrl: 'https://example.com',
@@ -73,136 +77,110 @@ describe('Demo URL Processor', () => {
     sinon.restore();
   });
 
-  describe('runDemoUrlProcessor', () => {
-    it('should process demo URL successfully', async () => {
-      // Set up the IMS_ORG_TENANT_ID_MAPPINGS secret in context
-      context.env.IMS_ORG_TENANT_ID_MAPPINGS = JSON.stringify({
-        '8C6043F15F43B6390A49401A@AdobeOrg': 'aem-sites-engineering',
-      });
+  const expectDemoUrl = (tenant) => `https://example.com?organizationId=test-org-id#/@${tenant}/sites-optimizer/sites/test-site-id/home`;
 
+  describe('runDemoUrlProcessor', () => {
+    it('logs the processing context', async () => {
       await runDemoUrlProcessor(message, context);
       expect(context.log.info.calledWith('Processing demo url for site:', {
         taskType: 'demo-url-processor',
         siteId: 'test-site-id',
         siteUrl: 'example.com',
-        imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
+        imsOrgId: IMS_ORG_ID,
         experienceUrl: 'https://example.com',
         organizationId: 'test-org-id',
       })).to.be.true;
-      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@adobe-sites-engineering/sites-optimizer/sites/test-site-id/home';
-      expect(context.log.info.calledWith(`Onboarding setup completed for the site example.com! Access your environment here: ${expectedDemoUrl}`)).to.be.true;
     });
 
-    it('should handle organization not found error', async () => {
-      // Mock Organization.findById to return null
+    it('uses the IMS_ORG_TENANT_ID_MAPPINGS override when present (highest priority)', async () => {
+      context.env.IMS_ORG_TENANT_ID_MAPPINGS = JSON.stringify({
+        [IMS_ORG_ID]: 'sitesinternal',
+      });
+      // Even if the IMS lookup would return something else, the mapping wins.
+      context.imsClient.getImsOrganizationDetails.resolves({ tenantId: 'some-other-tenant' });
+
+      await runDemoUrlProcessor(message, context);
+
+      expect(context.imsClient.getImsOrganizationDetails.called).to.be.false;
+      expect(context.log.info.calledWith(
+        `Onboarding setup completed for the site example.com! Access your environment here: ${expectDemoUrl('sitesinternal')}`,
+      )).to.be.true;
+    });
+
+    it('falls back to the IMS org tenantId when no mapping is present', async () => {
+      context.imsClient.getImsOrganizationDetails.resolves({ tenantId: 'sitesinternal' });
+
+      await runDemoUrlProcessor(message, context);
+
+      expect(context.log.info.calledWith(
+        `Onboarding setup completed for the site example.com! Access your environment here: ${expectDemoUrl('sitesinternal')}`,
+      )).to.be.true;
+    });
+
+    it('ignores a malformed IMS_ORG_TENANT_ID_MAPPINGS and falls back to the IMS org tenantId', async () => {
+      context.env.IMS_ORG_TENANT_ID_MAPPINGS = '{ not valid json';
+      context.imsClient.getImsOrganizationDetails.resolves({ tenantId: 'sitesinternal' });
+
+      await runDemoUrlProcessor(message, context);
+
+      expect(context.log.error.calledWithMatch(sinon.match('Failed to parse IMS_ORG_TENANT_ID_MAPPINGS'))).to.be.true;
+      expect(context.log.info.calledWith(
+        `Onboarding setup completed for the site example.com! Access your environment here: ${expectDemoUrl('sitesinternal')}`,
+      )).to.be.true;
+    });
+
+    it('never derives the tenant from the org name: uses DEFAULT_TENANT_ID when the IMS lookup throws', async () => {
+      context.imsClient.getImsOrganizationDetails.rejects(new Error('IMS API error'));
+
+      await runDemoUrlProcessor(message, context);
+
+      // The brand name "Dave and Busters" must NOT become the tenant slug.
+      expect(context.log.info.calledWith(
+        `Onboarding setup completed for the site example.com! Access your environment here: ${expectDemoUrl('daveandbusters')}`,
+      )).to.be.false;
+      expect(context.log.info.calledWith(
+        `Onboarding setup completed for the site example.com! Access your environment here: ${expectDemoUrl('sitesinternal')}`,
+      )).to.be.true;
+    });
+
+    it('uses DEFAULT_TENANT_ID when the IMS lookup returns no tenantId', async () => {
+      context.imsClient.getImsOrganizationDetails.resolves({});
+
+      await runDemoUrlProcessor(message, context);
+
+      expect(context.log.info.calledWith(
+        `Onboarding setup completed for the site example.com! Access your environment here: ${expectDemoUrl('sitesinternal')}`,
+      )).to.be.true;
+    });
+
+    it('handles organization not found', async () => {
       context.dataAccess.Organization.findById.resolves(null);
 
       await runDemoUrlProcessor(message, context);
 
-      // Should log error and return early
       expect(context.log.error.calledWith('Organization not found for organizationId: test-org-id')).to.be.true;
-      // Should not log the success message
       expect(context.log.info.calledWithMatch(sinon.match('Onboarding setup completed for the site example.com!'))).to.be.false;
     });
 
-    it('should use tenantId when available (highest priority)', async () => {
-      // Mock Organization.findById to return organization with tenantId
-      context.dataAccess.Organization.findById.resolves({
-        name: 'Adobe Sites Engineering',
-        tenantId: 'adobe-sites-engineering',
-        imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
-      });
-
-      await runDemoUrlProcessor(message, context);
-
-      // Should use the tenantId (highest priority)
-      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@adobe-sites-engineering/sites-optimizer/sites/test-site-id/home';
-      expect(context.log.info.calledWith(`Onboarding setup completed for the site example.com! Access your environment here: ${expectedDemoUrl}`)).to.be.true;
-    });
-
-    it('should fallback to name when tenantId is missing (backward compatibility)', async () => {
-      // Mock Organization.findById to return organization with name but no tenantId
-      context.dataAccess.Organization.findById.resolves({
-        name: 'Adobe Sites Engineering',
-        imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
-        // tenantId property is missing
-      });
-
-      // Mock imsClient to fail so it falls back to name
-      context.imsClient.getImsOrganizationDetails.rejects(new Error('IMS API error'));
-
-      await runDemoUrlProcessor(message, context);
-
-      // Should use the name-based tenant (lowercase, no spaces) as fallback
-      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@adobesitesengineering/sites-optimizer/sites/test-site-id/home';
-      expect(context.log.info.calledWith(`Onboarding setup completed for the site example.com! Access your environment here: ${expectedDemoUrl}`)).to.be.true;
-    });
-
-    it('should fallback to DEFAULT_TENANT_ID when both name and tenantId are missing', async () => {
-      // Mock Organization.findById to return organization without name and tenantId
-      context.dataAccess.Organization.findById.resolves({
-        imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
-        // name and tenantId properties are missing
-      });
-
-      // Mock imsClient to fail so it falls back to DEFAULT_TENANT_ID
-      context.imsClient.getImsOrganizationDetails.rejects(new Error('IMS API error'));
-
-      // Set default tenant ID
-      context.env.DEFAULT_TENANT_ID = 'default-tenant';
-
-      await runDemoUrlProcessor(message, context);
-
-      // Should log error about using default tenant ID
-      expect(context.log.error.calledWith('Using default tenant ID')).to.be.true;
-      const expectedDemoUrl = 'https://example.com?organizationId=test-org-id#/@default-tenant/sites-optimizer/sites/test-site-id/home';
-      expect(context.log.info.calledWith(`Onboarding setup completed for the site example.com! Access your environment here: ${expectedDemoUrl}`)).to.be.true;
-    });
-
-    it('should return success message when processing completes', async () => {
-      // Set up the IMS_ORG_TENANT_ID_MAPPINGS secret in context
+    it('continues and still builds the URL when Organization.findById throws', async () => {
       context.env.IMS_ORG_TENANT_ID_MAPPINGS = JSON.stringify({
-        '8C6043F15F43B6390A49401A@AdobeOrg': 'aem-sites-engineering',
+        [IMS_ORG_ID]: 'sitesinternal',
       });
-
-      // The function should complete without throwing an error
-      await runDemoUrlProcessor(message, context);
-
-      // Verify that the success message was logged
-      expect(context.log.info.calledWithMatch(sinon.match('Onboarding setup completed for the site example.com!'))).to.be.true;
-    });
-
-    it('should handle error when Organization.findById throws an exception', async () => {
-      // Set up the IMS_ORG_TENANT_ID_MAPPINGS secret in context
-      context.env.IMS_ORG_TENANT_ID_MAPPINGS = JSON.stringify({
-        '8C6043F15F43B6390A49401A@AdobeOrg': 'aem-sites-engineering',
-      });
-
-      // Mock Organization.findById to throw an error
       context.dataAccess.Organization.findById.rejects(new Error('Database connection failed'));
 
-      // The function should handle the error gracefully without throwing
       await runDemoUrlProcessor(message, context);
 
-      // Verify that the error was logged
       expect(context.log.error.calledWith('Error finding organization for organizationId: test-org-id', sinon.match.any)).to.be.true;
+      expect(context.log.info.calledWith(
+        `Onboarding setup completed for the site example.com! Access your environment here: ${expectDemoUrl('sitesinternal')}`,
+      )).to.be.true;
+    });
 
-      // Note: The current implementation continues execution even after errors,
-      // so the success message will still be logged. This test verifies that
-      // the error handling works and the function completes successfully.
-
-      // Verify that the success message was still logged (since the function continues)
+    it('returns a success result', async () => {
+      const result = await runDemoUrlProcessor(message, context);
+      expect(result).to.exist;
+      expect(result.status).to.equal(200);
       expect(context.log.info.calledWithMatch(sinon.match('Onboarding setup completed for the site example.com!'))).to.be.true;
-
-      // Verify that the processing log was recorded
-      expect(context.log.info.calledWith('Processing demo url for site:', {
-        taskType: 'demo-url-processor',
-        siteId: 'test-site-id',
-        siteUrl: 'example.com',
-        imsOrgId: '8C6043F15F43B6390A49401A@AdobeOrg',
-        experienceUrl: 'https://example.com',
-        organizationId: 'test-org-id',
-      })).to.be.true;
     });
   });
 });
